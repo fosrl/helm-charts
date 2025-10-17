@@ -2,7 +2,7 @@
 
 [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/fosrl?style=flat-square)](https://artifacthub.io/packages/search?org=fosrl)
 [![Pangolin Chart Version: 1.1.0](https://img.shields.io/badge/Pangolin%20Chart-1.1.0-informational?style=flat-square)](https://github.com/fosrl/helm-charts/releases)
-[![Newt Chart Version: 1.1.0](https://img.shields.io/badge/Newt%20Chart-1.1.0-informational?style=flat-square)](https://github.com/fosrl/helm-charts/releases)
+[![Newt Chart Version: 1.1.1](https://img.shields.io/badge/Newt%20Chart-1.1.1-informational?style=flat-square)](https://github.com/fosrl/helm-charts/releases)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](https://opensource.org/license/mit)
 ![Release Charts](https://github.com/fosrl/helm-charts/actions/workflows/helm-ci.yml/badge.svg?branch=main)
 [![Releases downloads](https://img.shields.io/github/downloads/fosrl/helm-charts/total.svg?style=flat-square)](https://github.com/fosrl/helm-charts/releases)
