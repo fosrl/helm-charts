@@ -8,7 +8,7 @@
 
 ## @section Global parameters
 global:
-  # -- Global Docker image settings for all components in the Helm chart  
+  # -- Global Docker image settings for all components in the Helm chart
   image: # @schema additionalProperties: false
     # -- Global Docker image registry
     registry: "docker.io"
@@ -137,7 +137,7 @@ global:
 
   # @section Global Metrics
   metrics:
-  # -- Enable Prometheus metrics
+    # -- Enable Prometheus metrics
     enabled: false
     # -- Metrics port
     port: 9090
@@ -238,6 +238,8 @@ image:
 # @section Newt instances
 newtInstances:
   - name: "main-tunnel" # @schema pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ; minLength: 1 ; maxLength: 63
+    # -- Enable this Newt instance
+    enable: false
     # -- Allow this instance to override global settings (image, logLevel, etc)
     allowGlobalOverride: false
     # Preferred: use an existing Secret to source all credentials
