@@ -2,29 +2,30 @@
 {{- $tm := (default (dict) .Values.metrics) -}}
 {{- $m := mergeOverwrite (deepCopy $gm) $tm -}}
 {{- if and $m.enabled $m.service.enabled }}
+{{- $root := . -}}
 {{- range $i, $inst := .Values.newtInstances }}
 {{- if $inst.enabled }}
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "newt.instance.fullname" (dict "root" . "inst" $inst) }}-metrics
+  name: {{ include "newt.instance.fullname" (dict "root" $root "inst" $inst) }}-metrics
   labels:
-    {{- include "newt.labels" . | nindent 4 }}
+    {{- include "newt.labels" $root | nindent 4 }}
     app.kubernetes.io/component: metrics
     newt.instance: {{ $inst.name }}
     {{- /* Global extra labels for external Services */}}
-    {{- range $k,$v := .Values.global.additionalServiceLabels }}
+    {{- range $k,$v := $root.Values.global.additionalServiceLabels }}
     {{ $k }}: {{ $v | quote }}
     {{- end }}
   {{- $anns := dict }}
-  {{- range $k,$v := .Values.global.additionalAnnotations }}
+  {{- range $k,$v := $root.Values.global.additionalAnnotations }}
   {{- $_ := set $anns $k (printf "%v" $v) }}
   {{- end }}
-  {{- range $k,$v := .Values.global.additionalServiceAnnotations }}
+  {{- range $k,$v := $root.Values.global.additionalServiceAnnotations }}
   {{- $_ := set $anns $k (printf "%v" $v) }}
   {{- end }}
-  {{- $svcAnns := .Values.global.metrics.service.annotations | default (dict) -}}
+  {{- $svcAnns := $root.Values.global.metrics.service.annotations | default (dict) -}}
   {{- range $k,$v := $svcAnns }}
   {{- $_ := set $anns $k (printf "%v" $v) }}
   {{- end }}
@@ -35,7 +36,7 @@ metadata:
 spec:
   type: {{ $m.service.type | default "ClusterIP" }}
   selector:
-    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/instance: {{ $root.Release.Name }}
     newt.instance: {{ $inst.name }}
   ports:
     - name: {{ $m.service.portName | default "metrics" }}
