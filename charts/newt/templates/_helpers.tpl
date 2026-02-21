@@ -147,7 +147,7 @@ imagePullSecrets:
 - name: LOG_LEVEL
   value: {{ $root.Values.global.logLevel | quote }}
 {{- end }}
-{{- if and $inst.mtu (ne $inst.mtu 1280) }}
+{{- if and $inst.mtu (ne (int $inst.mtu) 1280) }}
 - name: MTU
   value: {{ printf "%v" $inst.mtu | quote }}
 {{- end }}
