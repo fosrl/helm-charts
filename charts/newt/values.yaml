@@ -238,6 +238,7 @@ image:
 # @section Newt instances
 newtInstances:
   - name: "main-tunnel" # @schema pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ; minLength: 1 ; maxLength: 63
+    enabled: true
     # -- Allow this instance to override global settings (image, logLevel, etc)
     allowGlobalOverride: false
     # Preferred: use an existing Secret to source all credentials
