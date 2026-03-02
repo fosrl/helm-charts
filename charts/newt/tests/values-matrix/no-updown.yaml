@@ -1,0 +1,8 @@
+# Updown scripts disabled
+newtInstances:
+  - name: no-updown
+    enabled: true
+    updown:
+      enabled: false
+    auth:
+      existingSecretName: newt-auth

@@ -1,0 +1,12 @@
+# Native mode enabled
+newtInstances:
+  - name: native-mode
+    enabled: true
+    useNativeInterface: true
+    hostNetwork: true
+    hostPID: true
+    auth:
+      existingSecretName: newt-auth
+global:
+  nativeMode:
+    enabled: true

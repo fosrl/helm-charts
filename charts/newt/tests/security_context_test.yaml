@@ -1,0 +1,102 @@
+suite: Security Context
+templates:
+  - templates/deployment.yaml
+tests:
+  - it: native mode uses privileged security context with root
+    set:
+      global:
+        nativeMode:
+          enabled: true
+      newtInstances:
+        - name: native-mode
+          enabled: true
+          useNativeInterface: true
+          auth:
+            existingSecretName: newt-auth
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsUser
+          value: 0
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.privileged
+          value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.capabilities.add[0]
+          value: NET_ADMIN
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.capabilities.add[1]
+          value: SYS_MODULE
+      - isNull:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop
+
+  - it: global native mode enables privileged security context
+    set:
+      global:
+        nativeMode:
+          enabled: true
+      newtInstances:
+        - name: global-native
+          enabled: true
+          auth:
+            existingSecretName: newt-auth
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsUser
+          value: 0
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.privileged
+          value: true
+
+  - it: instance override with allowGlobalOverride uses custom securityContext
+    set:
+      newtInstances:
+        - name: custom-sec
+          enabled: true
+          allowGlobalOverride: true
+          securityContext:
+            runAsUser: 1000
+            runAsNonRoot: true
+          auth:
+            existingSecretName: newt-auth
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsUser
+          value: 1000
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsNonRoot
+          value: true
+
+  - it: hostNetwork enabled in native mode
+    set:
+      global:
+        nativeMode:
+          enabled: true
+      newtInstances:
+        - name: native-hostnet
+          enabled: true
+          useNativeInterface: true
+          hostNetwork: true
+          auth:
+            existingSecretName: newt-auth
+    asserts:
+      - equal:
+          path: spec.template.spec.hostNetwork
+          value: true
+
+  - it: fails when securityContext has root with capabilities.drop
+    set:
+      newtInstances:
+        - name: invalid-sec
+          enabled: true
+          allowGlobalOverride: true
+          securityContext:
+            runAsUser: 0
+            capabilities:
+              drop: ["ALL"]
+          auth:
+            existingSecretName: newt-auth
+    asserts:
+      - failedTemplate: {}

@@ -1,378 +1,1837 @@
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://github.com/fosrl/helm-charts/charts/newt/values.schema.json",
-  "title": "Newt values schema",
-  "description": "Values schema for the Newt Helm chart.",
-  "type": "object",
-  "properties": {
-    "metrics": {
-      "type": "object",
-      "description": "Alias of global.metrics (deprecated).",
-      "properties": {
-        "enabled": {"type": "boolean"},
-        "port": {"type": "integer"},
-        "path": {"type": "string"},
-        "annotations": {"type": "object", "additionalProperties": {"type": "string"}},
-        "portName": {"type": "string"},
-        "targetPortName": {"type": "string"},
-        "service": {"type": "object", "properties": {"enabled": {"type": "boolean"}, "type": {"type": "string"}, "port": {"type": "integer"}, "portName": {"type": "string"}, "annotations": {"type": "object", "additionalProperties": {"type": "string"}}}},
-        "podMonitor": {"type": "object", "properties": {"enabled": {"type": "boolean"}, "apiVersion": {"type": "string"}, "namespace": {"type": "string"}}},
-        "serviceMonitor": {"type": "object", "properties": {"enabled": {"type": "boolean"}, "apiVersion": {"type": "string"}, "namespace": {"type": "string"}, "jobLabel": {"type": "string"}, "scheme": {"type": "string"}}},
-        "prometheusRule": {"type": "object", "properties": {"enabled": {"type": "boolean"}, "apiVersion": {"type": "string"}, "namespace": {"type": "string"}}}
-      },
-      "additionalProperties": {}
-    },
-    "rbac": {
-      "type": "object",
-      "description": "Chart-level RBAC configuration.",
-      "properties": {
-        "create": {"type": "boolean", "description": "Create RBAC resources."},
-        "clusterRole": {"type": "boolean", "description": "Use ClusterRole/Binding instead of namespaced Role/Binding."},
-        "annotations": {"type": ["object", "null"], "additionalProperties": {"type": "string"}, "description": "RBAC resource annotations."},
-        "labels": {"type": ["object", "null"], "additionalProperties": {"type": "string"}, "description": "RBAC resource labels."}
-      }
-    },
-    "serviceAccount": {
-      "type": "object",
-      "description": "ServiceAccount settings.",
-      "properties": {
-        "create": {"type": "boolean", "description": "Create a ServiceAccount resource."},
-        "name": {"type": "string", "description": "Name of the ServiceAccount to use (empty = generated when create=true, else 'default')."},
-        "annotations": {"type": ["object", "null"], "additionalProperties": {"type": "string"}, "description": "Annotations for the ServiceAccount."},
-        "automountServiceAccountToken": {"type": "boolean", "description": "Whether to automount the SA token on pods."}
-      }
-    },
-    "global": {
-      "type": "object",
-      "description": "Global parameters and shared metadata",
-      "properties": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://github.com/fosrl/helm-charts/charts/newt/values.schema.json",
+    "title": "Newt values schema",
+    "description": "Values schema for the Newt Helm chart",
+    "type": "object",
+    "properties": {
+        "global": {
+            "type": "object",
+            "properties": {
+                "additionalAnnotations": {
+                    "description": "Additional annotations applied to all rendered resources.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "additionalLabels": {
+                    "description": "Additional labels applied to all rendered resources.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "additionalServiceAnnotations": {
+                    "description": "Additional annotations applied to external Service resources.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "additionalServiceLabels": {
+                    "description": "Additional labels applied to external Service resources.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "affinity": {
+                    "description": "Pod affinity and anti-affinity",
+                    "type": "object",
+                    "properties": {
+                        "nodeAffinity": {
+                            "description": "Node affinity rules",
+                            "type": "object"
+                        },
+                        "podAffinity": {
+                            "description": "Pod affinity rules",
+                            "type": "object"
+                        },
+                        "podAntiAffinity": {
+                            "description": "Pod anti-affinity rules",
+                            "type": "object"
+                        }
+                    },
+                    "additionalProperties": false
+                },
+                "deploymentAnnotations": {
+                    "description": "Additional annotations applied to Deployment resources.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "deploymentLabels": {
+                    "description": "Additional labels applied to Deployment resources.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "extraEnv": {
+                    "description": "Extra environment variables injected into all containers (global scope). Map format: KEY: \"value\"",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "fullnameOverride": {
+                    "description": "Fully override the computed fullname.",
+                    "type": "string",
+                    "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+                },
+                "health": {
+                    "description": "--------------------------------------------------------------------------- Health Probes ",
+                    "type": "object",
+                    "properties": {
+                        "enabled": {
+                            "type": "boolean"
+                        },
+                        "path": {
+                            "description": "Health file path checked by probes",
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "readinessFailureThreshold": {
+                            "description": "Readiness probe failure threshold",
+                            "type": "integer",
+                            "maximum": 20,
+                            "minimum": 1
+                        }
+                    },
+                    "additionalProperties": false
+                },
+                "image": {
+                    "description": "Global container image configuration used by all chart components.",
+                    "type": "object",
+                    "properties": {
+                        "digest": {
+                            "description": "Image digest (overrides tag when set). Format: sha256:\u003c64-hex\u003e.",
+                            "type": "string",
+                            "pattern": "^$|^sha256:[a-f0-9]{64}$"
+                        },
+                        "imagePullPolicy": {
+                            "description": "Image pull policy.",
+                            "type": "string",
+                            "enum": [
+                                "Always",
+                                "IfNotPresent",
+                                "Never"
+                            ]
+                        },
+                        "imagePullSecrets": {
+                            "description": "Image pull secrets (list of Kubernetes Secret references). Each entry should be an object like: { name: \"my-secret\" }",
+                            "default": [],
+                            "type": [
+                                "array",
+                                "null"
+                            ],
+                            "items": {
+                                "type": "object"
+                            }
+                        },
+                        "registry": {
+                            "description": "Container image registry (e.g., docker.io, ghcr.io, registry.example.com).",
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "repository": {
+                            "description": "Container image repository (e.g., fosrl/newt).",
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "tag": {
+                            "description": "Image tag (defaults to Chart.appVersion if empty).",
+                            "type": "string"
+                        }
+                    },
+                    "additionalProperties": false
+                },
+                "logLevel": {
+                    "description": "Global log level",
+                    "type": "string",
+                    "enum": [
+                        "TRACE",
+                        "DEBUG",
+                        "INFO",
+                        "WARN",
+                        "ERROR"
+                    ]
+                },
+                "metrics": {
+                    "type": "object",
+                    "properties": {
+                        "adminAddr": {
+                            "description": "Metrics admin server address (NEWT_ADMIN_ADDR). Used for health checks and metrics endpoint.",
+                            "type": "string",
+                            "pattern": "^.+:[0-9]+$"
+                        },
+                        "annotations": {
+                            "description": "Extra annotations added to metrics-related objects (e.g., Pods/Service depending on chart logic)",
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        },
+                        "asyncBytes": {
+                            "description": "Enable async bytes metrics (NEWT_METRICS_ASYNC_BYTES)",
+                            "type": "boolean"
+                        },
+                        "enabled": {
+                            "description": "Enable Prometheus-compatible metrics exposure",
+                            "type": "boolean"
+                        },
+                        "otel": {
+                            "description": "OTEL exporter configuration (used when otlpEnabled=true) These are passed as environment variables to the container",
+                            "type": "object",
+                            "properties": {
+                                "exporterOtlpEndpoint": {
+                                    "description": "OTLP endpoint (OTEL_EXPORTER_OTLP_ENDPOINT)",
+                                    "type": "string",
+                                    "pattern": "^$|^https?://.+$"
+                                },
+                                "exporterOtlpHeaders": {
+                                    "description": "OTLP headers (OTEL_EXPORTER_OTLP_HEADERS) - comma-separated key=value pairs",
+                                    "type": "string"
+                                },
+                                "exporterOtlpProtocol": {
+                                    "description": "OTLP exporter protocol (OTEL_EXPORTER_OTLP_PROTOCOL) - grpc or http/proto",
+                                    "type": "string",
+                                    "enum": [
+                                        "",
+                                        "grpc",
+                                        "http/proto"
+                                    ]
+                                },
+                                "serviceName": {
+                                    "description": "Service name for OTLP (OTEL_SERVICE_NAME)",
+                                    "type": "string"
+                                }
+                            },
+                            "additionalProperties": false
+                        },
+                        "otlpEnabled": {
+                            "description": "Enable OTLP exporter (NEWT_METRICS_OTLP_ENABLED)",
+                            "type": "boolean"
+                        },
+                        "path": {
+                            "description": "Metrics HTTP path",
+                            "type": "string",
+                            "pattern": "^/.*",
+                            "minLength": 1
+                        },
+                        "podMonitor": {
+                            "description": "--------------------------------------------------------------------------- PodMonitor (Prometheus Operator) ",
+                            "type": "object",
+                            "properties": {
+                                "annotations": {
+                                    "description": "Extra annotations applied to the PodMonitor",
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "type": "string"
+                                    }
+                                },
+                                "apiVersion": {
+                                    "description": "PodMonitor API version (Prometheus Operator)",
+                                    "type": "string",
+                                    "minLength": 1
+                                },
+                                "enabled": {
+                                    "description": "Create a PodMonitor resource",
+                                    "type": "boolean"
+                                },
+                                "honorLabels": {
+                                    "description": "Whether to honor labels from the scraped target",
+                                    "type": "boolean"
+                                },
+                                "interval": {
+                                    "description": "Scrape interval (Prometheus duration, e.g., 30s, 1m)",
+                                    "type": "string",
+                                    "pattern": "^[0-9]+(ms|s|m|h)$"
+                                },
+                                "labels": {
+                                    "description": "Extra labels applied to the PodMonitor",
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "type": "string"
+                                    }
+                                },
+                                "metricRelabelings": {
+                                    "description": "Metric relabeling rules (Prometheus Operator schema; treated as opaque objects)",
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object"
+                                    }
+                                },
+                                "namespace": {
+                                    "description": "Namespace override for PodMonitor (empty = release namespace)",
+                                    "type": "string",
+                                    "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+                                },
+                                "path": {
+                                    "description": "Metrics path",
+                                    "type": "string",
+                                    "pattern": "^/.*",
+                                    "minLength": 1
+                                },
+                                "portName": {
+                                    "description": "Scrape port name (must match a named port on the Pod/Service endpoints)",
+                                    "type": "string",
+                                    "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+                                    "minLength": 1
+                                },
+                                "relabelings": {
+                                    "description": "Relabeling rules (Prometheus Operator schema; treated as opaque objects)",
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object"
+                                    }
+                                },
+                                "scheme": {
+                                    "description": "HTTP scheme for scraping",
+                                    "type": "string",
+                                    "enum": [
+                                        "http",
+                                        "https"
+                                    ]
+                                },
+                                "scrapeTimeout": {
+                                    "description": "Scrape timeout (must be \u003c= interval)",
+                                    "type": "string",
+                                    "pattern": "^[0-9]+(ms|s|m|h)$"
+                                }
+                            },
+                            "additionalProperties": false
+                        },
+                        "port": {
+                            "description": "Metrics endpoint port exposed by the workload container",
+                            "type": "integer",
+                            "maximum": 65535,
+                            "minimum": 1
+                        },
+                        "portName": {
+                            "description": "Optional Service port name (used when creating a Service)",
+                            "type": "string",
+                            "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+                            "minLength": 1
+                        },
+                        "prometheusRule": {
+                            "description": "--------------------------------------------------------------------------- PrometheusRule (Prometheus Operator) ",
+                            "type": "object",
+                            "properties": {
+                                "apiVersion": {
+                                    "description": "PrometheusRule API version (Prometheus Operator)",
+                                    "type": "string",
+                                    "minLength": 1
+                                },
+                                "enabled": {
+                                    "description": "Create a PrometheusRule resource",
+                                    "type": "boolean"
+                                },
+                                "labels": {
+                                    "description": "Extra labels applied to the PrometheusRule",
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "type": "string"
+                                    }
+                                },
+                                "namespace": {
+                                    "description": "Namespace override for PrometheusRule (empty = release namespace)",
+                                    "type": "string",
+                                    "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+                                },
+                                "rules": {
+                                    "description": "Rule groups/rules (templated). Structure is PrometheusRule-compatible; treated as opaque objects.",
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object"
+                                    }
+                                }
+                            },
+                            "additionalProperties": false
+                        },
+                        "region": {
+                            "description": "Region for metrics/telemetry (NEWT_REGION)",
+                            "type": "string"
+                        },
+                        "service": {
+                            "description": "--------------------------------------------------------------------------- Metrics Service (for scraping via Service endpoints) ",
+                            "type": "object",
+                            "properties": {
+                                "annotations": {
+                                    "description": "Additional Service annotations",
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "type": "string"
+                                    }
+                                },
+                                "enabled": {
+                                    "description": "Create a dedicated Service for metrics scraping",
+                                    "type": "boolean"
+                                },
+                                "port": {
+                                    "description": "Service port exposed for scraping",
+                                    "type": "integer",
+                                    "maximum": 65535,
+                                    "minimum": 1
+                                },
+                                "portName": {
+                                    "description": "Service port name",
+                                    "type": "string",
+                                    "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+                                    "minLength": 1
+                                },
+                                "type": {
+                                    "description": "Kubernetes Service type",
+                                    "type": "string",
+                                    "enum": [
+                                        "ClusterIP",
+                                        "LoadBalancer",
+                                        "NodePort"
+                                    ]
+                                }
+                            },
+                            "additionalProperties": false
+                        },
+                        "serviceMonitor": {
+                            "description": "--------------------------------------------------------------------------- ServiceMonitor (Prometheus Operator) ",
+                            "type": "object",
+                            "properties": {
+                                "apiVersion": {
+                                    "description": "ServiceMonitor API version (Prometheus Operator)",
+                                    "type": "string",
+                                    "minLength": 1
+                                },
+                                "enabled": {
+                                    "description": "Create a ServiceMonitor resource",
+                                    "type": "boolean"
+                                },
+                                "interval": {
+                                    "description": "Scrape interval (Prometheus duration, e.g., 30s, 1m)",
+                                    "type": "string",
+                                    "pattern": "^[0-9]+(ms|s|m|h)$"
+                                },
+                                "jobLabel": {
+                                    "description": "Job label override (if your Prometheus setup uses a custom jobLabel)",
+                                    "type": "string"
+                                },
+                                "labels": {
+                                    "description": "Extra labels applied to the ServiceMonitor",
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "type": "string"
+                                    }
+                                },
+                                "metricRelabelings": {
+                                    "description": "Metric relabeling rules (Prometheus Operator schema; treated as opaque objects)",
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object"
+                                    }
+                                },
+                                "namespace": {
+                                    "description": "Namespace override for ServiceMonitor (empty = release namespace)",
+                                    "type": "string",
+                                    "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+                                },
+                                "relabelings": {
+                                    "description": "Relabeling rules (Prometheus Operator schema; treated as opaque objects)",
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object"
+                                    }
+                                },
+                                "sampleLimit": {
+                                    "description": "Sample limit (0 = unlimited)",
+                                    "type": "integer",
+                                    "minimum": 0
+                                },
+                                "scheme": {
+                                    "description": "HTTP scheme for scraping",
+                                    "type": "string",
+                                    "enum": [
+                                        "http",
+                                        "https"
+                                    ]
+                                },
+                                "scrapeTimeout": {
+                                    "description": "Scrape timeout (Prometheus duration)",
+                                    "type": "string",
+                                    "pattern": "^[0-9]+(ms|s|m|h)$"
+                                },
+                                "targetLabels": {
+                                    "description": "Labels to transfer from the target Service onto metrics",
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            },
+                            "additionalProperties": false
+                        },
+                        "targetPortName": {
+                            "description": "Optional container port name to target instead of numeric port",
+                            "type": "string",
+                            "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+                        }
+                    },
+                    "additionalProperties": false
+                },
+                "nameOverride": {
+                    "description": "Override chart name (replaces .Chart.Name).",
+                    "type": "string",
+                    "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+                },
+                "namespaceOverride": {
+                    "description": "Override the namespace for rendered resources (defaults to .Release.Namespace).",
+                    "type": "string",
+                    "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+                },
+                "nativeMode": {
+                    "type": "object",
+                    "properties": {
+                        "enabled": {
+                            "description": "Enable native WireGuard interface (requires privileged container)",
+                            "type": "boolean"
+                        }
+                    }
+                },
+                "networkPolicy": {
+                    "description": "Global NetworkPolicy configuration.",
+                    "type": "object",
+                    "properties": {
+                        "components": {
+                            "description": "--------------------------------------------------------------------------- Reusable Policy Components",
+                            "type": "object",
+                            "properties": {
+                                "custom": {
+                                    "description": "----------------------------------------------------------------------- custom — User-defined rules",
+                                    "type": "object",
+                                    "properties": {
+                                        "egress": {
+                                            "description": "Custom egress rules (raw NetworkPolicySpec.egress objects)",
+                                            "default": [],
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object"
+                                            }
+                                        },
+                                        "enabled": {
+                                            "default": false,
+                                            "type": "boolean"
+                                        },
+                                        "ingress": {
+                                            "description": "Custom ingress rules (raw NetworkPolicySpec.ingress objects)",
+                                            "default": [],
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object"
+                                            }
+                                        },
+                                        "policyTypes": {
+                                            "type": "array",
+                                            "minItems": 1,
+                                            "uniqueItems": true,
+                                            "items": {
+                                                "type": "string"
+                                            }
+                                        }
+                                    },
+                                    "additionalProperties": false
+                                },
+                                "defaultApp": {
+                                    "description": "----------------------------------------------------------------------- defaultApp — Baseline application rules required for Newt operation",
+                                    "type": "object",
+                                    "properties": {
+                                        "egress": {
+                                            "description": "Raw Kubernetes NetworkPolicySpec.egress rules",
+                                            "default": [],
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object"
+                                            }
+                                        },
+                                        "enabled": {
+                                            "default": true,
+                                            "type": "boolean"
+                                        },
+                                        "ingress": {
+                                            "description": "Raw Kubernetes NetworkPolicySpec.ingress rules",
+                                            "default": [],
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object"
+                                            }
+                                        },
+                                        "policyTypes": {
+                                            "description": "NetworkPolicy policyTypes",
+                                            "type": "array",
+                                            "minItems": 1,
+                                            "uniqueItems": true,
+                                            "items": {
+                                                "type": "string"
+                                            }
+                                        }
+                                    },
+                                    "additionalProperties": false
+                                },
+                                "dns": {
+                                    "description": "----------------------------------------------------------------------- dns — Optional DNS egress rules (e.g., CoreDNS)",
+                                    "type": "object",
+                                    "properties": {
+                                        "egress": {
+                                            "description": "DNS egress rules (raw NetworkPolicySpec.egress objects)",
+                                            "default": [],
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "ports": {
+                                                        "type": "array",
+                                                        "items": {
+                                                            "type": "object",
+                                                            "properties": {
+                                                                "port": {
+                                                                    "type": "integer"
+                                                                },
+                                                                "protocol": {
+                                                                    "type": "string"
+                                                                }
+                                                            }
+                                                        }
+                                                    },
+                                                    "to": {
+                                                        "type": "array",
+                                                        "items": {
+                                                            "type": "object",
+                                                            "properties": {
+                                                                "namespaceSelector": {
+                                                                    "type": "object",
+                                                                    "properties": {
+                                                                        "matchLabels": {
+                                                                            "type": "object",
+                                                                            "properties": {
+                                                                                "kubernetes.io/metadata.name": {
+                                                                                    "type": "string"
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                },
+                                                                "podSelector": {
+                                                                    "type": "object",
+                                                                    "properties": {
+                                                                        "matchLabels": {
+                                                                            "type": "object",
+                                                                            "properties": {
+                                                                                "k8s-app": {
+                                                                                    "type": "string"
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        "enabled": {
+                                            "default": false,
+                                            "type": "boolean"
+                                        }
+                                    },
+                                    "additionalProperties": false
+                                },
+                                "kubeApi": {
+                                    "description": "----------------------------------------------------------------------- kubeApi — Optional Kubernetes API server egress (typically TCP 6443)",
+                                    "type": "object",
+                                    "properties": {
+                                        "egress": {
+                                            "description": "Kubernetes API egress rules",
+                                            "default": [],
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "ports": {
+                                                        "type": "array",
+                                                        "items": {
+                                                            "type": "object",
+                                                            "properties": {
+                                                                "port": {
+                                                                    "type": "integer"
+                                                                },
+                                                                "protocol": {
+                                                                    "type": "string"
+                                                                }
+                                                            }
+                                                        }
+                                                    },
+                                                    "to": {
+                                                        "type": "array",
+                                                        "items": {
+                                                            "type": "object",
+                                                            "properties": {
+                                                                "ipBlock": {
+                                                                    "type": "object",
+                                                                    "properties": {
+                                                                        "cidr": {
+                                                                            "type": "string"
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        "enabled": {
+                                            "default": false,
+                                            "type": "boolean"
+                                        }
+                                    },
+                                    "additionalProperties": false
+                                }
+                            },
+                            "additionalProperties": false
+                        },
+                        "defaultMode": {
+                            "description": "Controls how global policies are applied to instances:",
+                            "default": "merge",
+                            "type": "string",
+                            "enum": [
+                                "inherit",
+                                "merge",
+                                "replace"
+                            ]
+                        },
+                        "enabled": {
+                            "description": "Master switch controlling whether NetworkPolicies are rendered.",
+                            "default": true,
+                            "type": "boolean"
+                        },
+                        "ruleSets": {
+                            "description": "--------------------------------------------------------------------------- Named RuleSets  Each ruleSet must resemble a NetworkPolicySpec fragment: policyTypes: [\"Ingress\",\"Egress\"] ingress: [...] egress: [...]  Example: ruleSets: allow-internet: policyTypes: [\"Egress\"] egress: - to: - ipBlock: { cidr: 0.0.0.0/0 } ports: - { port: 80, protocol: TCP } - { port: 443, protocol: TCP }",
+                            "default": {},
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "object"
+                            }
+                        }
+                    },
+                    "additionalProperties": false
+                },
+                "nodeSelector": {
+                    "description": "Node selector constraints applied to all Pods.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "notes": {
+                    "type": "object",
+                    "properties": {
+                        "defaultTraefikTarget": {
+                            "description": "Default internal Traefik service target for NOTES output",
+                            "type": "string",
+                            "pattern": "^[a-z0-9.-]+:[0-9]+$"
+                        }
+                    }
+                },
+                "podAnnotations": {
+                    "description": "Additional annotations applied to Pod resources.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "podDisruptionBudget": {
+                    "description": "--------------------------------------------------------------------------- Pod Disruption Budget ",
+                    "type": "object",
+                    "properties": {
+                        "annotations": {
+                            "description": "Additional annotations",
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        },
+                        "enabled": {
+                            "type": "boolean"
+                        },
+                        "labels": {
+                            "description": "Additional labels",
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        },
+                        "maxUnavailable": {
+                            "description": "Maximum unavailable pods (mutually exclusive with minAvailable)",
+                            "type": [
+                                "integer",
+                                "string",
+                                "null"
+                            ]
+                        },
+                        "minAvailable": {
+                            "description": "Minimum available pods (mutually exclusive with maxUnavailable)",
+                            "type": [
+                                "integer",
+                                "string"
+                            ],
+                            "minimum": 0
+                        }
+                    },
+                    "additionalProperties": false
+                },
+                "podLabels": {
+                    "description": "Additional labels applied to Pod resources.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "podSecurityContext": {
+                    "description": "Pod-level securityContext override",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": [
+                            "string",
+                            "integer",
+                            "boolean"
+                        ]
+                    }
+                },
+                "priorityClassName": {
+                    "description": "PriorityClass applied to all Pods.",
+                    "type": "string",
+                    "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+                },
+                "resources": {
+                    "description": "--------------------------------------------------------------------------- Resource Requests \u0026 Limits ",
+                    "type": "object",
+                    "properties": {
+                        "limits": {
+                            "type": "object",
+                            "properties": {
+                                "cpu": {
+                                    "type": "string",
+                                    "pattern": "^[0-9]+m?$"
+                                },
+                                "ephemeral-storage": {
+                                    "type": "string"
+                                },
+                                "memory": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "requests": {
+                            "type": "object",
+                            "properties": {
+                                "cpu": {
+                                    "type": "string",
+                                    "pattern": "^[0-9]+m?$"
+                                },
+                                "ephemeral-storage": {
+                                    "type": "string"
+                                },
+                                "memory": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                },
+                "revisionHistoryLimit": {
+                    "description": "Number of old ReplicaSets/ControllerRevisions to retain.",
+                    "type": "integer",
+                    "maximum": 50,
+                    "minimum": 0
+                },
+                "securityContext": {
+                    "description": "Container-level securityContext override SECURITY NOTE: By default (when nativeMode is disabled), Newt runs as non-root: runAsUser: 65534 runAsNonRoot: true allowPrivilegeEscalation: false readOnlyRootFilesystem: true capabilities.drop: [\"ALL\"]  When nativeMode.enabled=true OR useNativeInterface=true: runAsUser: 0 (root) allowPrivilegeEscalation: true privileged: true capabilities.add: [NET_ADMIN, SYS_MODULE]  IMPORTANT: Do NOT set capabilities.drop when running as root - this is invalid.",
+                    "type": "object"
+                },
+                "statefulsetAnnotations": {
+                    "description": "Additional annotations applied to StatefulSet resources.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "tests": {
+                    "description": "--------------------------------------------------------------------------- Helm Test Configuration ",
+                    "type": "object",
+                    "properties": {
+                        "enabled": {
+                            "type": "boolean"
+                        },
+                        "image": {
+                            "type": "object",
+                            "properties": {
+                                "pullPolicy": {
+                                    "type": "string",
+                                    "enum": [
+                                        "Always",
+                                        "IfNotPresent",
+                                        "Never"
+                                    ]
+                                },
+                                "repository": {
+                                    "description": "Container image repository for Helm test jobs.",
+                                    "type": "string",
+                                    "minLength": 1
+                                },
+                                "tag": {
+                                    "type": "string",
+                                    "minLength": 1
+                                }
+                            },
+                            "additionalProperties": false
+                        },
+                        "resources": {
+                            "type": "object",
+                            "properties": {
+                                "limits": {
+                                    "type": "object",
+                                    "properties": {
+                                        "cpu": {
+                                            "type": "string",
+                                            "pattern": "^[0-9]+m?$"
+                                        },
+                                        "memory": {
+                                            "type": "string"
+                                        }
+                                    }
+                                },
+                                "requests": {
+                                    "type": "object",
+                                    "properties": {
+                                        "cpu": {
+                                            "type": "string",
+                                            "pattern": "^[0-9]+m?$"
+                                        },
+                                        "memory": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "tolerations": {
+                    "description": "Tolerations applied to all Pods. Each item must be a Kubernetes Toleration object: key, operator (Exists|Equal), value, effect (NoSchedule|PreferNoSchedule|NoExecute), tolerationSeconds",
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                        "type": "object"
+                    }
+                },
+                "topologySpreadConstraints": {
+                    "description": "Pod topology spread constraints (applied to all Pods)",
+                    "type": "array",
+                    "items": {
+                        "type": "object"
+                    },
+                    "additionalProperties": false
+                },
+                "updownScripts": {
+                    "description": "Map of filename -\u003e script content (mounted when updown.enabled=true)",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "image": {
-          "type": "object",
-          "description": "Global Docker image settings",
-          "properties": {
-            "registry": {"type": "string", "description": "Global image registry."},
-            "repository": {"type": "string", "description": "Global image repository override."},
-            "tag": {"type": "string", "description": "Global image tag (overridden by digest)."},
-            "digest": {"type": "string", "description": "Global image digest (sha256:...)."},
-            "imagePullPolicy": {"type": "string", "description": "Global image pull policy."},
-            "imagePullSecrets": {
-              "type": ["array", "null"],
-              "description": "Registry pull secrets.",
-              "items": {
-                "oneOf": [
-                  {"type": "string"},
-                  {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}
-                ]
-              }
-            }
-          }
-        },
-        "nameOverride": {"type": "string", "description": "Override chart name for resource names."},
-        "fullnameOverride": {"type": "string", "description": "Override full release name."},
-        "namespaceOverride": {"type": "string", "description": "Override target namespace."},
-        "additionalLabels": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Extra labels applied to all resources."},
-        "additionalAnnotations": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Extra annotations applied to all resources."},
-        "additionalServiceLabels": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Extra labels applied to external Services."},
-        "additionalServiceAnnotations": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Extra annotations applied to external Services."},
-        "statefulsetAnnotations": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Annotations added to all StatefulSets."},
-        "deploymentAnnotations": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Annotations added to all Deployments."},
-        "deploymentLabels": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Labels added to all Deployments."},
-        "podAnnotations": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Annotations added to all Pods."},
-        "podLabels": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Labels added to all Pods."},
-        "extraEnv": {"type": ["object", "null"], "additionalProperties": {"type": "string"}, "description": "Extra environment variables injected into all containers."},
-        "revisionHistoryLimit": {"type": "integer", "minimum": 0, "description": "Global revision history limit."},
-        "logLevel": {"type": "string", "description": "Global log level."},
-        "networkPolicy": {
-          "type": "object",
-          "description": "NetworkPolicy defaults.",
-          "properties": {
-            "create": {"type": "boolean", "description": "Create NetworkPolicies."},
-            "defaultDenyIngress": {"type": "boolean", "description": "Apply default deny ingress."}
-          }
-        },
-        "priorityClassName": {"type": "string", "description": "PriorityClass name applied to Pods."},
-        "nodeSelector": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Node selector applied to Pods."},
-        "tolerations": {"type": "array", "items": {"type": "object"}, "description": "Tolerations applied to Pods."},
-        "nativeMode": {
-          "type": "object",
-          "description": "Global native WireGuard enable gate",
-          "properties": {
-            "enabled": {"type": "boolean", "description": "Enable native WireGuard support"}
-          }
-        },
-        "notes": {
-          "type": "object",
-          "description": "NOTES output customization",
-          "properties": {
-            "defaultTraefikTarget": {"type": "string", "description": "Default Traefik service target"}
-          }
-        },
-        "updownScripts": {
-          "type": "object",
-          "description": "Map of embedded up/down script contents",
-          "additionalProperties": {"type": "string"}
-        },
-        "health": {
-          "type": "object",
-          "description": "Health probe (file) settings",
-          "properties": {
-            "enabled": {"type": "boolean", "description": "Enable probes"},
-            "path": {"type": "string", "description": "Default health file path"},
-            "readinessFailureThreshold": {"type": "integer", "minimum": 0, "description": "Readiness failure threshold"}
-          }
-        },
-        "resources": {
-          "type": "object",
-          "description": "Global default resources for all instances.",
-          "properties": {
-            "requests": {
-              "type": "object",
-              "properties": {
-                "cpu": {"type": "string", "description": "CPU request."},
-                "memory": {"type": "string", "description": "Memory request."},
-                "ephemeral-storage": {"type": "string", "description": "Ephemeral storage request."}
-              }
-            },
-            "limits": {
-              "type": "object",
-              "properties": {
-                "cpu": {"type": "string", "description": "CPU limit."},
-                "memory": {"type": "string", "description": "Memory limit."},
-                "ephemeral-storage": {"type": "string", "description": "Ephemeral storage limit."}
-              }
-            }
-          }
-        },
-        "tests": {
-          "type": "object",
-          "description": "Helm tests configuration.",
-          "properties": {
-            "enabled": {"type": "boolean"},
-            "image": {
-              "type": "object",
-              "properties": {
-                "repository": {"type": "string"},
-                "tag": {"type": "string"},
-                "pullPolicy": {"type": "string"}
-              }
-            }
-          }
-        },
-        "podDisruptionBudget": {
-          "type": "object",
-          "description": "Optional PodDisruptionBudget for all instances (per-instance selector).",
-          "properties": {
-            "enabled": {"type": "boolean", "description": "Enable PodDisruptionBudget creation."},
-            "minAvailable": {"oneOf": [{"type": "integer"}, {"type": "string"}], "description": "Minimum available pods (int or percentage)."},
-            "maxUnavailable": {"oneOf": [{"type": "integer"}, {"type": "string"}], "description": "Maximum unavailable pods (int or percentage)."},
-            "labels": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Additional PDB labels."},
-            "annotations": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Additional PDB annotations."}
-          }
-        },
-        "metrics": {
-          "type": "object",
-          "description": "Metrics / Prometheus scrape settings",
-          "properties": {
-            "enabled": {"type": "boolean", "description": "Enable metrics scrape annotations"},
-            "port": {"type": "integer", "description": "Metrics port"},
-            "path": {"type": "string", "description": "Metrics path"},
-            "annotations": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Custom metrics annotations"},
-            "portName": {"type": "string", "description": "Optional metrics Service port name."},
-            "targetPortName": {"type": "string", "description": "Container port name to target instead of number."},
-            "service": {
-              "type": "object",
-              "properties": {
-                "enabled": {"type": "boolean", "description": "Create metrics Service for scraping."},
-                "type": {"type": "string", "enum": ["ClusterIP", "LoadBalancer", "NodePort"], "description": "Service type for metrics."},
-                "port": {"type": "integer", "description": "Metrics Service port."},
-                "portName": {"type": "string", "description": "Metrics Service port name."},
-                "annotations": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Service annotations."}
-              }
-            },
-            "podMonitor": {
-              "type": "object",
-              "properties": {
-                "enabled": {"type": "boolean", "description": "Create PodMonitor resource."},
-                "apiVersion": {"type": "string", "description": "API version for PodMonitor."},
-                "namespace": {"type": "string", "description": "Optional namespace override."},
-                "portName": {"type": "string", "description": "Port name to scrape."},
-                "scheme": {"type": "string", "description": "HTTP scheme."},
-                "path": {"type": "string", "description": "HTTP path to scrape."},
-                "interval": {"type": "string", "description": "Scrape interval."},
-                "scrapeTimeout": {"type": "string", "description": "Scrape timeout."},
-                "honorLabels": {"type": "boolean", "description": "Honor labels from target."},
-                "labels": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Extra labels."},
-                "annotations": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Extra annotations."},
-                "relabelings": {"type": "array", "items": {"type": "object"}, "description": "Relabeling rules."},
-                "metricRelabelings": {"type": "array", "items": {"type": "object"}, "description": "Metric relabeling rules."}
-              }
-            },
-            "serviceMonitor": {
-              "type": "object",
-              "properties": {
-                "enabled": {"type": "boolean", "description": "Create ServiceMonitor resource."},
-                "apiVersion": {"type": "string", "description": "API version for ServiceMonitor."},
-                "namespace": {"type": "string", "description": "Optional namespace override."},
-                "labels": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Extra labels on ServiceMonitor."},
-                "interval": {"type": "string", "description": "Scrape interval."},
-                "scrapeTimeout": {"type": "string", "description": "Scrape timeout."},
-                "jobLabel": {"type": "string", "description": "Job label override."},
-                "scheme": {"type": "string", "description": "HTTP scheme."},
-                "relabelings": {"type": "array", "items": {"type": "object"}, "description": "Relabeling rules."},
-                "metricRelabelings": {"type": "array", "items": {"type": "object"}, "description": "Metric relabeling rules."},
-                "targetLabels": {"type": "array", "items": {"type": "string"}, "description": "Target labels to transfer."},
-                "sampleLimit": {"type": "integer", "description": "Sample limit per target (0 unlimited)."}
-              }
-            },
-            "prometheusRule": {
-              "type": "object",
-              "properties": {
-                "enabled": {"type": "boolean", "description": "Create PrometheusRule resource."},
-                "apiVersion": {"type": "string", "description": "API version for PrometheusRule."},
-                "namespace": {"type": "string", "description": "Optional namespace override."},
-                "labels": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Extra labels on PrometheusRule."},
-                "rules": {"type": "array", "items": {"type": "object"}, "description": "Array of rule groups/rules."}
-              }
-            }
-          },
-          "allOf": [
-            {
-              "if": {"properties": {"enabled": {"const": true}}},
-              "then": {"required": ["path", "port"]}
-            },
-            {
-              "not": {
-                "allOf": [
-                  {"properties": {"podMonitor": {"properties": {"enabled": {"const": true}}}}},
-                  {"properties": {"serviceMonitor": {"properties": {"enabled": {"const": true}}}}}
-                ]
-              }
-            },
-            {
-              "if": {"properties": {"serviceMonitor": {"properties": {"enabled": {"const": true}}}}},
-              "then": {
-                "properties": {
-                  "service": {"properties": {"enabled": {"const": true}}, "required": ["enabled"]}
+            "type": "object",
+            "properties": {
+                "digest": {
+                    "description": "Image digest (sha256:...)",
+                    "type": "string"
+                },
+                "pullPolicy": {
+                    "description": "Image pull policy (fallback when global.image.imagePullPolicy not set)",
+                    "type": "string",
+                    "enum": [
+                        "Always",
+                        "IfNotPresent",
+                        "Never"
+                    ]
+                },
+                "repository": {
+                    "description": "Container image repository (fallback; prefer global.image)",
+                    "type": "string"
+                },
+                "tag": {
+                    "description": "Image tag (ignored if digest is set)",
+                    "type": "string"
                 }
-              }
-            },
-            {
-              "if": {"properties": {"podMonitor": {"properties": {"enabled": {"const": true}}}}},
-              "then": {"properties": {}}
             }
-          ]
+        },
+        "newtInstances": {
+            "description": "List of Newt instances to deploy. Each instance can optionally override",
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "acceptClients": {
+                        "description": "Accept client connections for runtime only (ACCEPT_CLIENTS env). Does NOT create any Service; Service is controlled by newtInstances[x].service.enabled",
+                        "type": "boolean"
+                    },
+                    "affinity": {
+                        "description": "Pod affinity and anti-affinity",
+                        "type": "object",
+                        "properties": {
+                            "nodeAffinity": {
+                                "description": "Node affinity rules",
+                                "type": "object"
+                            },
+                            "podAffinity": {
+                                "description": "Pod affinity rules",
+                                "type": "object"
+                            },
+                            "podAntiAffinity": {
+                                "description": "Pod anti-affinity rules",
+                                "type": "object"
+                            }
+                        }
+                    },
+                    "allowGlobalOverride": {
+                        "description": "Allow this instance to override global settings (image, logLevel, etc).",
+                        "default": false,
+                        "type": "boolean"
+                    },
+                    "auth": {
+                        "type": "object",
+                        "properties": {
+                            "existingSecretName": {
+                                "description": "Name of the existing Secret with endpoint/id/secret keys",
+                                "type": "string",
+                                "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+                            },
+                            "keys": {
+                                "description": "Key mappings used inside the existing Secret",
+                                "type": "object",
+                                "properties": {
+                                    "endpointKey": {
+                                        "description": "Key name for the Pangolin endpoint (default: PANGOLIN_ENDPOINT)",
+                                        "type": "string"
+                                    },
+                                    "idKey": {
+                                        "description": "Key name for the Newt ID (default: NEWT_ID)",
+                                        "type": "string"
+                                    },
+                                    "secretKey": {
+                                        "description": "Key name for the Newt secret (default: NEWT_SECRET)",
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "blueprintData": {
+                        "description": "Blueprint file content (inline). When provided, creates a ConfigMap with this content. Use this for simple inline blueprints, or leave empty to reference an existing ConfigMap.",
+                        "type": "string"
+                    },
+                    "blueprintFile": {
+                        "description": "Blueprint file path (BLUEPRINT_FILE env). Path to a Newt blueprint configuration file.",
+                        "type": "string"
+                    },
+                    "configFile": {
+                        "description": "Optional config file path for Newt (CONFIG_FILE env)",
+                        "type": "string"
+                    },
+                    "disableClients": {
+                        "description": "Disable client connections (DISABLE_CLIENTS env). When enabled, Newt does not accept incoming client connections.",
+                        "type": "boolean"
+                    },
+                    "dns": {
+                        "description": "Optional DNS server address pushed to the client (leave empty to omit)",
+                        "type": "string"
+                    },
+                    "dockerSocket": {
+                        "type": "object",
+                        "properties": {
+                            "enabled": {
+                                "description": "Mount the host's Docker socket into the pod",
+                                "type": "boolean"
+                            },
+                            "enforceNetworkValidation": {
+                                "description": "Enforce Docker network validation when enabled",
+                                "type": "boolean"
+                            },
+                            "path": {
+                                "description": "Docker socket mount path",
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "enabled": {
+                        "default": true,
+                        "type": "boolean"
+                    },
+                    "enforceHcCert": {
+                        "description": "Enforce health check certificate validation (ENFORCE_HC_CERT env). When enabled, health checks must verify TLS certificates.",
+                        "type": "boolean"
+                    },
+                    "extraContainers": {
+                        "description": "Additional sidecar containers to add to the pod",
+                        "type": "array",
+                        "items": {
+                            "type": "object"
+                        }
+                    },
+                    "extraEnv": {
+                        "description": "Extra environment variables to inject into the container",
+                        "type": "object"
+                    },
+                    "extraVolumeMounts": {
+                        "description": "Extra volume mounts to add (must be valid Kubernetes VolumeMount objects)",
+                        "type": "array",
+                        "items": {
+                            "type": "object"
+                        }
+                    },
+                    "extraVolumes": {
+                        "description": "Extra pod volumes to add (must be valid Kubernetes Volume objects)",
+                        "type": "array",
+                        "items": {
+                            "type": "object"
+                        },
+                        "additionalProperties": true
+                    },
+                    "generateAndSaveKeyTo": {
+                        "description": "Optional path to save generated private key (GENERATE_AND_SAVE_KEY_TO env)",
+                        "type": "string"
+                    },
+                    "healthFile": {
+                        "description": "Health file path used by liveness/readiness probes",
+                        "type": "string"
+                    },
+                    "hostNetwork": {
+                        "description": "Enable host networking (useful with native mode)",
+                        "type": "boolean"
+                    },
+                    "hostPID": {
+                        "description": "Enable sharing host PID namespace (rarely needed)",
+                        "type": "boolean"
+                    },
+                    "id": {
+                        "description": "WARNING: Use auth.existingSecretName for production to avoid secrets in values",
+                        "type": "string",
+                        "pattern": "^$|^[a-zA-Z0-9_-]+$"
+                    },
+                    "initContainers": {
+                        "description": "Additional init containers to add to the pod",
+                        "type": "array",
+                        "items": {
+                            "type": "object"
+                        }
+                    },
+                    "interface": {
+                        "description": "WireGuard interface name in the pod",
+                        "type": "string"
+                    },
+                    "keepInterface": {
+                        "description": "Keep the interface on shutdown (native mode)",
+                        "type": "boolean"
+                    },
+                    "lifecycle": {
+                        "description": "Container lifecycle hooks (e.g., preStop for graceful WireGuard shutdown)",
+                        "type": "object"
+                    },
+                    "logLevel": {
+                        "description": "Per-instance log level (falls back to global.logLevel when empty)",
+                        "type": "string"
+                    },
+                    "metrics": {
+                        "type": "object",
+                        "properties": {
+                            "annotations": {
+                                "description": "Override or add custom metrics annotations",
+                                "type": "object"
+                            },
+                            "enabled": {
+                                "description": "Enable Prometheus metrics",
+                                "type": "boolean"
+                            },
+                            "path": {
+                                "description": "Metrics path",
+                                "type": "string"
+                            },
+                            "podMonitor": {
+                                "type": "object",
+                                "properties": {
+                                    "annotations": {
+                                        "description": "Extra annotations",
+                                        "type": "object"
+                                    },
+                                    "apiVersion": {
+                                        "description": "API version for PodMonitor",
+                                        "type": "string"
+                                    },
+                                    "enabled": {
+                                        "description": "Create PodMonitor (Prometheus Operator)",
+                                        "type": "boolean"
+                                    },
+                                    "honorLabels": {
+                                        "description": "Honor labels from target",
+                                        "type": "boolean"
+                                    },
+                                    "interval": {
+                                        "description": "Scrape interval",
+                                        "type": "string"
+                                    },
+                                    "labels": {
+                                        "description": "Extra labels",
+                                        "type": "object"
+                                    },
+                                    "metricRelabelings": {
+                                        "description": "Metric relabelings",
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object"
+                                        }
+                                    },
+                                    "namespace": {
+                                        "description": "Optional namespace override",
+                                        "type": "string"
+                                    },
+                                    "path": {
+                                        "description": "HTTP path",
+                                        "type": "string"
+                                    },
+                                    "portName": {
+                                        "description": "PodMonitor scrape port name",
+                                        "type": "string"
+                                    },
+                                    "relabelings": {
+                                        "description": "Relabelings",
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object"
+                                        }
+                                    },
+                                    "scheme": {
+                                        "description": "HTTP scheme",
+                                        "type": "string"
+                                    },
+                                    "scrapeTimeout": {
+                                        "description": "Scrape timeout",
+                                        "type": "string"
+                                    }
+                                }
+                            },
+                            "port": {
+                                "description": "Metrics port",
+                                "type": "integer"
+                            },
+                            "portName": {
+                                "description": "Optional Service port name",
+                                "type": "string"
+                            },
+                            "prometheusRule": {
+                                "type": "object",
+                                "properties": {
+                                    "apiVersion": {
+                                        "description": "API version for PrometheusRule",
+                                        "type": "string"
+                                    },
+                                    "enabled": {
+                                        "description": "Create PrometheusRule (Prometheus Operator)",
+                                        "type": "boolean"
+                                    },
+                                    "labels": {
+                                        "description": "Extra labels on PrometheusRule",
+                                        "type": "object"
+                                    },
+                                    "namespace": {
+                                        "description": "Optional namespace override",
+                                        "type": "string"
+                                    },
+                                    "rules": {
+                                        "description": "Array of rule groups/rules (processed as templates)",
+                                        "type": "array"
+                                    }
+                                }
+                            },
+                            "service": {
+                                "type": "object",
+                                "properties": {
+                                    "annotations": {
+                                        "description": "Service annotations",
+                                        "type": "object"
+                                    },
+                                    "enabled": {
+                                        "description": "Create metrics Service for scraping",
+                                        "type": "boolean"
+                                    },
+                                    "port": {
+                                        "description": "Service port",
+                                        "type": "integer"
+                                    },
+                                    "portName": {
+                                        "description": "Service port name",
+                                        "type": "string"
+                                    },
+                                    "type": {
+                                        "description": "Service type",
+                                        "type": "string",
+                                        "enum": [
+                                            "ClusterIP",
+                                            "LoadBalancer",
+                                            "NodePort"
+                                        ]
+                                    }
+                                }
+                            },
+                            "serviceMonitor": {
+                                "type": "object",
+                                "properties": {
+                                    "apiVersion": {
+                                        "description": "API version for ServiceMonitor",
+                                        "type": "string"
+                                    },
+                                    "enabled": {
+                                        "description": "Create ServiceMonitor (Prometheus Operator)",
+                                        "type": "boolean"
+                                    },
+                                    "interval": {
+                                        "description": "Scrape interval",
+                                        "type": "string"
+                                    },
+                                    "jobLabel": {
+                                        "description": "Job label override",
+                                        "type": "string"
+                                    },
+                                    "labels": {
+                                        "description": "Extra labels on ServiceMonitor",
+                                        "type": "object"
+                                    },
+                                    "metricRelabelings": {
+                                        "description": "Metric relabelings",
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object"
+                                        }
+                                    },
+                                    "namespace": {
+                                        "description": "Optional namespace override",
+                                        "type": "string"
+                                    },
+                                    "relabelings": {
+                                        "description": "Relabelings",
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object"
+                                        }
+                                    },
+                                    "sampleLimit": {
+                                        "description": "Sample limit",
+                                        "type": "integer"
+                                    },
+                                    "scheme": {
+                                        "description": "HTTP scheme",
+                                        "type": "string"
+                                    },
+                                    "scrapeTimeout": {
+                                        "description": "Optional scrape timeout",
+                                        "type": "string"
+                                    },
+                                    "targetLabels": {
+                                        "description": "Target labels",
+                                        "type": "array",
+                                        "items": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            },
+                            "targetPortName": {
+                                "description": "Optional container port name to target instead of number",
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "mtls": {
+                        "type": "object",
+                        "properties": {
+                            "certPath": {
+                                "description": "In-container path to mount the PKCS12 file",
+                                "type": "string"
+                            },
+                            "enabled": {
+                                "description": "Enable mTLS client cert mounting",
+                                "type": "boolean"
+                            },
+                            "mode": {
+                                "description": "mTLS mode: \"pkcs12\" (legacy) or \"pem\" (split PEM certificates)",
+                                "type": "string",
+                                "enum": [
+                                    "pkcs12",
+                                    "pem"
+                                ]
+                            },
+                            "p12Base64": {
+                                "description": "Inline base64 content for client.p12 (not recommended for production)",
+                                "type": "string"
+                            },
+                            "pem": {
+                                "description": "Split PEM certificate configuration (used when mode=pem)",
+                                "type": "object",
+                                "properties": {
+                                    "caPath": {
+                                        "description": "In-container path to mount CA certificate(s) (ca.crt) - comma-separated list",
+                                        "type": "string"
+                                    },
+                                    "clientCertPath": {
+                                        "description": "In-container path to mount client certificate (client.crt)",
+                                        "type": "string"
+                                    },
+                                    "clientKeyPath": {
+                                        "description": "In-container path to mount client key (client.key)",
+                                        "type": "string"
+                                    },
+                                    "secretName": {
+                                        "description": "Secret name containing client.crt, client.key, and optionally ca.crt",
+                                        "type": "string"
+                                    }
+                                },
+                                "additionalProperties": false
+                            },
+                            "secretName": {
+                                "description": "Secret name containing client.p12 (if empty and p12Base64 provided, a Secret is generated)",
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "mtu": {
+                        "description": "WireGuard interface MTU (typical cloud path MTU ~1380). Leave at 1280 unless tuning",
+                        "type": "integer"
+                    },
+                    "name": {
+                        "type": "string",
+                        "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+                        "maxLength": 63,
+                        "minLength": 1
+                    },
+                    "networkPolicy": {
+                        "description": "NetworkPolicy behavior (inherit/merge/replace) and enable/disable components.",
+                        "type": "object",
+                        "properties": {
+                            "components": {
+                                "description": "Instance-local components that can be merged in (mode=merge) or used exclusively (mode=replace).",
+                                "type": "object",
+                                "properties": {
+                                    "custom": {
+                                        "type": "object",
+                                        "properties": {
+                                            "egress": {
+                                                "default": [],
+                                                "type": "array"
+                                            },
+                                            "enabled": {
+                                                "default": false,
+                                                "type": "boolean"
+                                            },
+                                            "ingress": {
+                                                "default": [],
+                                                "type": "array"
+                                            },
+                                            "policyTypes": {
+                                                "type": "array",
+                                                "minItems": 1,
+                                                "uniqueItems": true,
+                                                "items": {
+                                                    "type": "string"
+                                                }
+                                            }
+                                        },
+                                        "additionalProperties": false
+                                    },
+                                    "defaultApp": {
+                                        "type": "object",
+                                        "properties": {
+                                            "egress": {
+                                                "default": [],
+                                                "type": "array"
+                                            },
+                                            "enabled": {
+                                                "default": false,
+                                                "type": "boolean"
+                                            },
+                                            "ingress": {
+                                                "default": [],
+                                                "type": "array"
+                                            },
+                                            "policyTypes": {
+                                                "default": [],
+                                                "type": "array"
+                                            }
+                                        },
+                                        "additionalProperties": false
+                                    },
+                                    "dns": {
+                                        "type": "object",
+                                        "properties": {
+                                            "egress": {
+                                                "default": [],
+                                                "type": "array"
+                                            },
+                                            "enabled": {
+                                                "default": false,
+                                                "type": "boolean"
+                                            }
+                                        },
+                                        "additionalProperties": false
+                                    },
+                                    "kubeApi": {
+                                        "type": "object",
+                                        "properties": {
+                                            "egress": {
+                                                "default": [],
+                                                "type": "array"
+                                            },
+                                            "enabled": {
+                                                "default": false,
+                                                "type": "boolean"
+                                            }
+                                        },
+                                        "additionalProperties": false
+                                    }
+                                },
+                                "additionalProperties": false
+                            },
+                            "enabled": {
+                                "description": "Per-instance master switch.",
+                                "type": [
+                                    "boolean",
+                                    "null"
+                                ]
+                            },
+                            "includeRuleSets": {
+                                "description": "List of named global `global.networkPolicy.ruleSets` to include for this instance.",
+                                "default": [],
+                                "type": "array"
+                            },
+                            "mode": {
+                                "description": "Composition mode for this instance:  Typical examples: - \"merge\": global defaultApp + (instance enables dns) + (instance adds custom) - \"replace\": instance defines a fully custom policy set, independent of global",
+                                "default": "merge",
+                                "type": "string",
+                                "enum": [
+                                    "inherit",
+                                    "merge",
+                                    "replace"
+                                ]
+                            },
+                            "useGlobalComponents": {
+                                "description": "Select which global components are used for this instance (when mode is inherit/merge).",
+                                "type": "object",
+                                "properties": {
+                                    "custom": {
+                                        "description": "Include global custom component (if enabled globally).",
+                                        "default": true,
+                                        "type": "boolean"
+                                    },
+                                    "defaultApp": {
+                                        "description": "Include global defaultApp component (if enabled globally).",
+                                        "default": true,
+                                        "type": "boolean"
+                                    },
+                                    "dns": {
+                                        "description": "Include global dns component (if enabled globally).",
+                                        "default": false,
+                                        "type": "boolean"
+                                    },
+                                    "kubeApi": {
+                                        "description": "Include global kubeApi component (if enabled globally).",
+                                        "default": false,
+                                        "type": "boolean"
+                                    }
+                                },
+                                "additionalProperties": false
+                            }
+                        },
+                        "additionalProperties": false
+                    },
+                    "noCloud": {
+                        "description": "Disable cloud connectivity (NO_CLOUD env). When enabled, Newt operates without connecting to Pangolin cloud.",
+                        "type": "boolean"
+                    },
+                    "nodeSelector": {
+                        "description": "Node selection constraints",
+                        "type": "object"
+                    },
+                    "pangolinEndpoint": {
+                        "description": "Pangolin control-plane endpoint URL (e.g., https://pangolin.example.com)",
+                        "type": "string",
+                        "pattern": "^$|^https?://[a-zA-Z0-9.-]+(/.*)?$"
+                    },
+                    "pingInterval": {
+                        "description": "Optional ping interval (e.g., \"3s\"). Leave empty to use default",
+                        "type": "string"
+                    },
+                    "pingTimeout": {
+                        "description": "Optional ping timeout (e.g., \"5s\"). Leave empty to use default",
+                        "type": "string"
+                    },
+                    "podDisruptionBudget": {
+                        "description": "Pod Disruption Budget override for this instance",
+                        "type": "object"
+                    },
+                    "podSecurityContext": {
+                        "description": "Pod-level securityContext override",
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": [
+                                "string",
+                                "integer",
+                                "boolean"
+                            ]
+                        }
+                    },
+                    "port": {
+                        "description": "WireGuard UDP port (PORT env). Default is 51820.",
+                        "type": "string"
+                    },
+                    "replicas": {
+                        "description": "Number of replicas for this instance (default: 1)",
+                        "type": "integer",
+                        "minimum": 1
+                    },
+                    "resources": {
+                        "type": "object",
+                        "properties": {
+                            "limits": {
+                                "type": "object",
+                                "properties": {
+                                    "cpu": {
+                                        "description": "CPU limit",
+                                        "type": "string"
+                                    },
+                                    "memory": {
+                                        "description": "Memory limit",
+                                        "type": "string"
+                                    }
+                                }
+                            },
+                            "requests": {
+                                "type": "object",
+                                "properties": {
+                                    "cpu": {
+                                        "description": "CPU request",
+                                        "type": "string"
+                                    },
+                                    "ephemeral-storage": {
+                                        "description": "Ephemeral storage request",
+                                        "type": "string"
+                                    },
+                                    "memory": {
+                                        "description": "Memory request",
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "secret": {
+                        "description": "Instance secret issued by Pangolin (WARNING: Use existingSecretName for production)",
+                        "type": "string",
+                        "pattern": "^$|^[a-zA-Z0-9_-]+$"
+                    },
+                    "securityContext": {
+                        "description": "Container-level securityContext override SECURITY NOTE: By default (when nativeMode is disabled), Newt runs as non-root. When nativeMode.enabled=true OR useNativeInterface=true, Newt runs as root with privileges. IMPORTANT: Do NOT set capabilities.drop when running as root - this is invalid.",
+                        "type": "object"
+                    },
+                    "service": {
+                        "type": "object",
+                        "properties": {
+                            "annotations": {
+                                "description": "Service annotations",
+                                "type": "object"
+                            },
+                            "enabled": {
+                                "description": "Create a Service for this instance",
+                                "type": "boolean"
+                            },
+                            "enabledWhenAcceptClients": {
+                                "description": "Create Service when acceptClients is true (alternative to service.enabled)",
+                                "type": "boolean"
+                            },
+                            "externalTrafficPolicy": {
+                                "description": "External traffic policy (Cluster or Local). Empty = omit field",
+                                "type": "string",
+                                "enum": [
+                                    "",
+                                    "Cluster",
+                                    "Local"
+                                ]
+                            },
+                            "labels": {
+                                "description": "Additional service labels",
+                                "type": "object"
+                            },
+                            "loadBalancerClass": {
+                                "description": "loadBalancerClass (when type=LoadBalancer). Empty = omit field",
+                                "type": "string"
+                            },
+                            "loadBalancerIP": {
+                                "description": "Static loadBalancerIP (when type=LoadBalancer). Empty = omit field",
+                                "type": "string"
+                            },
+                            "loadBalancerSourceRanges": {
+                                "description": "Source ranges to allow (when type=LoadBalancer). Empty = omit field",
+                                "type": "array"
+                            },
+                            "nodePorts": {
+                                "description": "NodePorts for NodePort type (optional, set only to fix ports)",
+                                "type": "object",
+                                "properties": {
+                                    "tester": {
+                                        "description": "NodePort to expose tester UDP (leave empty to let K8s assign one)",
+                                        "type": [
+                                            "integer",
+                                            "string"
+                                        ]
+                                    },
+                                    "wg": {
+                                        "description": "NodePort to expose WireGuard UDP (leave empty to let K8s assign one)",
+                                        "type": [
+                                            "integer",
+                                            "string"
+                                        ]
+                                    }
+                                }
+                            },
+                            "port": {
+                                "description": "WireGuard UDP service port",
+                                "type": "integer"
+                            },
+                            "testerPort": {
+                                "description": "Tester/diagnostic UDP service port",
+                                "type": "integer"
+                            },
+                            "type": {
+                                "description": "Service type for this instance",
+                                "type": "string",
+                                "enum": [
+                                    "ClusterIP",
+                                    "LoadBalancer",
+                                    "NodePort"
+                                ]
+                            }
+                        }
+                    },
+                    "tolerations": {
+                        "description": "Pod tolerations",
+                        "type": "array"
+                    },
+                    "topologySpreadConstraints": {
+                        "description": "Pod topology spread constraints",
+                        "type": "array",
+                        "items": {
+                            "type": "object"
+                        }
+                    },
+                    "updown": {
+                        "type": "object",
+                        "properties": {
+                            "enabled": {
+                                "description": "Mount and execute a shared up/down script",
+                                "type": "boolean"
+                            },
+                            "fileName": {
+                                "description": "filename for the single up/down script",
+                                "type": "string"
+                            },
+                            "mountPath": {
+                                "description": "Container mount path for up/down script files",
+                                "type": "string"
+                            },
+                            "script": {
+                                "description": "inline script content (prefer updownScripts map)",
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "useCommandArgs": {
+                        "description": "Use command/args instead of environment-variable configuration",
+                        "type": "boolean"
+                    },
+                    "useNativeInterface": {
+                        "description": "Use native WireGuard kernel interface (requires nativeMode.enabled=true and privileged)",
+                        "type": "boolean"
+                    }
+                }
+            }
+        },
+        "rbac": {
+            "description": "--------------------------------------------------------------------------- RBAC Configuration ",
+            "type": "object",
+            "properties": {
+                "annotations": {
+                    "description": "Additional annotations applied to RBAC resources.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "clusterRole": {
+                    "description": "Create ClusterRole/ClusterRoleBinding instead of namespaced Role/RoleBinding.",
+                    "default": false,
+                    "type": "boolean"
+                },
+                "create": {
+                    "description": "Create RBAC resources (Role/RoleBinding or ClusterRole/ClusterRoleBinding).",
+                    "default": true,
+                    "type": "boolean"
+                },
+                "labels": {
+                    "description": "Additional labels applied to RBAC resources.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "serviceAccount": {
+            "description": "--------------------------------------------------------------------------- ServiceAccount Configuration ",
+            "type": "object",
+            "properties": {
+                "annotations": {
+                    "description": "Additional annotations applied to the ServiceAccount.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "automountServiceAccountToken": {
+                    "description": "Control automounting of the ServiceAccount token on Pods.",
+                    "default": false,
+                    "type": "boolean"
+                },
+                "create": {
+                    "description": "Create a dedicated ServiceAccount for this release.",
+                    "default": true,
+                    "type": "boolean"
+                },
+                "name": {
+                    "description": "ServiceAccount name. If empty and create=true, the chart generates a name. If create=false and empty, the \"default\" ServiceAccount is used.",
+                    "type": "string",
+                    "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+                }
+            }
         }
-      }
     },
-    "image": {
-      "type": "object",
-      "description": "Chart-level image settings (fallback)",
-      "properties": {
-        "repository": {"type": "string", "description": "Container image repository."},
-        "tag": {"type": "string", "description": "Image tag (ignored if digest set)."},
-        "pullPolicy": {"type": "string", "enum": ["Always", "IfNotPresent", "Never"], "description": "Image pull policy."},
-        "digest": {"type": "string", "description": "Image digest (sha256:...)."}
-      }
-    },
-    "newtInstances": {
-      "type": "array",
-      "description": "Array of Newt client instances",
-      "items": {
-        "type": "object",
-        "properties": {
-          "name": {"type": "string", "description": "Instance name (DNS-1123)", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "minLength": 1, "maxLength": 63},
-          "enabled": {"type": "boolean", "description": "Enable this instance."},
-          "replicas": {"type": "integer", "minimum": 0, "description": "Replica count."},
-          "allowGlobalOverride": {"type": "boolean", "description": "Allow this instance to override global settings (image, logLevel, resources, podSecurityContext, securityContext)."},
-          "pangolinEndpoint": {"type": "string", "description": "Pangolin endpoint URL"},
-          "id": {"type": "string", "description": "Instance ID."},
-          "secret": {"type": "string", "description": "Instance secret/key."},
-          "healthFile": {"type": "string", "description": "File path used for liveness/readiness."},
-          "logLevel": {"type": "string", "description": "Per-instance log level (overrides global when allowGlobalOverride=true)."},
-          "mtu": {"type": "integer", "description": "Interface MTU."},
-          "dns": {"type": "string", "description": "DNS server to use."},
-          "pingInterval": {"type": "string", "description": "Ping interval."},
-          "pingTimeout": {"type": "string", "description": "Ping timeout."},
-          "acceptClients": {"type": "boolean", "description": "Accept client connections."},
-          "useNativeInterface": {"type": "boolean", "description": "Use native WireGuard interface."},
-          "interface": {"type": "string", "description": "Interface name."},
-          "keepInterface": {"type": "boolean", "description": "Keep interface on shutdown."},
-          "configFile": {"type": "string", "description": "Path to config.json to load at startup (ENV CONFIG_FILE)."},
-          "generateAndSaveKeyTo": {"type": "string", "description": "Path to save generated private key (ENV GENERATE_AND_SAVE_KEY_TO)."},
-          "dockerSocket": {"type": "object", "description": "Docker socket exposure settings.", "properties": {"enabled": {"type": "boolean", "description": "Mount Docker socket."}, "path": {"type": "string", "description": "Docker socket path."}, "enforceNetworkValidation": {"type": "boolean", "description": "Enforce network validation."}}},
-          "mtls": {"type": "object", "description": "mTLS client certificate settings.", "properties": {"enabled": {"type": "boolean", "description": "Enable mTLS mounting."}, "secretName": {"type": "string", "description": "Secret containing client.p12."}, "certPath": {"type": "string", "description": "Mount path inside container."}, "p12Base64": {"type": "string", "description": "Inline base64 client.p12 content."}}},
-          "auth": {"type": "object", "description": "Credentials via existing Secret (preferred). If set, all three env vars are sourced from this Secret.", "properties": {"existingSecretName": {"type": "string", "description": "Existing Secret name containing PANGOLIN_ENDPOINT, NEWT_ID, NEWT_SECRET."}, "keys": {"type": "object", "properties": {"endpointKey": {"type": "string", "description": "Key name for endpoint in the Secret.", "default": "PANGOLIN_ENDPOINT"}, "idKey": {"type": "string", "description": "Key name for ID in the Secret.", "default": "NEWT_ID"}, "secretKey": {"type": "string", "description": "Key name for secret in the Secret.", "default": "NEWT_SECRET"}}, "additionalProperties": false}}, "additionalProperties": false},
-          "updown": {"type": "object", "description": "Per-instance up/down script settings.", "properties": {"enabled": {"type": "boolean", "description": "Mount shared up/down scripts."}, "script": {"type": "string", "description": "(Deprecated) single script content."}, "mountPath": {"type": "string", "description": "Mount path for scripts."}, "fileName": {"type": "string", "description": "(Deprecated) single script name."}}},
-          "podSecurityContext": {"type": "object", "description": "Instance Pod securityContext override."},
-          "securityContext": {"type": "object", "description": "Instance container securityContext override."},
-          "rbac": {"type": "object", "description": "Instance RBAC overrides.", "properties": {"create": {"type": "boolean", "description": "Create RBAC for this instance."}, "clusterRole": {"type": "boolean", "description": "Use cluster-wide RBAC."}, "annotations": {"type": "object", "additionalProperties": {"type": "string"}, "description": "RBAC annotations."}, "labels": {"type": "object", "additionalProperties": {"type": "string"}, "description": "RBAC labels."}}},
-          "resources": {
-            "type": "object",
-            "description": "Resources requests/limits.",
-            "properties": {
-              "requests": {
-                "type": "object",
-                "properties": {
-                  "cpu": {"type": "string", "description": "CPU request."},
-                  "memory": {"type": "string", "description": "Memory request."},
-                  "ephemeral-storage": {"type": "string", "description": "Ephemeral storage request."}
-                }
-              },
-              "limits": {
-                "type": "object",
-                "properties": {
-                  "cpu": {"type": "string", "description": "CPU limit."},
-                  "memory": {"type": "string", "description": "Memory limit."},
-                  "ephemeral-storage": {"type": "string", "description": "Ephemeral storage limit."}
-                }
-              }
-            }
-          },
-          "service": {
-            "type": "object",
-            "description": "Per-instance Service settings.",
-            "properties": {
-              "enabled": {"type": "boolean", "description": "Create a Service for this instance."},
-              "type": {"type": "string", "enum": ["ClusterIP", "LoadBalancer", "NodePort"], "description": "Kubernetes Service type"},
-              "port": {"type": "integer", "description": "WireGuard UDP service port"},
-              "testerPort": {"type": "integer", "description": "Tester UDP port"},
-              "externalTrafficPolicy": {"type": "string", "enum": ["", "Cluster", "Local"], "description": "External traffic policy (omit when empty)"},
-              "loadBalancerIP": {"type": "string", "description": "Static loadBalancerIP (omit when empty)"},
-              "loadBalancerClass": {"type": "string", "description": "loadBalancerClass (omit when empty)"},
-              "loadBalancerSourceRanges": {"type": "array", "items": {"type": "string"}, "description": "Source ranges (omit when empty)"},
-              "nodePorts": {"type": "object", "properties": {"wg": {"type": ["integer", "string"], "description": "NodePort for wg (30000-32767)"}, "tester": {"type": ["integer", "string"], "description": "NodePort for tester (30000-32767)"}}},
-              "annotations": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Service annotations"},
-              "labels": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Service labels"}
-            }
-          },
-          "nodeSelector": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Instance node selector."},
-          "tolerations": {"type": "array", "items": {"type": "object"}, "description": "Instance tolerations."},
-          "affinity": {"type": "object", "description": "Instance affinity rules."},
-          "extraEnv": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Extra environment variables."},
-          "extraVolumes": {"type": "array", "items": {"type": "object"}, "description": "Extra pod volumes."},
-          "extraVolumeMounts": {"type": "array", "items": {"type": "object"}, "description": "Extra container volume mounts."},
-          "initContainers": {"type": "array", "items": {"type": "object"}, "description": "Additional init containers."},
-          "extraContainers": {"type": "array", "items": {"type": "object"}, "description": "Additional sidecar containers."},
-          "useCommandArgs": {"type": "boolean", "description": "Use command/args instead of env injection."},
-          "hostNetwork": {"type": "boolean", "description": "Enable host networking."},
-          "hostPID": {"type": "boolean", "description": "Enable host PID namespace."}
-        },
-        "required": ["name"],
-        "allOf": [
-          {
-            "if": {"properties": {"enabled": {"enum": [true]}}, "required": ["enabled"]},
-            "then": {
-              "oneOf": [
-                {"required": ["auth"], "properties": {"auth": {"type": "object", "properties": {"existingSecretName": {"type": "string", "minLength": 1}}, "required": ["existingSecretName"]}}},
-                {"properties": {"pangolinEndpoint": {"type": "string", "pattern": "^https?://[a-zA-Z0-9.-]+(/.*)?$"}, "id": {"type": "string", "minLength": 1}, "secret": {"type": "string", "minLength": 1}}, "required": ["pangolinEndpoint", "id", "secret"]}
-              ]
-            }
-          }
-        ]
-      }
-    }
-  },
-  "required": ["newtInstances"],
-  "additionalProperties": false,
-  "definitions": {}
+    "additionalProperties": false
 }

@@ -1,0 +1,6 @@
+# Test with no extra features
+newtInstances:
+  - name: basic
+    enabled: true
+    auth:
+      existingSecretName: newt-auth

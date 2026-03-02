@@ -14,4 +14,4 @@ schemaRoot:
   id: https://github.com/fosrl/helm-charts/charts/newt/values.schema.json
   title: Newt values schema
   description: Values schema for the Newt Helm chart
-  additionalProperties: true
+  additionalProperties: false

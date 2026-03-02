@@ -1,0 +1,12 @@
+# Multiple instances
+newtInstances:
+  - name: instance-1
+    enabled: true
+    auth:
+      existingSecretName: newt-auth-1
+    port: "51820"
+  - name: instance-2
+    enabled: true
+    auth:
+      existingSecretName: newt-auth-2
+    port: "51822"

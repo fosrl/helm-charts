@@ -1,0 +1,6 @@
+# Minimal values: use an existing secret with credentials
+newtInstances:
+  - name: main-tunnel
+    auth:
+      existingSecretName: newt-cred
+    enabled: true

@@ -3,3 +3,5 @@ template-renderd*.yaml
 charts/pangolin/tests/output/*
 charts/newt/tests/output/*
 render-test/*
+tmp/*
+out*.yaml

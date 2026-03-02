@@ -1,0 +1,12 @@
+# Minimal with metrics enabled
+global:
+  metrics:
+    enabled: true
+    service:
+      enabled: true
+      port: 9090
+newtInstances:
+  - name: main-tunnel
+    auth:
+      existingSecretName: newt-cred
+    enabled: true

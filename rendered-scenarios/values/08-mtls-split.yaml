@@ -1,0 +1,15 @@
+# 08-mtls-split.yaml - mTLS with split PEM certificates
+
+newtInstances:
+  - name: "mtls-split"
+    enabled: true
+    auth:
+      existingSecretName: "newt-auth"
+    mtls:
+      enabled: true
+      mode: "pem"
+      pem:
+        secretName: "mtls-pem-secret"
+        clientCertPath: "/certs/client.crt"
+        clientKeyPath: "/certs/client.key"
+        caPath: "/certs/ca.crt"

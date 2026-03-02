@@ -1,0 +1,14 @@
+# 06-health-file.yaml - Health file enabled with custom path
+
+global:
+  health:
+    enabled: true
+    path: "/tmp/newt-health"
+    readinessFailureThreshold: 5
+
+newtInstances:
+  - name: "health-file"
+    enabled: true
+    auth:
+      existingSecretName: "newt-auth"
+    healthFile: "/tmp/newt-health"

@@ -1,0 +1,15 @@
+# Custom resources per instance
+newtInstances:
+  - name: custom-resources
+    enabled: true
+    auth:
+      existingSecretName: newt-auth
+    resources:
+      requests:
+        cpu: 200m
+        memory: 256Mi
+        ephemeral-storage: 256Mi
+      limits:
+        cpu: 1000m
+        memory: 512Mi
+        ephemeral-storage: 512Mi

@@ -1,0 +1,46 @@
+suite: PodMonitor rendering
+templates:
+  - templates/podmonitor.yaml
+tests:
+  - it: renders nothing when metrics.enabled is false
+    set:
+      global:
+        metrics:
+          enabled: false
+      newtInstances:
+        - name: test-disabled
+          enabled: true
+          secret: test-secret
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders PodMonitor when podMonitor is enabled globally
+    set:
+      global:
+        metrics:
+          enabled: true
+          podMonitor:
+            enabled: true
+      newtInstances:
+        - name: test-pod-global
+          enabled: true
+          secret: test-secret
+    asserts:
+      - isKind:
+          of: PodMonitor
+
+  - it: does not render PodMonitor when podMonitor is disabled
+    set:
+      global:
+        metrics:
+          enabled: true
+          podMonitor:
+            enabled: false
+      newtInstances:
+        - name: test-disabled
+          enabled: true
+          secret: test-secret
+    asserts:
+      - hasDocuments:
+          count: 0

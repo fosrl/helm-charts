@@ -1,0 +1,8 @@
+# Service disabled for instance
+newtInstances:
+  - name: no-service
+    enabled: true
+    service:
+      enabled: false
+    auth:
+      existingSecretName: newt-auth

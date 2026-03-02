@@ -1,0 +1,9 @@
+# NetworkPolicy disabled
+newtInstances:
+  - name: no-netpol
+    enabled: true
+    auth:
+      existingSecretName: newt-auth
+global:
+  networkPolicy:
+    enabled: false

@@ -1,0 +1,205 @@
+---
+# Source: newt/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: newt-08-mtls-split-newt-sa
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: newt
+    app.kubernetes.io/instance: newt-08-mtls-split
+    app.kubernetes.io/version: "1.10.1"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: newt-1.3.0
+automountServiceAccountToken: false
+---
+# Source: newt/templates/secret-newt.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: newt-08-mtls-split-newt-pem-mtls
+  labels:
+    app.kubernetes.io/name: newt
+    app.kubernetes.io/instance: newt-08-mtls-split
+    app.kubernetes.io/version: "1.10.1"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: newt-1.3.0
+    newt.instance: pem-mtls
+type: Opaque
+data:
+  client.p12: ""
+---
+# Source: newt/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: newt-08-mtls-split-newt
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: newt
+    app.kubernetes.io/instance: newt-08-mtls-split
+    app.kubernetes.io/version: "1.10.1"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: newt-1.3.0
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get","list","watch"]
+---
+# Source: newt/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: newt-08-mtls-split-newt
+  labels:
+    app.kubernetes.io/name: newt
+    app.kubernetes.io/instance: newt-08-mtls-split
+    app.kubernetes.io/version: "1.10.1"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: newt-1.3.0
+subjects:
+  - kind: ServiceAccount
+    name: newt-08-mtls-split-newt-sa
+    namespace: kube-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: newt-08-mtls-split-newt
+---
+# Source: newt/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: newt-08-mtls-split-newt-pem-mtls
+  labels:
+    app.kubernetes.io/name: newt
+    app.kubernetes.io/instance: newt-08-mtls-split
+    app.kubernetes.io/version: "1.10.1"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: newt-1.3.0
+    newt.instance: pem-mtls
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/instance: newt-08-mtls-split
+    newt.instance: pem-mtls
+  ports:
+    - name: wg
+      port: 51820
+      targetPort: 51820
+      protocol: UDP
+    - name: tester
+      port: 51821
+      targetPort: 51821
+      protocol: UDP
+---
+# Source: newt/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: newt-08-mtls-split-newt-pem-mtls
+  labels:
+    app.kubernetes.io/name: newt
+    app.kubernetes.io/instance: newt-08-mtls-split
+    app.kubernetes.io/version: "1.10.1"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: newt-1.3.0
+    app.kubernetes.io/component: newt
+    newt.instance: pem-mtls
+spec:
+  revisionHistoryLimit: 3
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: newt-08-mtls-split
+      newt.instance: pem-mtls
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: newt
+        app.kubernetes.io/instance: newt-08-mtls-split
+        newt.instance: pem-mtls
+    spec:
+      serviceAccountName: newt-08-mtls-split-newt-sa
+      automountServiceAccountToken: false
+      containers:
+        - name: newt
+          image: docker.io/fosrl/newt:1.10.1
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 65534
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: PANGOLIN_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: newt-auth
+                  key: PANGOLIN_ENDPOINT
+            - name: NEWT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: newt-auth
+                  key: NEWT_ID
+            - name: NEWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: newt-auth
+                  key: NEWT_SECRET
+            - name: LOG_LEVEL
+              value: "INFO"
+            - name: TLS_CLIENT_CERT
+              value: "/certs/client.crt"
+            - name: TLS_CLIENT_KEY
+              value: "/certs/client.key"
+            - name: TLS_CLIENT_CAS
+              value: "/certs/ca.crt"
+          ports:
+            - name: wg
+              containerPort: 51820
+              protocol: UDP
+            - name: tester
+              containerPort: 51821
+              protocol: UDP
+          volumeMounts:
+            - name: mtls-client-cert
+              mountPath: "/certs"
+              readOnly: true
+            - name: mtls-client-key
+              mountPath: "/certs"
+              readOnly: true
+            - name: mtls-ca-cert
+              mountPath: "/certs"
+              readOnly: true
+          resources:
+            limits:
+              cpu: 200m
+              ephemeral-storage: 256Mi
+              memory: 256Mi
+            requests:
+              cpu: 100m
+              ephemeral-storage: 128Mi
+              memory: 128Mi
+      volumes:
+        - name: mtls-client-cert
+          secret:
+            secretName: my-mtls-secret
+            items:
+              - key: client.crt
+                path: client.crt
+        - name: mtls-client-key
+          secret:
+            secretName: my-mtls-secret
+            items:
+              - key: client.key
+                path: client.key
+        - name: mtls-ca-cert
+          secret:
+            secretName: my-mtls-secret
+            items:
+              - key: ca.crt
+                path: ca.crt

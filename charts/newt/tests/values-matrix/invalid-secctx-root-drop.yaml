@@ -1,0 +1,13 @@
+# Invalid securityContext: root user with capabilities.drop (should fail rendering)
+newtInstances:
+  - name: invalid-secctx
+    enabled: true
+    allowGlobalOverride: true
+    auth:
+      existingSecretName: newt-auth
+    securityContext:
+      runAsUser: 0
+      runAsNonRoot: true
+      capabilities:
+        drop:
+          - ALL

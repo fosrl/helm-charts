@@ -1,0 +1,171 @@
+---
+# Source: newt/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: newt-05-otlp-exporter-newt-sa
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: newt
+    app.kubernetes.io/instance: newt-05-otlp-exporter
+    app.kubernetes.io/version: "1.10.1"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: newt-1.3.0
+automountServiceAccountToken: false
+---
+# Source: newt/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: newt-05-otlp-exporter-newt
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: newt
+    app.kubernetes.io/instance: newt-05-otlp-exporter
+    app.kubernetes.io/version: "1.10.1"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: newt-1.3.0
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get","list","watch"]
+---
+# Source: newt/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: newt-05-otlp-exporter-newt
+  labels:
+    app.kubernetes.io/name: newt
+    app.kubernetes.io/instance: newt-05-otlp-exporter
+    app.kubernetes.io/version: "1.10.1"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: newt-1.3.0
+subjects:
+  - kind: ServiceAccount
+    name: newt-05-otlp-exporter-newt-sa
+    namespace: kube-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: newt-05-otlp-exporter-newt
+---
+# Source: newt/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: newt-05-otlp-exporter-newt-metrics
+  labels:
+    app.kubernetes.io/name: newt
+    app.kubernetes.io/instance: newt-05-otlp-exporter
+    app.kubernetes.io/version: "1.10.1"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: newt-1.3.0
+    newt.instance: metrics
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/instance: newt-05-otlp-exporter
+    newt.instance: metrics
+  ports:
+    - name: wg
+      port: 51820
+      targetPort: 51820
+      protocol: UDP
+    - name: tester
+      port: 51821
+      targetPort: 51821
+      protocol: UDP
+---
+# Source: newt/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: newt-05-otlp-exporter-newt-metrics
+  labels:
+    app.kubernetes.io/name: newt
+    app.kubernetes.io/instance: newt-05-otlp-exporter
+    app.kubernetes.io/version: "1.10.1"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: newt-1.3.0
+    app.kubernetes.io/component: newt
+    newt.instance: metrics
+spec:
+  revisionHistoryLimit: 3
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: newt-05-otlp-exporter
+      newt.instance: metrics
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: newt
+        app.kubernetes.io/instance: newt-05-otlp-exporter
+        newt.instance: metrics
+      annotations:
+        prometheus.io/path: /metrics
+        prometheus.io/port: "9090"
+        prometheus.io/scrape: "true"
+    spec:
+      serviceAccountName: newt-05-otlp-exporter-newt-sa
+      automountServiceAccountToken: false
+      containers:
+        - name: newt
+          image: docker.io/fosrl/newt:1.10.1
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 65534
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: PANGOLIN_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: newt-auth
+                  key: PANGOLIN_ENDPOINT
+            - name: NEWT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: newt-auth
+                  key: NEWT_ID
+            - name: NEWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: newt-auth
+                  key: NEWT_SECRET
+            - name: LOG_LEVEL
+              value: "INFO"
+            - name: NEWT_ADMIN_ADDR
+              value: "0.0.0.0:2112"
+            - name: NEWT_METRICS_ASYNC_BYTES
+              value: "true"
+            - name: NEWT_REGION
+              value: "us-east-1"
+            - name: NEWT_METRICS_OTLP_ENABLED
+              value: "true"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "https://otlp.example.com:4317"
+          ports:
+            - name: wg
+              containerPort: 51820
+              protocol: UDP
+            - name: tester
+              containerPort: 51821
+              protocol: UDP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          resources:
+            limits:
+              cpu: 200m
+              ephemeral-storage: 256Mi
+              memory: 256Mi
+            requests:
+              cpu: 100m
+              ephemeral-storage: 128Mi
+              memory: 128Mi

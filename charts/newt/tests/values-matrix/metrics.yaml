@@ -1,0 +1,15 @@
+# Metrics enabled
+newtInstances:
+  - name: metrics
+    enabled: true
+    auth:
+      existingSecretName: newt-auth
+global:
+  metrics:
+    enabled: true
+    otlpEnabled: true
+    otel:
+      exporterOtlpEndpoint: "https://otlp.example.com:4317"
+    adminAddr: "0.0.0.0:2112"
+    asyncBytes: true
+    region: "us-east-1"

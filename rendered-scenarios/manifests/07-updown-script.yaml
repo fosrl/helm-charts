@@ -1,0 +1,217 @@
+---
+# Source: newt/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: newt-07-updown-script-newt-sa
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: newt
+    app.kubernetes.io/instance: newt-07-updown-script
+    app.kubernetes.io/version: "1.10.1"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: newt-1.3.0
+automountServiceAccountToken: false
+---
+# Source: newt/templates/secret-newt.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: newt-07-updown-script-newt-main-tunnel
+  labels:
+    app.kubernetes.io/name: newt
+    app.kubernetes.io/instance: newt-07-updown-script
+    app.kubernetes.io/version: "1.10.1"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: newt-1.3.0
+    newt.instance: main-tunnel
+type: Opaque
+data:
+  NEWT_SECRET: "ZXhhbXBsZS1zZWNyZXQ="
+---
+# Source: newt/templates/configmap-env.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: newt-07-updown-script-newt-main-tunnel-env
+  labels:
+    app.kubernetes.io/name: newt
+    app.kubernetes.io/instance: newt-07-updown-script
+    app.kubernetes.io/version: "1.10.1"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: newt-1.3.0
+    newt.instance: main-tunnel
+data:
+  EXAMPLE_FLAG: "true"
+---
+# Source: newt/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: newt-07-updown-script-newt
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: newt
+    app.kubernetes.io/instance: newt-07-updown-script
+    app.kubernetes.io/version: "1.10.1"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: newt-1.3.0
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get","list","watch"]
+---
+# Source: newt/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: newt-07-updown-script-newt
+  labels:
+    app.kubernetes.io/name: newt
+    app.kubernetes.io/instance: newt-07-updown-script
+    app.kubernetes.io/version: "1.10.1"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: newt-1.3.0
+subjects:
+  - kind: ServiceAccount
+    name: newt-07-updown-script-newt-sa
+    namespace: kube-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: newt-07-updown-script-newt
+---
+# Source: newt/templates/service-metrics.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: newt-07-updown-script-newt-main-tunnel-metrics
+  labels:
+    app.kubernetes.io/name: newt
+    app.kubernetes.io/instance: newt-07-updown-script
+    app.kubernetes.io/version: "1.10.1"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: newt-1.3.0
+    app.kubernetes.io/component: metrics
+    newt.instance: main-tunnel
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/instance: newt-07-updown-script
+    newt.instance: main-tunnel
+  ports:
+    - name: metrics
+      port: 9090
+      targetPort: 9090
+      protocol: TCP
+---
+# Source: newt/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: newt-07-updown-script-newt-main-tunnel
+  labels:
+    app.kubernetes.io/name: newt
+    app.kubernetes.io/instance: newt-07-updown-script
+    app.kubernetes.io/version: "1.10.1"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: newt-1.3.0
+    newt.instance: main-tunnel
+spec:
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/instance: newt-07-updown-script
+    newt.instance: main-tunnel
+  ports:
+    - name: wg
+      port: 51820
+      targetPort: 51820
+      protocol: UDP
+    - name: tester
+      port: 51821
+      targetPort: 51821
+      protocol: UDP
+---
+# Source: newt/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: newt-07-updown-script-newt-main-tunnel
+  labels:
+    app.kubernetes.io/name: newt
+    app.kubernetes.io/instance: newt-07-updown-script
+    app.kubernetes.io/version: "1.10.1"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: newt-1.3.0
+    app.kubernetes.io/component: newt
+    newt.instance: main-tunnel
+spec:
+  revisionHistoryLimit: 3
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: newt-07-updown-script
+      newt.instance: main-tunnel
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: newt
+        app.kubernetes.io/instance: newt-07-updown-script
+        newt.instance: main-tunnel
+      annotations:
+        prometheus.io/path: /metrics
+        prometheus.io/port: "9090"
+        prometheus.io/scrape: "true"
+    spec:
+      serviceAccountName: newt-07-updown-script-newt-sa
+      automountServiceAccountToken: false
+      containers:
+        - name: newt
+          image: docker.io/fosrl/newt:latest
+          # WARNING: Do not use 'latest' tag for production deployments!
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 65534
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: PANGOLIN_ENDPOINT
+              value: "https://pangolin.example.com"
+            - name: NEWT_ID
+              value: "example-id"
+            - name: NEWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: newt-07-updown-script-newt-main-tunnel
+                  key: NEWT_SECRET
+            - name: LOG_LEVEL
+              value: "INFO"
+            - name: MTU
+              value: "1380"
+            - name: DNS
+              value: "8.8.8.8"
+            - name: EXAMPLE_FLAG
+              value: "true"
+          ports:
+            - name: wg
+              containerPort: 51820
+              protocol: UDP
+            - name: tester
+              containerPort: 51821
+              protocol: UDP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          resources:
+            limits:
+              cpu: 200m
+              ephemeral-storage: 256Mi
+              memory: 256Mi
+            requests:
+              cpu: 100m
+              ephemeral-storage: 128Mi
+              memory: 128Mi

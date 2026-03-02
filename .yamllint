@@ -1,12 +1,13 @@
 extends: default
 rules:
+  comments:
+    min-spaces-from-content: 1
+    require-starting-space: false
+  document-start: disable
+  indentation: disable
   line-length:
-    max: 120
+    max: 200
     level: warning
-  document-start:
-    present: false
   truthy:
-    allowed-values: ['true', 'false', 'on', 'off', 'yes', 'no']
-  new-lines:
-    type: unix
-    level: warning
+    allowed-values: ["true", "false", "on", "off"]
+    check-keys: false

@@ -147,7 +147,7 @@ imagePullSecrets:
 - name: LOG_LEVEL
   value: {{ $root.Values.global.logLevel | quote }}
 {{- end }}
-{{- if and $inst.mtu (ne $inst.mtu 1280) }}
+{{- if and $inst.mtu (ne (int $inst.mtu) 1280) }}
 - name: MTU
   value: {{ printf "%v" $inst.mtu | quote }}
 {{- end }}
@@ -194,11 +194,6 @@ imagePullSecrets:
 - name: UPDOWN_SCRIPT
   value: {{ printf "%s/%s" (default "/opt/newt/updown" $inst.updown.mountPath) (default "updown.sh" $inst.updown.fileName) | quote }}
 {{ end }}
-{{- if and (kindIs "map" $inst.mtls) $inst.mtls.enabled }}
-{{- $cp := ternary $inst.mtls.certPath "/certs/client.p12" (and (kindIs "map" $inst.mtls) (kindIs "string" $inst.mtls.certPath) (ne $inst.mtls.certPath "")) -}}
-- name: TLS_CLIENT_CERT
-  value: {{ $cp | quote }}
-{{- end }}
 {{- if $inst.configFile }}
 - name: CONFIG_FILE
   value: {{ $inst.configFile | quote }}
@@ -206,6 +201,84 @@ imagePullSecrets:
 {{- if $inst.generateAndSaveKeyTo }}
 - name: GENERATE_AND_SAVE_KEY_TO
   value: {{ $inst.generateAndSaveKeyTo | quote }}
+{{- end }}
+{{- if $inst.port }}
+- name: PORT
+  value: {{ $inst.port | quote }}
+{{- end }}
+{{- if $inst.noCloud }}
+- name: NO_CLOUD
+  value: "true"
+{{- end }}
+{{- if $inst.disableClients }}
+- name: DISABLE_CLIENTS
+  value: "true"
+{{- end }}
+{{- if $inst.blueprintFile }}
+- name: BLUEPRINT_FILE
+  value: {{ $inst.blueprintFile | quote }}
+{{- end }}
+{{- if $inst.enforceHcCert }}
+- name: ENFORCE_HC_CERT
+  value: "true"
+{{- end }}
+{{- /* Metrics and OTEL env vars */ -}}
+{{- $gm := (default (dict) $root.Values.global.metrics) -}}
+{{- if $gm.enabled }}
+{{- if and $gm.adminAddr (ne $gm.adminAddr "127.0.0.1:2112") }}
+- name: NEWT_ADMIN_ADDR
+  value: {{ $gm.adminAddr | quote }}
+{{- end }}
+{{- if $gm.asyncBytes }}
+- name: NEWT_METRICS_ASYNC_BYTES
+  value: "true"
+{{- end }}
+{{- if $gm.region }}
+- name: NEWT_REGION
+  value: {{ $gm.region | quote }}
+{{- end }}
+{{- if $gm.otlpEnabled }}
+- name: NEWT_METRICS_OTLP_ENABLED
+  value: "true"
+{{- end }}
+{{- $otel := (default (dict) $gm.otel) -}}
+{{- if $otel.exporterOtlpEndpoint }}
+- name: OTEL_EXPORTER_OTLP_ENDPOINT
+  value: {{ $otel.exporterOtlpEndpoint | quote }}
+{{- end }}
+{{- if $otel.exporterOtlpProtocol }}
+- name: OTEL_EXPORTER_OTLP_PROTOCOL
+  value: {{ $otel.exporterOtlpProtocol | quote }}
+{{- end }}
+{{- if $otel.exporterOtlpHeaders }}
+- name: OTEL_EXPORTER_OTLP_HEADERS
+  value: {{ $otel.exporterOtlpHeaders | quote }}
+{{- end }}
+{{- if $otel.serviceName }}
+- name: OTEL_SERVICE_NAME
+  value: {{ $otel.serviceName | quote }}
+{{- end }}
+{{- end }}
+{{- /* mTLS split PEM env vars */ -}}
+{{- $mtls := (default (dict) $inst.mtls) -}}
+{{- if and $mtls.enabled (eq (default "pkcs12" $mtls.mode) "pem") -}}
+{{- $pem := (default (dict) $mtls.pem) -}}
+{{- if $pem.clientCertPath }}
+- name: TLS_CLIENT_CERT
+  value: {{ $pem.clientCertPath | quote }}
+{{- end }}
+{{- if $pem.clientKeyPath }}
+- name: TLS_CLIENT_KEY
+  value: {{ $pem.clientKeyPath | quote }}
+{{- end }}
+{{- if $pem.caPath }}
+- name: TLS_CLIENT_CAS
+  value: {{ $pem.caPath | quote }}
+{{- end }}
+{{- else if and $mtls.enabled (eq (default "pkcs12" $mtls.mode) "pkcs12") -}}
+{{- $cp := ternary $mtls.certPath "/certs/client.p12" (and (kindIs "map" $mtls) (kindIs "string" $mtls.certPath) (ne $mtls.certPath "")) -}}
+- name: TLS_CLIENT_CERT
+  value: {{ $cp | quote }}
 {{- end }}
 {{- include "newt.instance.extraEnv" (dict "root" $root "inst" $inst) }}
 {{- end }}
@@ -222,7 +295,7 @@ imagePullSecrets:
   {{- if $inst.id }}{{- $args = append $args (printf "--id=%s" $inst.id) }}{{- end }}
 {{- end }}
 {{- if or $inst.secret $existing }}{{- $args = append $args (printf "--secret-env=NEWT_SECRET") }}{{- end }}
-{{- if and $inst.mtu (ne $inst.mtu 1280) }}{{- $args = append $args (printf "--mtu=%v" $inst.mtu) }}{{- end }}
+{{- if and $inst.mtu (ne (int $inst.mtu) 1280) }}{{- $args = append $args (printf "--mtu=%v" $inst.mtu) }}{{- end }}
 {{- if $inst.dns }}{{- $args = append $args (printf "--dns=%s" $inst.dns) }}{{- end }}
 {{- if $inst.pingInterval }}{{- $args = append $args (printf "--ping-interval=%s" $inst.pingInterval) }}{{- end }}
 {{- if $inst.pingTimeout }}{{- $args = append $args (printf "--ping-timeout=%s" $inst.pingTimeout) }}{{- end }}
@@ -238,6 +311,31 @@ imagePullSecrets:
 {{- if $inst.updown.enabled }}{{- $args = append $args (printf "--updown=%s/%s" (default "/opt/newt/updown" $inst.updown.mountPath) (default "updown.sh" $inst.updown.fileName)) }}{{- end }}
 {{- if $inst.mtls.enabled }}{{- $args = append $args (printf "--tls-client-cert=%s" $inst.mtls.certPath) }}{{- end }}
 {{- if $inst.generateAndSaveKeyTo }}{{- $args = append $args (printf "--generateAndSaveKeyTo=%s" $inst.generateAndSaveKeyTo) }}{{- end }}
+{{- if $inst.port }}{{- $args = append $args (printf "--port=%s" $inst.port) }}{{- end }}
+{{- if $inst.noCloud }}{{- $args = append $args "--no-cloud" }}{{- end }}
+{{- if $inst.disableClients }}{{- $args = append $args "--disable-clients" }}{{- end }}
+{{- if $inst.blueprintFile }}{{- $args = append $args (printf "--blueprint-file=%s" $inst.blueprintFile) }}{{- end }}
+{{- if $inst.enforceHcCert }}{{- $args = append $args "--enforce-hc-cert" }}{{- end }}
+{{- /* Metrics CLI args */ -}}
+{{- $gm := (default (dict) $root.Values.global.metrics) -}}
+{{- if $gm.enabled }}
+{{- if and $gm.adminAddr (ne $gm.adminAddr "127.0.0.1:2112") }}{{- $args = append $args (printf "--metrics-admin-addr=%s" $gm.adminAddr) }}{{- end }}
+{{- if $gm.asyncBytes }}{{- $args = append $args "--metrics-async-bytes" }}{{- end }}
+{{- if $gm.region }}{{- $args = append $args (printf "--region=%s" $gm.region) }}{{- end }}
+{{- if $gm.otlpEnabled }}{{- $args = append $args "--otlp" }}{{- end }}
+{{- $otel := (default (dict) $gm.otel) -}}
+{{- if $otel.exporterOtlpEndpoint }}{{- $args = append $args (printf "--otel-exporter-otlp-endpoint=%s" $otel.exporterOtlpEndpoint) }}{{- end }}
+{{- end }}
+{{- /* mTLS: handle both pkcs12 and pem modes via CLI */ -}}
+{{- $mtls := (default (dict) $inst.mtls) -}}
+{{- if and $mtls.enabled (eq (default "pkcs12" $mtls.mode) "pem") -}}
+{{- $pem := (default (dict) $mtls.pem) -}}
+{{- if $pem.clientCertPath }}{{- $args = append $args (printf "--tls-client-cert-file=%s" $pem.clientCertPath) }}{{- end }}
+{{- if $pem.clientKeyPath }}{{- $args = append $args (printf "--tls-client-key=%s" $pem.clientKeyPath) }}{{- end }}
+{{- if $pem.caPath }}{{- $args = append $args (printf "--tls-client-ca=%s" $pem.caPath) }}{{- end }}
+{{- else if and $mtls.enabled (eq (default "pkcs12" $mtls.mode) "pkcs12") -}}
+{{- $cp := ternary $mtls.certPath "/certs/client.p12" (and (kindIs "map" $mtls) (kindIs "string" $mtls.certPath) (ne $mtls.certPath "")) -}}
+{{- $args = append $args (printf "--tls-client-cert=%s" $cp) }}{{- end }}
 command:
   - /newt
 args:
@@ -258,4 +356,22 @@ args:
 - name: {{ $k }}
   value: {{ (index $merged $k) | quote }}
 {{- end }}
+{{- end }}
+
+{{- /*
+  Helper: newt.effectiveMetrics
+  Usage: include "newt.effectiveMetrics" (list $inst $gm)
+  Returns: JSON-encoded merged metrics (global merged with instance.metrics when allowGlobalOverride is true), parsed back to map via fromJson when used.
+*/ -}}
+{{- define "newt.effectiveMetrics" -}}
+  {{- $inst := index . 0 -}}
+  {{- $gm := index . 1 -}}
+  {{- $allow := default false $inst.allowGlobalOverride -}}
+  {{- if $allow -}}
+    {{- $im := (default (dict) $inst.metrics) -}}
+    {{- $res := mergeOverwrite (deepCopy $gm) $im -}}
+    {{- printf "%s" (toJson $res) | fromJson -}}
+  {{- else -}}
+    {{- printf "%s" (toJson $gm) | fromJson -}}
+  {{- end -}}
 {{- end }}

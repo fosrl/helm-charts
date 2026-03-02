@@ -1,0 +1,118 @@
+suite: Newt environment variables
+templates:
+  - templates/deployment.yaml
+tests:
+  - it: renders from existingSecret
+    set:
+      newtInstances:
+        - name: test-secret
+          enabled: true
+          auth:
+            existingSecretName: my-secret
+    asserts:
+      - isKind:
+          of: Deployment
+
+  - it: renders PORT when specified
+    set:
+      newtInstances:
+        - name: test-port
+          enabled: true
+          port: "51821"
+          pangolinEndpoint: https://example.com
+          id: test
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].containerPort
+          value: 51820
+
+  - it: renders MTU when non-default
+    set:
+      newtInstances:
+        - name: test-mtu
+          enabled: true
+          mtu: 1400
+          pangolinEndpoint: https://example.com
+          id: test
+    asserts:
+      - isKind:
+          of: Deployment
+
+  - it: renders DNS when specified
+    set:
+      newtInstances:
+        - name: test-dns
+          enabled: true
+          dns: 1.1.1.1
+          pangolinEndpoint: https://example.com
+          id: test
+    asserts:
+      - isKind:
+          of: Deployment
+
+  - it: renders DOCKER_SOCKET when enabled
+    set:
+      newtInstances:
+        - name: test-docker
+          enabled: true
+          dockerSocket:
+            enabled: true
+          pangolinEndpoint: https://example.com
+          id: test
+    asserts:
+      - isKind:
+          of: Deployment
+
+  - it: renders NO_CLOUD when enabled
+    set:
+      newtInstances:
+        - name: test-nocloud
+          enabled: true
+          noCloud: true
+          pangolinEndpoint: https://example.com
+          id: test
+    asserts:
+      - isKind:
+          of: Deployment
+
+  - it: renders DISABLE_CLIENTS when enabled
+    set:
+      newtInstances:
+        - name: test-disable-clients
+          enabled: true
+          disableClients: true
+          pangolinEndpoint: https://example.com
+          id: test
+    asserts:
+      - isKind:
+          of: Deployment
+
+  - it: renders BLUEPRINT_FILE when specified
+    set:
+      newtInstances:
+        - name: test-blueprint
+          enabled: true
+          blueprintFile: /config/blueprint.yaml
+          blueprintData: |
+            version: 1
+            routes: []
+          pangolinEndpoint: https://example.com
+          id: test
+    asserts:
+      - isKind:
+          of: Deployment
+
+  - it: renders extraEnv variables
+    set:
+      newtInstances:
+        - name: test-extraenv
+          enabled: true
+          pangolinEndpoint: https://example.com
+          id: test
+          extraEnv:
+            CUSTOM_VAR1: value1
+    asserts:
+      - isKind:
+          of: Deployment

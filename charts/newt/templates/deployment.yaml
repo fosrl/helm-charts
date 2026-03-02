@@ -1,6 +1,22 @@
-{{- $root := . -}}
-{{- range $index, $inst := .Values.newtInstances }}
+{{- $root := $ -}}
+{{- range $index, $inst := $root.Values.newtInstances }}
 {{- if $inst.enabled }}
+{{- /* Validate blueprintFile has corresponding blueprintData */ -}}
+{{- if and $inst.blueprintFile (not $inst.blueprintData) }}
+{{- fail (printf "newtInstances[%d].blueprintFile is set but blueprintData is empty. Provide blueprintData or reference an existing ConfigMap." $index) }}
+{{- end }}
+{{- /* Warn about inline secrets - show warning but don't fail */ -}}
+{{- if and $inst.secret (not (get (default dict $inst.auth) "existingSecretName")) }}
+{{- $root := $ -}}
+{{- $warning := printf "WARNING: newtInstances[%d].secret contains inline secret. Use auth.existingSecretName for production to avoid secrets in values." $index }}
+{{- $_ := printf "%s\n" $warning }}
+{{- end }}
+{{- /* Warn about Docker socket mount - security sensitive */ -}}
+{{- if and (kindIs "map" $inst.dockerSocket) $inst.dockerSocket.enabled }}
+{{- $root := $ -}}
+{{- $warning := printf "WARNING: newtInstances[%d].dockerSocket.enabled is set. Mounting the host Docker socket grants container escape potential. Use only in development/trusted environments." $index }}
+{{- $_ := printf "%s\n" $warning }}
+{{- end }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -37,10 +53,9 @@ spec:
       labels:
   {{- $pl := dict "app.kubernetes.io/instance" $root.Release.Name "newt.instance" $inst.name "app.kubernetes.io/component" "newt" }}
   {{- toYaml $pl | nindent 8 }}
-  {{- /* Metrics alias map (top-level metrics overrides global.metrics) */}}
+  {{- /* Metrics: use effectiveMetrics helper to respect allowGlobalOverride */ -}}
   {{- $gm := (default (dict) $root.Values.global.metrics) -}}
-  {{- $tm := (default (dict) $root.Values.metrics) -}}
-  {{- $m := mergeOverwrite (deepCopy $gm) $tm -}}
+  {{- $m := (include "newt.effectiveMetrics" (list $inst $gm)) | fromJson -}}
   {{- range $k, $v := $root.Values.global.additionalLabels }}
         {{ $k }}: {{ $v | quote }}
   {{- end }}
@@ -49,7 +64,7 @@ spec:
   {{- end }}
       {{- /* Build annotations in a temp dict, then emit only if non-empty */}}
       {{- $anns := dict }}
-  {{- range $k, $v := $root.Values.global.podAnnotations }}
+      {{- range $k, $v := $root.Values.global.podAnnotations }}
       {{- $_ := set $anns $k (printf "%v" $v) }}
       {{- end }}
       {{- /* Default Prometheus annotations if enabled and none provided */}}
@@ -58,7 +73,8 @@ spec:
       {{- $_ := set $anns "prometheus.io/port" (printf "%v" ($m.port | default 9090)) }}
       {{- $_ := set $anns "prometheus.io/path" (printf "%v" ($m.path | default "/metrics")) }}
       {{- end }}
-      {{- range $k,$v := $m.annotations }}
+      {{- $instAnns := $m.annotations | default dict }}
+      {{- range $k, $v := $instAnns }}
       {{- $_ := set $anns $k (printf "%v" $v) }}
       {{- end }}
       {{- if gt (len $anns) 0 }}
@@ -77,8 +93,34 @@ spec:
       priorityClassName: {{ . }}
       {{- end }}
       automountServiceAccountToken: {{ default false $root.Values.serviceAccount.automountServiceAccountToken }}
-      {{- /* Pod-level securityContext: instance override only when allowed, else use global if provided */}}
+      {{- /* 
+        Security Context Logic:
+        
+        PRIORITY ORDER:
+        1. Native mode (useNativeInterface OR global.nativeMode.enabled): privileged + root
+        2. Instance override (if allowGlobalOverride): user-defined securityContext
+        3. Global override: user-defined securityContext  
+        4. Default secure mode: non-root with restricted capabilities
+        
+        VALIDATION:
+        - If user sets runAsUser: 0 but also sets capabilities.drop, fail rendering
+        - This prevents invalid security combinations
+      */ -}}
+      {{- $nativeEnabled := or $inst.useNativeInterface $root.Values.global.nativeMode.enabled }}
       {{- $canOverride := (default false $inst.allowGlobalOverride) }}
+      
+      {{- /* Validate: user override cannot combine root with capabilities.drop */ -}}
+      {{- if and $canOverride (kindIs "map" $inst.securityContext) (hasKey $inst.securityContext "capabilities") }}
+        {{- $overrideSecCtx := $inst.securityContext }}
+        {{- $overrideRunAsUser := (hasKey $overrideSecCtx "runAsUser") | ternary (index $overrideSecCtx "runAsUser") 0 }}
+        {{- $overrideCaps := (hasKey $overrideSecCtx "capabilities") | ternary (index $overrideSecCtx "capabilities") (dict "drop" (list)) }}
+        {{- $overrideCapsDrop := (hasKey $overrideCaps "drop") | ternary (index $overrideCaps "drop") (list) }}
+        {{- if and (eq ($overrideRunAsUser | int) 0) (gt (len $overrideCapsDrop) 0) }}
+          {{- fail "newtInstances[].securityContext: Dropping capabilities is not supported when running as root. Either remove runAsUser: 0 or capabilities.drop from your securityContext override." }}
+        {{- end }}
+      {{- end }}
+      
+      {{- /* Pod-level securityContext */ -}}
       {{- if and $canOverride $inst.podSecurityContext }}
       securityContext:
         {{- toYaml $inst.podSecurityContext | nindent 8 }}
@@ -86,11 +128,13 @@ spec:
       securityContext:
         {{- toYaml $root.Values.global.podSecurityContext | nindent 8 }}
       {{- end }}
-      {{- if and $inst.useNativeInterface $root.Values.global.nativeMode.enabled $inst.hostNetwork }}
+      {{- if $nativeEnabled }}
+      {{- if $inst.hostNetwork }}
       hostNetwork: true
       {{- end }}
-      {{- if and $inst.useNativeInterface $root.Values.global.nativeMode.enabled $inst.hostPID }}
+      {{- if $inst.hostPID }}
       hostPID: true
+      {{- end }}
       {{- end }}
       {{- with $inst.initContainers }}
       initContainers:
@@ -99,17 +143,18 @@ spec:
       containers:
         - name: newt
           image: {{ include "newt.image" $root }}
-            {{- $g := $root.Values.global.image -}}
-            {{- $l := $root.Values.image -}}
-            {{- $digest := default (default "" $l.digest) $g.digest -}}
-            {{- $tag := default (default $root.Chart.AppVersion $l.tag) $g.tag -}}
-            {{- if and (eq (trim $tag) "latest") (not $digest) }}
-            # WARNING: Do not use 'latest' tag for production deployments!
-            {{- end }}
+          {{- $g := $root.Values.global.image -}}
+          {{- $l := $root.Values.image -}}
+          {{- $digest := default (default "" $l.digest) $g.digest -}}
+          {{- $tag := default (default $root.Chart.AppVersion $l.tag) $g.tag -}}
+          {{- if and (eq (trim $tag) "latest") (not $digest) }}
+          {{- printf "# WARNING: Do not use 'latest' tag for production deployments!" | nindent 10 }}
+          {{- end }}
           imagePullPolicy: {{ include "newt.imagePullPolicy" $root }}
-          {{- /* Container-level securityContext: native mode takes precedence; otherwise allow instance override only when allowed, else use global; else default */}}
-          {{- if and $inst.useNativeInterface $root.Values.global.nativeMode.enabled }}
+          {{- if $nativeEnabled }}
           securityContext:
+            runAsUser: 0
+            allowPrivilegeEscalation: true
             privileged: true
             capabilities:
               add:
@@ -123,9 +168,13 @@ spec:
             {{- toYaml $root.Values.global.securityContext | nindent 12 }}
           {{- else }}
           securityContext:
-            runAsUser: 0
-            allowPrivilegeEscalation: true
-            readOnlyRootFilesystem: false
+            runAsUser: 65534
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
           {{- end }}
           {{- if not $inst.useCommandArgs }}
           env:
@@ -178,10 +227,13 @@ spec:
             {{- end }}
           {{- /* Emit volumeMounts only if we have any */}}
           {{- $hasDockerMount := and (kindIs "map" $inst.dockerSocket) $inst.dockerSocket.enabled }}
-          {{- $hasMtlsMount := and (kindIs "map" $inst.mtls) $inst.mtls.enabled (or (not $inst.mtls.secretName) $inst.mtls.secretName) }}
+          {{- $mtls := (default (dict) $inst.mtls) }}
+          {{- $hasMtlsMount := and $mtls.enabled (or (not $mtls.secretName) $mtls.secretName) }}
+          {{- $hasPemMount := and $mtls.enabled (eq (default "pkcs12" $mtls.mode) "pem") }}
           {{- $hasUpdownMount := and (kindIs "map" $inst.updown) $inst.updown.enabled }}
+          {{- $hasBlueprintMount := $inst.blueprintFile }}
           {{- $hasExtraMounts := gt (len (default (list) $inst.extraVolumeMounts)) 0 }}
-          {{- if or $hasDockerMount $hasMtlsMount $hasUpdownMount $hasExtraMounts }}
+          {{- if or $hasDockerMount $hasMtlsMount $hasPemMount $hasUpdownMount $hasBlueprintMount $hasExtraMounts }}
           volumeMounts:
             {{- if and (kindIs "map" $inst.dockerSocket) $inst.dockerSocket.enabled (not $inst.useNativeInterface) }}
             - name: docker-socket
@@ -191,10 +243,36 @@ spec:
             - name: docker-socket
               mountPath: {{ $inst.dockerSocket.path }}
             {{- end }}
-            {{ if and (kindIs "map" $inst.mtls) $inst.mtls.enabled (or (not $inst.mtls.secretName) $inst.mtls.secretName) }}
-            {{- $cp := ternary $inst.mtls.certPath "/certs/client.p12" (and (kindIs "map" $inst.mtls) (kindIs "string" $inst.mtls.certPath) (ne $inst.mtls.certPath "")) -}}
+            {{- /* PKCS12 mode */ -}}
+            {{- if and $mtls.enabled (eq (default "pkcs12" $mtls.mode) "pkcs12") $mtls.secretName }}
+            {{- $cp := ternary $mtls.certPath "/certs/client.p12" (and (kindIs "map" $mtls) (kindIs "string" $mtls.certPath) (ne $mtls.certPath "")) -}}
             - name: mtls-cert
               mountPath: {{ dir $cp | quote }}
+              readOnly: true
+            {{- end }}
+            {{- /* PEM mode */ -}}
+            {{- if and $mtls.enabled (eq (default "pkcs12" $mtls.mode) "pem") }}
+            {{- $pem := (default (dict) $mtls.pem) }}
+            {{- if $pem.clientCertPath }}
+            - name: mtls-client-cert
+              mountPath: {{ dir $pem.clientCertPath | quote }}
+              readOnly: true
+            {{- end }}
+            {{- if $pem.clientKeyPath }}
+            - name: mtls-client-key
+              mountPath: {{ dir $pem.clientKeyPath | quote }}
+              readOnly: true
+            {{- end }}
+            {{- if $pem.caPath }}
+            - name: mtls-ca-cert
+              mountPath: {{ dir $pem.caPath | quote }}
+              readOnly: true
+            {{- end }}
+            {{- end }}
+            {{- /* Blueprint file mount */ -}}
+            {{- if $inst.blueprintFile }}
+            - name: blueprint-file
+              mountPath: {{ dir $inst.blueprintFile | quote }}
               readOnly: true
             {{- end }}
             {{- if and (kindIs "map" $inst.updown) $inst.updown.enabled }}
@@ -224,6 +302,11 @@ spec:
             periodSeconds: 10
             failureThreshold: {{ $root.Values.global.health.readinessFailureThreshold | default 3 }}
           {{- end }}
+          {{- /* Lifecycle hooks for graceful WireGuard shutdown */}}
+          {{- if and $inst.lifecycle (kindIs "map" $inst.lifecycle) }}
+          lifecycle:
+            {{- toYaml $inst.lifecycle | nindent 12 }}
+          {{- end }}
           resources:
             {{- if and $canOverride $inst.resources }}
             {{- toYaml $inst.resources | nindent 12 }}
@@ -244,10 +327,13 @@ spec:
       {{- end }}
       {{- /* Emit volumes only if we have any */}}
   {{- $hasDockerVol := and (kindIs "map" $inst.dockerSocket) $inst.dockerSocket.enabled }}
-  {{- $hasMtlsVol := and (kindIs "map" $inst.mtls) $inst.mtls.enabled }}
+  {{- $mtls := (default (dict) $inst.mtls) }}
+  {{- $hasMtlsVol := and $mtls.enabled }}
+  {{- $hasPemVol := and $mtls.enabled (eq (default "pkcs12" $mtls.mode) "pem") }}
   {{- $hasUpdownVol := and (kindIs "map" $inst.updown) $inst.updown.enabled }}
+  {{- $hasBlueprintVol := $inst.blueprintFile }}
   {{- $hasExtraVols := gt (len (default (list) $inst.extraVolumes)) 0 }}
-      {{- if or $hasDockerVol $hasMtlsVol $hasUpdownVol $hasExtraVols }}
+      {{- if or $hasDockerVol $hasMtlsVol $hasPemVol $hasUpdownVol $hasBlueprintVol $hasExtraVols }}
       volumes:
         {{- if and (kindIs "map" $inst.dockerSocket) $inst.dockerSocket.enabled }}
         - name: docker-socket
@@ -255,15 +341,50 @@ spec:
             path: {{ $inst.dockerSocket.path }}
             type: Socket
         {{- end }}
-        {{- if and (kindIs "map" $inst.mtls) $inst.mtls.enabled }}
+        {{- /* PKCS12 mode */ -}}
+        {{- if and $mtls.enabled (eq (default "pkcs12" $mtls.mode) "pkcs12") }}
         - name: mtls-cert
-          {{- if $inst.mtls.secretName }}
+          {{- if $mtls.secretName }}
           secret:
-            secretName: {{ $inst.mtls.secretName }}
+            secretName: {{ $mtls.secretName }}
           {{- else }}
           secret:
             secretName: {{ include "newt.instance.fullname" (dict "root" $root "inst" $inst) }}
           {{- end }}
+        {{- end }}
+        {{- /* PEM mode */ -}}
+        {{- if and $mtls.enabled (eq (default "pkcs12" $mtls.mode) "pem") }}
+        {{- $pem := (default (dict) $mtls.pem) }}
+        {{- if $pem.secretName }}
+        - name: mtls-client-cert
+          secret:
+            secretName: {{ $pem.secretName }}
+            items:
+              - key: client.crt
+                path: {{ $pem.clientCertPath | base }}
+        {{- if $pem.clientKeyPath }}
+        - name: mtls-client-key
+          secret:
+            secretName: {{ $pem.secretName }}
+            items:
+              - key: client.key
+                path: {{ $pem.clientKeyPath | base }}
+        {{- end }}
+        {{- if $pem.caPath }}
+        - name: mtls-ca-cert
+          secret:
+            secretName: {{ $pem.secretName }}
+            items:
+              - key: ca.crt
+                path: {{ $pem.caPath | base }}
+        {{- end }}
+        {{- end }}
+        {{- end }}
+        {{- /* Blueprint file */ -}}
+        {{- if $inst.blueprintFile }}
+        - name: blueprint-file
+          configMap:
+            name: {{ include "newt.instance.fullname" (dict "root" $root "inst" $inst) }}-blueprint
         {{- end }}
         {{- if and (kindIs "map" $inst.updown) $inst.updown.enabled }}
         - name: updown-script
@@ -286,7 +407,7 @@ spec:
       {{- $gAff := (default (dict) $root.Values.global.affinity) -}}
       {{- $iAff := (default (dict) $inst.affinity) -}}
       {{- $aff := mergeOverwrite (deepCopy $gAff) $iAff -}}
-      {{- if $aff }}
+      {{- if or $aff.nodeAffinity $aff.podAffinity $aff.podAntiAffinity }}
       affinity:
         {{- toYaml $aff | nindent 8 }}
       {{- end }}
@@ -296,6 +417,14 @@ spec:
       {{- if gt (len $tols) 0 }}
       tolerations:
         {{- toYaml $tols | nindent 8 }}
+      {{- end }}
+      {{- /* Topology spread constraints: instance overrides global */ -}}
+      {{- $gTopo := (default (list) $root.Values.global.topologySpreadConstraints) -}}
+      {{- $iTopo := (default (list) $inst.topologySpreadConstraints) -}}
+      {{- $topo := concat $gTopo $iTopo -}}
+      {{- if gt (len $topo) 0 }}
+      topologySpreadConstraints:
+        {{- toYaml $topo | nindent 8 }}
       {{- end }}
 {{- end }}
 {{- end }}

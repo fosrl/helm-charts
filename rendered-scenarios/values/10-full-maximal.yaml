@@ -1,0 +1,147 @@
+# 10-full-maximal.yaml - All major features enabled
+
+global:
+  image:
+    digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    registry: "ghcr.io"
+    repository: "fosrl/newt"
+    imagePullSecrets:
+      - name: "pull-secret"
+  logLevel: "DEBUG"
+  metrics:
+    enabled: true
+    adminAddr: "0.0.0.0:2112"
+    asyncBytes: true
+    region: "us-east-1"
+    otlpEnabled: true
+    otel:
+      exporterOtlpEndpoint: "https://otlp.example.com:4317"
+      exporterOtlpProtocol: "grpc"
+      exporterOtlpHeaders: "x-api-key=abc123"
+      serviceName: "newt-full"
+    service:
+      enabled: true
+      type: LoadBalancer
+    serviceMonitor:
+      enabled: true
+    prometheusRule:
+      enabled: true
+  health:
+    enabled: true
+    path: "/tmp/healthy"
+    readinessFailureThreshold: 3
+  updownScripts:
+    demo: |
+      #!/bin/sh
+      echo "Full scenario updown script"
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "256Mi"
+  nodeSelector:
+    workload: "newt"
+  tolerations:
+    - key: "newt"
+      operator: "Exists"
+      effect: "NoSchedule"
+
+newtInstances:
+  - name: "full-max"
+    enabled: true
+    allowGlobalOverride: true
+    auth:
+      existingSecretName: "newt-auth"
+    healthFile: "/tmp/healthy"
+    enforceHcCert: true
+    logLevel: "TRACE"
+    mtu: 1380
+    dns: "8.8.8.8"
+    pingInterval: "3s"
+    pingTimeout: "5s"
+    acceptClients: true
+    useNativeInterface: false
+    interface: "newt0"
+    keepInterface: false
+    configFile: "/etc/newt/config.yaml"
+    generateAndSaveKeyTo: "/newt/key.pem"
+    port: "51820"
+    noCloud: false
+    disableClients: false
+    blueprintFile: "/etc/newt/blueprint.yaml"
+    blueprintData: |
+      networks:
+        - name: full-network
+          subnet: 10.1.0.0/16
+    dockerSocket:
+      enabled: true
+      path: "/var/run/docker.sock"
+      enforceNetworkValidation: true
+    mtls:
+      enabled: true
+      mode: "pem"
+      pem:
+        secretName: "mtls-pem-secret"
+        clientCertPath: "/certs/client.crt"
+        clientKeyPath: "/certs/client.key"
+        caPath: "/certs/ca.crt"
+    updown:
+      enabled: true
+      script: "demo"
+      mountPath: "/opt/newt/updown"
+      fileName: "updown.sh"
+    networkPolicy:
+      enabled: true
+      mode: "merge"
+      useGlobalComponents:
+        defaultApp: true
+        dns: true
+        kubeApi: false
+        custom: true
+    service:
+      enabled: true
+      type: LoadBalancer
+      port: 51820
+      testerPort: 51821
+      externalTrafficPolicy: "Local"
+      loadBalancerIP: ""
+      loadBalancerClass: ""
+      loadBalancerSourceRanges:
+        - "0.0.0.0/0"
+      nodePorts:
+        wg: 31820
+        tester: 31821
+      annotations:
+        service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+    metrics:
+      enabled: true
+      port: 9090
+      path: "/metrics"
+    resources:
+      requests:
+        cpu: "200m"
+        memory: "256Mi"
+      limits:
+        cpu: "1000m"
+        memory: "512Mi"
+    nodeSelector:
+      newt: "enabled"
+    tolerations:
+      - key: "dedicated"
+        operator: "Equal"
+        value: "newt"
+        effect: "NoSchedule"
+    extraEnv:
+      EXTRA_VAR: "extra-value"
+    extraVolumes:
+      - name: extra-config
+        configMap:
+          name: extra-config
+    extraVolumeMounts:
+      - name: extra-config
+        mountPath: /etc/newt/extra
+    useCommandArgs: false
+    hostNetwork: false
+    hostPID: false

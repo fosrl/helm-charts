@@ -20,7 +20,7 @@ tests:
           path: spec.ports[0].port
           value: 51820
 
-  - it: defaults to LoadBalancer when service.type not set
+  - it: defaults to ClusterIP when service.type not set
     set:
       newtInstances:
         - name: main
@@ -32,7 +32,7 @@ tests:
           of: Service
       - equal:
           path: spec.type
-          value: LoadBalancer
+          value: ClusterIP
       - equal:
           path: spec.ports[0].port
           value: 51820

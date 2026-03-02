@@ -1,0 +1,14 @@
+# Split PEM mTLS enabled
+newtInstances:
+  - name: pem-mtls
+    enabled: true
+    auth:
+      existingSecretName: newt-auth
+    mtls:
+      enabled: true
+      mode: pem
+      pem:
+        secretName: my-mtls-secret
+        clientCertPath: /certs/client.crt
+        clientKeyPath: /certs/client.key
+        caPath: /certs/ca.crt

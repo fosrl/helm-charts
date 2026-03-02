@@ -1,0 +1,17 @@
+# Minimal runtime with some global overrides
+global:
+  logLevel: DEBUG
+  image:
+    repository: fosrl/newt
+    tag: latest
+newtInstances:
+  - name: main-tunnel
+    auth:
+      existingSecretName: newt-cred
+    enabled: true
+    mtu: 1400
+    dns: 1.1.1.1
+    service:
+      enabled: true
+      type: ClusterIP
+      port: 51820

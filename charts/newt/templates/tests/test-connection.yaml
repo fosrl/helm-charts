@@ -32,24 +32,33 @@ spec:
           {{- if eq $root.Values.global.tests.image.tag "latest" }}
           # WARNING: Do not use 'latest' tag for production or CI deployments!
           {{- end }}
-          imagePullPolicy: {{ default (default "IfNotPresent" $root.Values.global.image.imagePullPolicy) $root.Values.global.tests.image.pullPolicy | quote }}
-          command:
-            - /bin/sh
-            - -c
+          imagePullPolicy: {{ default "IfNotPresent" $root.Values.global.tests.image.pullPolicy | quote }}
+          command: ["/bin/bash", "-lc"]
+          args:
             - |
               set -euo pipefail
               echo "Waiting for pod of instance {{ $inst.name }}..."
+
+              POD=$(kubectl get pods -n {{ include "newt.namespace" $root }} \
+                -l app.kubernetes.io/instance={{ $root.Release.Name }},newt.instance={{ $inst.name }} \
+                -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+
+              if [ -z "$POD" ]; then
+                echo "Pod for instance {{ $inst.name }} not found"; exit 1
+              fi
+
               for i in $(seq 1 60); do
-                POD=$(kubectl get pods -n {{ include "newt.namespace" $root }} -l newt.instance={{ $inst.name }} -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
-                if [ -n "$POD" ]; then
-                  PHASE=$(kubectl get pod "$POD" -n {{ include "newt.namespace" $root }} -o jsonpath='{.status.phase}')
-                  if [ "$PHASE" = "Running" ]; then
-                    echo "Found running pod $POD"
-                    break
-                  fi
+                PHASE=$(kubectl get pod "$POD" -n {{ include "newt.namespace" $root }} -o jsonpath='{.status.phase}' 2>/dev/null || true)
+                if [ "$PHASE" = "Running" ]; then
+                  break
                 fi
                 sleep 2
               done
+
+              if [ "$PHASE" != "Running" ]; then
+                echo "Pod $POD did not become Running in time (phase=$PHASE)"; exit 1
+              fi
+
               if [ -z "$POD" ]; then
                 echo "Pod for instance {{ $inst.name }} not found"; exit 1
               fi

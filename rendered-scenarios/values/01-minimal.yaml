@@ -1,0 +1,7 @@
+# 01-minimal.yaml - Only required values, no optional features, digest-pinned image
+
+newtInstances:
+  - name: "minimal"
+    enabled: true
+    auth:
+      existingSecretName: "newt-auth"

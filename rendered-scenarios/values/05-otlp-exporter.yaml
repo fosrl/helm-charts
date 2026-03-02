@@ -1,0 +1,17 @@
+# 05-otlp-exporter.yaml - OTLP exporter enabled with custom endpoint and headers
+
+global:
+  metrics:
+    enabled: true
+    otlpEnabled: true
+    otel:
+      exporterOtlpEndpoint: "https://otlp.example.com:4317"
+      exporterOtlpProtocol: "grpc"
+      exporterOtlpHeaders: "x-api-key=abc123"
+      serviceName: "newt-otlp"
+
+newtInstances:
+  - name: "otlp"
+    enabled: true
+    auth:
+      existingSecretName: "newt-auth"

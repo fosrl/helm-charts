@@ -1,0 +1,10 @@
+# Docker socket integration enabled
+newtInstances:
+  - name: docker
+    enabled: true
+    auth:
+      existingSecretName: newt-auth
+    dockerSocket:
+      enabled: true
+      path: /var/run/docker.sock
+      enforceNetworkValidation: true

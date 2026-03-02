@@ -1,0 +1,471 @@
+suite: Newt all environment variables
+templates:
+  - templates/deployment.yaml
+tests:
+  - it: renders PANGOLIN_ENDPOINT from existing secret
+    set:
+      newtInstances:
+        - name: test-env
+          enabled: true
+          auth:
+            existingSecretName: my-secret
+          extraEnv: {}
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: spec.template.spec.containers[0].env[0].name
+          value: PANGOLIN_ENDPOINT
+      - equal:
+          path: spec.template.spec.containers[0].env[1].name
+          value: NEWT_ID
+      - equal:
+          path: spec.template.spec.containers[0].env[2].name
+          value: NEWT_SECRET
+
+  - it: renders inline credentials when no existing secret
+    set:
+      newtInstances:
+        - name: test-inline
+          enabled: true
+          pangolinEndpoint: https://pangolin.example.com
+          id: my-id
+          secret: my-secret
+          extraEnv: {}
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: spec.template.spec.containers[0].env[0].name
+          value: PANGOLIN_ENDPOINT
+      - equal:
+          path: spec.template.spec.containers[0].env[0].value
+          value: "https://pangolin.example.com"
+
+  - it: renders PORT when specified
+    set:
+      newtInstances:
+        - name: test-port
+          enabled: true
+          port: "51821"
+          extraEnv: {}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PORT
+            value: "51821"
+
+  - it: renders MTU when non-default
+    set:
+      newtInstances:
+        - name: test-mtu
+          enabled: true
+          mtu: 1400
+          extraEnv: {}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MTU
+            value: "1400"
+
+  - it: renders DNS when specified
+    set:
+      newtInstances:
+        - name: test-dns
+          enabled: true
+          dns: 8.8.8.8
+          extraEnv: {}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DNS
+            value: "8.8.8.8"
+
+  - it: renders PING_INTERVAL when specified
+    set:
+      newtInstances:
+        - name: test-ping
+          enabled: true
+          pingInterval: 5s
+          extraEnv: {}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PING_INTERVAL
+            value: "5s"
+
+  - it: renders PING_TIMEOUT when specified
+    set:
+      newtInstances:
+        - name: test-ping-timeout
+          enabled: true
+          pingTimeout: 10s
+          extraEnv: {}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PING_TIMEOUT
+            value: "10s"
+
+  - it: renders ACCEPT_CLIENTS when enabled
+    set:
+      newtInstances:
+        - name: test-accept
+          enabled: true
+          acceptClients: true
+          extraEnv: {}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: ACCEPT_CLIENTS
+            value: "true"
+
+  - it: renders NO_CLOUD when enabled
+    set:
+      newtInstances:
+        - name: test-nocloud
+          enabled: true
+          noCloud: true
+          extraEnv: {}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: NO_CLOUD
+            value: "true"
+
+  - it: renders DISABLE_CLIENTS when enabled
+    set:
+      newtInstances:
+        - name: test-disable-clients
+          enabled: true
+          disableClients: true
+          extraEnv: {}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DISABLE_CLIENTS
+            value: "true"
+
+  - it: renders BLUEPRINT_FILE when specified
+    set:
+      newtInstances:
+        - name: test-blueprint
+          enabled: true
+          blueprintFile: /etc/newt/blueprint.yaml
+          blueprintData: |
+            # simple blueprint
+            routes: []
+          extraEnv: {}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: BLUEPRINT_FILE
+            value: "/etc/newt/blueprint.yaml"
+
+  - it: renders DOCKER_SOCKET env vars when enabled
+    set:
+      newtInstances:
+        - name: test-docker
+          enabled: true
+          dockerSocket:
+            enabled: true
+            path: /var/run/docker.sock
+            enforceNetworkValidation: true
+          extraEnv: {}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DOCKER_SOCKET
+            value: "/var/run/docker.sock"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DOCKER_ENFORCE_NETWORK_VALIDATION
+            value: "true"
+
+  - it: renders INTERFACE when non-default
+    set:
+      newtInstances:
+        - name: test-iface
+          enabled: true
+          interface: wg0
+          extraEnv: {}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: INTERFACE
+            value: "wg0"
+
+  - it: renders KEEP_INTERFACE when enabled
+    set:
+      newtInstances:
+        - name: test-keep-iface
+          enabled: true
+          keepInterface: true
+          extraEnv: {}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KEEP_INTERFACE
+            value: "true"
+
+  - it: renders CONFIG_FILE when specified
+    set:
+      newtInstances:
+        - name: test-config
+          enabled: true
+          configFile: /etc/newt/config.yaml
+          extraEnv: {}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CONFIG_FILE
+            value: "/etc/newt/config.yaml"
+
+  - it: renders GENERATE_AND_SAVE_KEY_TO when specified
+    set:
+      newtInstances:
+        - name: test-genkey
+          enabled: true
+          generateAndSaveKeyTo: /etc/newt/key.pem
+          extraEnv: {}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GENERATE_AND_SAVE_KEY_TO
+            value: "/etc/newt/key.pem"
+
+  - it: renders UPDOWN_SCRIPT when enabled
+    set:
+      newtInstances:
+        - name: test-updown
+          enabled: true
+          updown:
+            enabled: true
+            mountPath: /opt/updown
+            fileName: script.sh
+          extraEnv: {}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: UPDOWN_SCRIPT
+            value: "/opt/updown/script.sh"
+
+  - it: renders ENFORCE_HC_CERT when enabled
+    set:
+      newtInstances:
+        - name: test-hc-cert
+          enabled: true
+          enforceHcCert: true
+          extraEnv: {}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: ENFORCE_HC_CERT
+            value: "true"
+
+  - it: renders NEWT_ADMIN_ADDR when custom
+    set:
+      newtInstances:
+        - name: test-admin
+          enabled: true
+          extraEnv: {}
+      global:
+        metrics:
+          enabled: true
+          adminAddr: "0.0.0.0:2112"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: NEWT_ADMIN_ADDR
+            value: "0.0.0.0:2112"
+
+  - it: renders NEWT_METRICS_ASYNC_BYTES when enabled
+    set:
+      newtInstances:
+        - name: test-async
+          enabled: true
+          extraEnv: {}
+      global:
+        metrics:
+          enabled: true
+          asyncBytes: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: NEWT_METRICS_ASYNC_BYTES
+            value: "true"
+
+  - it: renders NEWT_REGION when specified
+    set:
+      newtInstances:
+        - name: test-region
+          enabled: true
+          extraEnv: {}
+      global:
+        metrics:
+          enabled: true
+          region: "us-west-2"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: NEWT_REGION
+            value: "us-west-2"
+
+  - it: renders NEWT_METRICS_OTLP_ENABLED when enabled
+    set:
+      newtInstances:
+        - name: test-otlp
+          enabled: true
+          extraEnv: {}
+      global:
+        metrics:
+          enabled: true
+          otlpEnabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: NEWT_METRICS_OTLP_ENABLED
+            value: "true"
+
+  - it: renders OTEL env vars when configured
+    set:
+      newtInstances:
+        - name: test-otel
+          enabled: true
+          extraEnv: {}
+      global:
+        metrics:
+          enabled: true
+          otlpEnabled: true
+          otel:
+            exporterOtlpEndpoint: "https://otlp.example.com:4317"
+            exporterOtlpProtocol: grpc
+            exporterOtlpHeaders: "x-api-key=abc123"
+            serviceName: newt-service
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTEL_EXPORTER_OTLP_ENDPOINT
+            value: "https://otlp.example.com:4317"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTEL_EXPORTER_OTLP_PROTOCOL
+            value: "grpc"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTEL_EXPORTER_OTLP_HEADERS
+            value: "x-api-key=abc123"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTEL_SERVICE_NAME
+            value: "newt-service"
+
+  - it: renders LOG_LEVEL from instance when allowGlobalOverride is true
+    set:
+      newtInstances:
+        - name: test-log
+          enabled: true
+          allowGlobalOverride: true
+          logLevel: DEBUG
+          extraEnv: {}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LOG_LEVEL
+            value: "DEBUG"
+
+  - it: renders LOG_LEVEL from global when instance override not allowed
+    set:
+      newtInstances:
+        - name: test-log-global
+          enabled: true
+          logLevel: WARN
+          extraEnv: {}
+      global:
+        logLevel: ERROR
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LOG_LEVEL
+            value: "ERROR"
+
+  - it: renders USE_NATIVE_INTERFACE when native mode enabled
+    set:
+      newtInstances:
+        - name: test-native
+          enabled: true
+          useNativeInterface: true
+          extraEnv: {}
+      global:
+        nativeMode:
+          enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: USE_NATIVE_INTERFACE
+            value: "true"
+
+  - it: renders HEALTH_FILE when health enabled
+    set:
+      newtInstances:
+        - name: test-health
+          enabled: true
+          healthFile: /tmp/custom-health
+          extraEnv: {}
+      global:
+        health:
+          enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: HEALTH_FILE
+            value: "/tmp/custom-health"
+
+  - it: renders extraEnv from instance
+    set:
+      newtInstances:
+        - name: test-extraenv
+          enabled: true
+          extraEnv:
+            MY_CUSTOM_VAR: custom-value
+            ANOTHER_VAR: "123"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MY_CUSTOM_VAR
+            value: custom-value
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: ANOTHER_VAR
+            value: "123"

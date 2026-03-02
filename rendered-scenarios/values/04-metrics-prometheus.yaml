@@ -1,0 +1,20 @@
+# 04-metrics-prometheus.yaml - Metrics enabled with custom adminAddr
+
+global:
+  metrics:
+    enabled: true
+    adminAddr: "0.0.0.0:2112"
+    asyncBytes: true
+    region: "us-east-1"
+    service:
+      enabled: true
+    serviceMonitor:
+      enabled: true
+    prometheusRule:
+      enabled: true
+
+newtInstances:
+  - name: "metrics"
+    enabled: true
+    auth:
+      existingSecretName: "newt-auth"

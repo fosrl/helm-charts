@@ -1,0 +1,38 @@
+# Scheduling options - affinity, tolerations, nodeSelector
+newtInstances:
+  - name: scheduling
+    enabled: true
+    auth:
+      existingSecretName: newt-auth
+    nodeSelector:
+      workload: newt
+      disktype: ssd
+    tolerations:
+      - key: dedicated
+        operator: Equal
+        value: newt
+        effect: NoSchedule
+      - key: critical
+        operator: Exists
+        effect: NoExecute
+        tolerationSeconds: 300
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: kubernetes.io/e2e-az-name
+                  operator: In
+                  values:
+                    - e2e-az1
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - newt
+              topologyKey: kubernetes.io/hostname

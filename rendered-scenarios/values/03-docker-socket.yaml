@@ -1,0 +1,11 @@
+# 03-docker-socket.yaml - Docker Socket enabled with socket mount and network validation
+
+newtInstances:
+  - name: "docker-socket"
+    enabled: true
+    auth:
+      existingSecretName: "newt-auth"
+    dockerSocket:
+      enabled: true
+      path: "/var/run/docker.sock"
+      enforceNetworkValidation: true
