@@ -1,0 +1,36 @@
+# Development / CI override values for the newt chart.
+# Used by: make lint, make unittest
+# These values exercise the chart with a minimal but valid configuration.
+
+global:
+  image:
+    registry: "ghcr.io"
+    repository: "fosrl/newt"
+    digest: "sha256:dc3a6ce4c290d36393a9db6662afd826260e3c8552b19359193a6b311988d3d2"
+  logLevel: "DEBUG"
+  metrics:
+    enabled: false
+  tests:
+    enabled: false
+
+  # Minimal script map so `templates/configmap-updown.yaml` can render
+  updownScripts:
+    demo: |
+      #!/bin/sh
+      echo up
+
+newtInstances:
+  - name: main-tunnel
+    enabled: true
+    pangolinEndpoint: https://pangolin.example.com
+    id: test-id
+    secret: test-secret
+    # Minimal env map so `templates/configmap-env.yaml` can render
+    extraEnv:
+      HELLO: world
+    # Minimal updown config so `templates/configmap-updown.yaml` can render
+    updown:
+      enabled: true
+      script: demo
+    service:
+      enabled: false

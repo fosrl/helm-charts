@@ -1,0 +1,8 @@
+# RBAC disabled
+newtInstances:
+  - name: no-rbac
+    enabled: true
+    auth:
+      existingSecretName: newt-auth
+rbac:
+  create: false

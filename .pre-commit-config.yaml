@@ -1,0 +1,38 @@
+repos:
+  - repo: https://github.com/losisin/helm-values-schema-json
+    # Pin to latest stable; update if you need newer features
+    rev: v2.3.1
+    hooks:
+      - id: helm-schema
+        name: Generate values.schema.json for charts/newt
+        args:
+          - --config
+          - charts/newt/.schema.yaml
+          - --values
+          - charts/newt/values.yaml
+          - --output
+          - charts/newt/values.schema.json
+          # VS Code JSON schema support: force draft-07 header
+          - --draft
+          - "7"
+          # Ensure $k8s/... refs resolve using explicit Kubernetes schema version
+          - --k8s-schema-version
+          - v1.33.1
+          - --use-helm-docs
+        # Only trigger when chart sources change
+        files: ^charts/newt/(values\.yaml|templates/.*\.yaml|Chart\.yaml|README\.md\.gotmpl)$
+        pass_filenames: false
+
+  - repo: https://github.com/norwoodj/helm-docs
+    # v1.14.2 is current as of 2024/2025
+    rev: v1.14.2
+    hooks:
+      - id: helm-docs
+        name: Generate README.md for charts from templates
+        args:
+          # Search all charts under charts/
+          - --chart-search-root=charts
+          # Use per-chart README.md.gotmpl when present
+          - --template-files=README.md.gotmpl
+        files: ^charts/.*
+        pass_filenames: false

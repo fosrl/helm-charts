@@ -1,0 +1,6 @@
+# Minimal values with existing secret
+newtInstances:
+  - name: minimal
+    enabled: true
+    auth:
+      existingSecretName: newt-auth

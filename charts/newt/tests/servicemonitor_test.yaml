@@ -1,0 +1,51 @@
+suite: ServiceMonitor rendering
+templates:
+  - templates/servicemonitor.yaml
+tests:
+  - it: renders nothing when metrics.enabled is false
+    set:
+      global:
+        metrics:
+          enabled: false
+      newtInstances:
+        - name: test-disabled
+          enabled: true
+          secret: test-secret
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders ServiceMonitor when serviceMonitor is enabled globally
+    set:
+      global:
+        metrics:
+          enabled: true
+          serviceMonitor:
+            enabled: true
+          service:
+            enabled: true
+      newtInstances:
+        - name: test-svc-monitor
+          enabled: true
+          secret: test-secret
+    asserts:
+      - isKind:
+          of: ServiceMonitor
+      - equal:
+          path: spec.endpoints[0].port
+          value: metrics
+
+  - it: does not render ServiceMonitor when serviceMonitor is disabled
+    set:
+      global:
+        metrics:
+          enabled: true
+          serviceMonitor:
+            enabled: false
+      newtInstances:
+        - name: test-disabled
+          enabled: true
+          secret: test-secret
+    asserts:
+      - hasDocuments:
+          count: 0

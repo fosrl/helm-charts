@@ -1,0 +1,11 @@
+# Service rendering tests
+newtInstances:
+  - name: service-basic
+    enabled: true
+    auth:
+      existingSecretName: newt-auth
+    service:
+      enabled: true
+      type: ClusterIP
+      port: 51820
+      testerPort: 51821

@@ -1,6 +1,7 @@
 {{- $root := . -}}
 {{- range $i, $inst := .Values.newtInstances }}
-{{- if and $inst.enabled $inst.extraEnv (gt (len $inst.extraEnv) 0) }}
+{{- $inst := $inst | default dict -}}
+{{- if and $inst.enabled (kindIs "map" $inst.extraEnv) (gt (len $inst.extraEnv) 0) }}
 ---
 apiVersion: v1
 kind: ConfigMap

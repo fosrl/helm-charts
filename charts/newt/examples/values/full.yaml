@@ -1,0 +1,38 @@
+# Full-ish example for manual testing; includes many common settings
+global:
+  image:
+    repository: fosrl/newt
+    tag: latest
+  logLevel: DEBUG
+  nativeMode:
+    enabled: false
+  metrics:
+    enabled: true
+    service:
+      enabled: true
+      port: 9090
+newtInstances:
+  - name: main-tunnel
+    enabled: true
+    pangolinEndpoint: "https://pangolin.example.com"
+    id: my-id
+    secret: my-secret
+    mtu: 1400
+    dns: 1.1.1.1
+    pingInterval: "3s"
+    pingTimeout: "5s"
+    acceptClients: true
+    useNativeInterface: false
+    interface: newt0
+    keepInterface: false
+    service:
+      enabled: true
+      type: ClusterIP
+      port: 51820
+      testerPort: 51821
+    dockerSocket:
+      enabled: false
+    mtls:
+      enabled: false
+    extraEnv:
+      EXAMPLE_MODE: "true"

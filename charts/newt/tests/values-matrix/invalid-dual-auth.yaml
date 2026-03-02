@@ -1,0 +1,7 @@
+# Negative test: both inline secret and external auth (should fail rendering)
+newtInstances:
+  - name: dual-auth
+    enabled: true
+    secret: inline-secret
+    auth:
+      existingSecretName: external-secret

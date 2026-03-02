@@ -1,54 +1,314 @@
-{{- if .Values.global.networkPolicy.create }}
-{{- if .Values.global.networkPolicy.defaultDenyIngress }}
+{{- /*
+NetworkPolicy templates for `newt` chart (updated for new Values schema)
+
+New Values model:
+- global.networkPolicy.enabled (master)
+- global.networkPolicy.defaultMode: inherit|merge|replace  (instance default)
+- global.networkPolicy.components.{defaultApp,dns,kubeApi,custom}
+- global.networkPolicy.ruleSets: map[string]{policyTypes,ingress,egress}
+- newtInstances[].networkPolicy:
+  - enabled: null|bool (null => inherit global.enabled)
+  - mode: inherit|merge|replace (default: global.defaultMode)
+  - useGlobalComponents.{defaultApp,dns,kubeApi,custom}
+  - components.{defaultApp,dns,kubeApi,custom}
+  - includeRuleSets: [string]
+
+Guaranteed behavior:
+- Effective enablement is per-instance:
+  - if inst.networkPolicy.enabled == null -> inherits global.networkPolicy.enabled
+  - else instance value wins
+- Composition:
+  - inherit: only selected global components (+ global ruleSets referenced)
+  - merge: selected global components + enabled instance components (+ referenced global ruleSets)
+  - replace: only enabled instance components (global ignored; ruleSets ignored)
+- Accept-clients ingress:
+  - emitted only when instance NP is enabled AND acceptClients==true AND svcEnabled==true
+  - AND "defaultApp" is effectively enabled for that instance (so `replace` mode with only custom rules does NOT get auto-added ingress)
+
+Backward compatibility:
+- Still honors legacy .Values.networkPolicy.enabled / defaultDenyIngress if present.
+- Also supports (optional) global.networkPolicy.defaultDenyIngress and newtInstances[].networkPolicy.defaultDenyIngress, if you decide to add them later.
+*/ -}}
+
+{{- $root := . -}}
+{{- $vals := $root.Values | default dict -}}
+{{- $global := (get $vals "global") | default dict -}}
+
+{{- /* New global networkPolicy (preferred) */ -}}
+{{- $globalNP := (get $global "networkPolicy") | default dict -}}
+{{- $globalNPEnabled := (get $globalNP "enabled") -}}
+{{- if eq $globalNPEnabled nil }}{{- $globalNPEnabled = false -}}{{- end -}}
+
+{{- $globalDefaultMode := (get $globalNP "defaultMode") | default "merge" -}}
+{{- $globalComponents := (get $globalNP "components") | default dict -}}
+{{- $globalRuleSets := (get $globalNP "ruleSets") | default dict -}}
+
+{{- /* Legacy (top-level) networkPolicy support (optional/back-compat) */ -}}
+{{- $legacyNP := (get $vals "networkPolicy") | default dict -}}
+{{- $legacyNPEnabled := (get $legacyNP "enabled") | default false -}}
+
+{{- /* Per-instance NetworkPolicies */ -}}
+{{- range $i, $instRaw := (get $vals "newtInstances" | default list) -}}
+  {{- $inst := $instRaw | default dict -}}
+  {{- $instName := (get $inst "name") | default (printf "instance-%d" $i) -}}
+  {{- $instEnabled := (get $inst "enabled") -}}
+  {{- if eq $instEnabled nil }}{{- $instEnabled = true -}}{{- end -}}
+
+  {{- if $instEnabled -}}
+    {{- $instNP := (get $inst "networkPolicy") | default dict -}}
+
+    {{- /*
+    Effective NP enabled per instance:
+      precedence:
+      1) inst.networkPolicy.enabled (if not null)
+      2) global.networkPolicy.enabled (new)
+      3) legacy .Values.networkPolicy.enabled (fallback)
+    */ -}}
+    {{- $instNPEnabled := (get $instNP "enabled") -}}
+    {{- $effectiveNPEnabled := false -}}
+    {{- if not (eq $instNPEnabled nil) -}}
+      {{- $effectiveNPEnabled = $instNPEnabled -}}
+    {{- else -}}
+      {{- $effectiveNPEnabled = or $globalNPEnabled $legacyNPEnabled -}}
+    {{- end -}}
+
+    {{- if $effectiveNPEnabled -}}
+
+      {{- /* Effective mode */ -}}
+      {{- $mode := (get $instNP "mode") | default $globalDefaultMode | default "merge" -}}
+
+      {{- /* Resolve global component usage flags (only relevant in inherit/merge) */ -}}
+      {{- $useGlobal := (get $instNP "useGlobalComponents") | default dict -}}
+      {{- $useGlobalDefaultApp := (get $useGlobal "defaultApp") -}}
+      {{- if eq $useGlobalDefaultApp nil }}{{- $useGlobalDefaultApp = true -}}{{- end -}}
+      {{- $useGlobalDns := (get $useGlobal "dns") -}}
+      {{- if eq $useGlobalDns nil }}{{- $useGlobalDns = false -}}{{- end -}}
+      {{- $useGlobalKubeApi := (get $useGlobal "kubeApi") -}}
+      {{- if eq $useGlobalKubeApi nil }}{{- $useGlobalKubeApi = false -}}{{- end -}}
+      {{- $useGlobalCustom := (get $useGlobal "custom") -}}
+      {{- if eq $useGlobalCustom nil }}{{- $useGlobalCustom = true -}}{{- end -}}
+
+      {{- /* Instance components */ -}}
+      {{- $instComponents := (get $instNP "components") | default dict -}}
+
+      {{- /* Build effective fragments list:
+            each fragment is a map with optional keys: policyTypes, ingress, egress
+      */ -}}
+      {{- $fragments := list -}}
+
+      {{- /* Global fragments (inherit/merge only) */ -}}
+      {{- if ne $mode "replace" -}}
+        {{- $gDefaultApp := (get $globalComponents "defaultApp") | default dict -}}
+        {{- if and $useGlobalDefaultApp ((get $gDefaultApp "enabled") | default false) -}}
+          {{- $fragments = append $fragments $gDefaultApp -}}
+        {{- end -}}
+
+        {{- $gDns := (get $globalComponents "dns") | default dict -}}
+        {{- if and $useGlobalDns ((get $gDns "enabled") | default false) -}}
+          {{- $fragments = append $fragments $gDns -}}
+        {{- end -}}
+
+        {{- $gKubeApi := (get $globalComponents "kubeApi") | default dict -}}
+        {{- if and $useGlobalKubeApi ((get $gKubeApi "enabled") | default false) -}}
+          {{- $fragments = append $fragments $gKubeApi -}}
+        {{- end -}}
+
+        {{- $gCustom := (get $globalComponents "custom") | default dict -}}
+        {{- if and $useGlobalCustom ((get $gCustom "enabled") | default false) -}}
+          {{- $fragments = append $fragments $gCustom -}}
+        {{- end -}}
+      {{- end -}}
+
+      {{- /* Instance fragments:
+            - inherit: ignore instance components
+            - merge: include enabled instance components
+            - replace: include enabled instance components only
+      */ -}}
+      {{- if ne $mode "inherit" -}}
+        {{- $iDefaultApp := (get $instComponents "defaultApp") | default dict -}}
+        {{- if (get $iDefaultApp "enabled") | default false -}}
+          {{- $fragments = append $fragments $iDefaultApp -}}
+        {{- end -}}
+
+        {{- $iDns := (get $instComponents "dns") | default dict -}}
+        {{- if (get $iDns "enabled") | default false -}}
+          {{- $fragments = append $fragments $iDns -}}
+        {{- end -}}
+
+        {{- $iKubeApi := (get $instComponents "kubeApi") | default dict -}}
+        {{- if (get $iKubeApi "enabled") | default false -}}
+          {{- $fragments = append $fragments $iKubeApi -}}
+        {{- end -}}
+
+        {{- $iCustom := (get $instComponents "custom") | default dict -}}
+        {{- if (get $iCustom "enabled") | default false -}}
+          {{- $fragments = append $fragments $iCustom -}}
+        {{- end -}}
+      {{- end -}}
+
+      {{- /* Global named ruleSets inclusion (inherit/merge only) */ -}}
+      {{- if ne $mode "replace" -}}
+        {{- range $rsName := (get $instNP "includeRuleSets") | default list -}}
+          {{- $rs := (get $globalRuleSets $rsName) | default dict -}}
+          {{- if kindIs "map" $rs -}}
+            {{- $fragments = append $fragments $rs -}}
+          {{- end -}}
+        {{- end -}}
+      {{- end -}}
+
+      {{- /* Effective defaultApp enabled (controls auto acceptClients ingress) */ -}}
+      {{- $effectiveDefaultAppEnabled := false -}}
+      {{- if eq $mode "replace" -}}
+        {{- $iDefaultApp := (get $instComponents "defaultApp") | default dict -}}
+        {{- $effectiveDefaultAppEnabled = ((get $iDefaultApp "enabled") | default false) -}}
+      {{- else -}}
+        {{- $gDefaultApp := (get $globalComponents "defaultApp") | default dict -}}
+        {{- $iDefaultApp := (get $instComponents "defaultApp") | default dict -}}
+        {{- $effectiveDefaultAppEnabled = or
+              (and $useGlobalDefaultApp ((get $gDefaultApp "enabled") | default false))
+              (((get $iDefaultApp "enabled") | default false))
+        -}}
+      {{- end -}}
+
+      {{- /* Accept-clients service gating (existing behavior) */ -}}
+      {{- $accept := (get $inst "acceptClients") | default false -}}
+      {{- $svc := (get $inst "service") | default dict -}}
+
+      {{- /* prefer enabledWhenAcceptClients if set, else service.enabled if set, else true */ -}}
+      {{- $svcEnabled := (get $svc "enabledWhenAcceptClients") -}}
+      {{- if eq $svcEnabled nil -}}
+        {{- $svcEnabled = (get $svc "enabled") -}}
+      {{- end -}}
+      {{- if eq $svcEnabled nil -}}
+        {{- $svcEnabled = true -}}
+      {{- end -}}
+
+      {{- $addAcceptIngress := and $accept $svcEnabled $effectiveDefaultAppEnabled -}}
+
+      {{- /* Optional default-deny ingress flag (back-compat + optional new keys):
+            precedence:
+            1) inst.networkPolicy.defaultDenyIngress (if set)
+            2) global.networkPolicy.defaultDenyIngress (if set)
+            3) legacy .Values.networkPolicy.defaultDenyIngress (if set)
+      */ -}}
+      {{- $instDD := (get $instNP "defaultDenyIngress") -}}
+      {{- $globDD := (get $globalNP "defaultDenyIngress") -}}
+      {{- $legDD := (get $legacyNP "defaultDenyIngress") -}}
+      {{- $defaultDenyIngress := false -}}
+      {{- if not (eq $instDD nil) -}}
+        {{- $defaultDenyIngress = $instDD -}}
+      {{- else if not (eq $globDD nil) -}}
+        {{- $defaultDenyIngress = $globDD -}}
+      {{- else if not (eq $legDD nil) -}}
+        {{- $defaultDenyIngress = $legDD -}}
+      {{- end -}}
+
+      {{- /* Aggregate fragments into final policyTypes/ingress/egress */ -}}
+      {{- $ptSet := dict -}}
+      {{- $ingress := list -}}
+      {{- $egress := list -}}
+
+      {{- range $frag := $fragments -}}
+        {{- if kindIs "map" $frag -}}
+          {{- range $pt := (get $frag "policyTypes") | default list -}}
+            {{- if $pt -}}{{- $_ := set $ptSet $pt true -}}{{- end -}}
+          {{- end -}}
+
+          {{- range $r := (get $frag "ingress") | default list -}}
+            {{- $ingress = append $ingress $r -}}
+          {{- end -}}
+
+          {{- range $r := (get $frag "egress") | default list -}}
+            {{- $egress = append $egress $r -}}
+          {{- end -}}
+        {{- end -}}
+      {{- end -}}
+
+      {{- /* Add acceptClients ingress rule (only when managed via defaultApp) */ -}}
+      {{- if $addAcceptIngress -}}
+        {{- $ranges := (get $svc "loadBalancerSourceRanges") | default list -}}
+        {{- $wgPort := (get $svc "port") | default 51820 -}}
+        {{- $testerPort := (get $svc "testerPort") | default 51821 -}}
+
+        {{- $rule := dict -}}
+        {{- if gt (len $ranges) 0 -}}
+          {{- $fromList := list -}}
+          {{- range $cidr := $ranges -}}
+            {{- $fromList = append $fromList (dict "ipBlock" (dict "cidr" $cidr)) -}}
+          {{- end -}}
+          {{- $_ := set $rule "from" $fromList -}}
+        {{- end -}}
+        {{- $_ := set $rule "ports" (list
+              (dict "port" $wgPort "protocol" "UDP")
+              (dict "port" $testerPort "protocol" "UDP")
+            ) -}}
+
+        {{- $ingress = append $ingress $rule -}}
+        {{- $_ := set $ptSet "Ingress" true -}}
+      {{- end -}}
+
+      {{- /* If defaultDenyIngress is true, ensure Ingress policyType is present even if ingress is empty */ -}}
+      {{- if $defaultDenyIngress -}}
+        {{- $_ := set $ptSet "Ingress" true -}}
+      {{- end -}}
+
+      {{- /* Derive policyTypes if none explicitly present but rules exist */ -}}
+      {{- if and (eq (len (keys $ptSet)) 0) (gt (len $ingress) 0) -}}
+        {{- $_ := set $ptSet "Ingress" true -}}
+      {{- end -}}
+      {{- if and (eq (len (keys $ptSet)) 0) (gt (len $egress) 0) -}}
+        {{- $_ := set $ptSet "Egress" true -}}
+      {{- end -}}
+      {{- if and (gt (len $ingress) 0) (not (hasKey $ptSet "Ingress")) -}}
+        {{- $_ := set $ptSet "Ingress" true -}}
+      {{- end -}}
+      {{- if and (gt (len $egress) 0) (not (hasKey $ptSet "Egress")) -}}
+        {{- $_ := set $ptSet "Egress" true -}}
+      {{- end -}}
+
+      {{- /* Only render a policy if it actually does something */ -}}
+      {{- $ptKeys := keys $ptSet | sortAlpha -}}
+      {{- $shouldRender := or (gt (len $ptKeys) 0) (gt (len $ingress) 0) (gt (len $egress) 0) $defaultDenyIngress -}}
+
+      {{- if $shouldRender -}}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ include "newt.fullname" . }}-default-deny
+  name: {{ include "newt.instance.fullname" (dict "root" $root "inst" $inst) }}-np
   labels:
-    {{- include "newt.labels" . | nindent 4 }}
+    {{- include "newt.labels" $root | nindent 4 }}
+    newt.instance: {{ $instName | quote }}
 spec:
   podSelector:
     matchLabels:
-      app.kubernetes.io/instance: {{ .Release.Name }}
-      app.kubernetes.io/component: newt
+      app.kubernetes.io/instance: {{ $root.Release.Name }}
+      newt.instance: {{ $instName | quote }}
+  {{- if gt (len $ptKeys) 0 }}
   policyTypes:
-    - Ingress
-  ingress: []
-{{- end }}
-{{- range $i, $inst := .Values.newtInstances }}
-{{- $accept := default false $inst.acceptClients -}}
-{{- $svc := (default (dict) $inst.service) -}}
-{{- $svcEnabled := default true $svc.enabledWhenAcceptClients -}}
-{{- if and $inst.enabled $accept $svcEnabled }}
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: {{ include "newt.instance.fullname" (dict "root" $ "inst" $inst) }}-ingress
-  labels:
-    {{- include "newt.labels" $ | nindent 4 }}
-    newt.instance: {{ $inst.name }}
-spec:
-  podSelector:
-    matchLabels:
-      app.kubernetes.io/instance: {{ $.Release.Name }}
-      newt.instance: {{ $inst.name }}
-  policyTypes:
-    - Ingress
+    {{- range $pt := $ptKeys }}
+    - {{ $pt }}
+    {{- end }}
+  {{- end }}
+  {{- /* Only emit ingress/egress if relevant to avoid accidental default-deny */ -}}
+  {{- if or (hasKey $ptSet "Ingress") (gt (len $ingress) 0) }}
   ingress:
-    - {{- if $svc.loadBalancerSourceRanges }}
-      from:
-        {{- range $cidr := $svc.loadBalancerSourceRanges }}
-        - ipBlock:
-            cidr: {{ $cidr | quote }}
-        {{- end }}
-      {{- end }}
-      ports:
-        - port: {{ default 51820 $svc.port }}
-          protocol: UDP
-        - port: {{ default 51821 $svc.testerPort }}
-          protocol: UDP
-{{- end }}
-{{- end }}
-{{- end }}
+    {{- if gt (len $ingress) 0 }}
+{{ toYaml $ingress | nindent 4 }}
+    {{- else }}
+    []
+    {{- end }}
+  {{- end }}
+  {{- if or (hasKey $ptSet "Egress") (gt (len $egress) 0) }}
+  egress:
+    {{- if gt (len $egress) 0 }}
+{{ toYaml $egress | nindent 4 }}
+    {{- else }}
+    []
+    {{- end }}
+  {{- end }}
+      {{- end -}} {{/* shouldRender */}}
+
+    {{- end -}} {{/* effectiveNPEnabled */}}
+  {{- end -}} {{/* instEnabled */}}
+{{- end -}} {{/* range instances */}}

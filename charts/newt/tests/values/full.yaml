@@ -7,8 +7,7 @@ global:
   additionalAnnotations:
     purpose: templating-validation
   networkPolicy:
-    create: true
-    defaultDenyIngress: true
+    enabled: true
   metrics:
     enabled: true
     service:

@@ -1,0 +1,64 @@
+suite: Newt volumes and mounts
+templates:
+  - templates/deployment.yaml
+tests:
+  - it: mounts docker socket when enabled
+    set:
+      newtInstances:
+        - name: test-docker
+          enabled: true
+          dockerSocket:
+            enabled: true
+            path: /var/run/docker.sock
+          pangolinEndpoint: https://example.com
+          id: test
+    asserts:
+      - isKind:
+          of: Deployment
+
+  - it: mounts blueprint ConfigMap when blueprintFile specified
+    set:
+      newtInstances:
+        - name: test-blueprint
+          enabled: true
+          blueprintFile: /config/blueprint.yaml
+          blueprintData: |
+            version: 1
+          pangolinEndpoint: https://example.com
+          id: test
+    asserts:
+      - isKind:
+          of: Deployment
+
+  - it: mounts updown ConfigMap when enabled
+    set:
+      newtInstances:
+        - name: test-updown
+          enabled: true
+          updown:
+            enabled: true
+            mountPath: /opt/updown
+          pangolinEndpoint: https://example.com
+          id: test
+    asserts:
+      - isKind:
+          of: Deployment
+
+  - it: mounts PEM certificates when mtls mode is pem
+    set:
+      newtInstances:
+        - name: test-mtls-pem
+          enabled: true
+          mtls:
+            enabled: true
+            mode: pem
+            pem:
+              secretName: my-pem-secret
+              clientCertPath: /certs/client.crt
+              clientKeyPath: /certs/client.key
+              caPath: /certs/ca.crt
+          pangolinEndpoint: https://example.com
+          id: test
+    asserts:
+      - isKind:
+          of: Deployment

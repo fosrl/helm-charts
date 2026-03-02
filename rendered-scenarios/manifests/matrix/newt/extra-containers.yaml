@@ -1,0 +1,165 @@
+---
+# Source: newt/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: newt-matrix-extra-containers-newt-sa
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: newt
+    app.kubernetes.io/instance: newt-matrix-extra-containers
+    app.kubernetes.io/version: "1.10.1"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: newt-1.3.0
+automountServiceAccountToken: false
+---
+# Source: newt/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: newt-matrix-extra-containers-newt
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: newt
+    app.kubernetes.io/instance: newt-matrix-extra-containers
+    app.kubernetes.io/version: "1.10.1"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: newt-1.3.0
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get","list","watch"]
+---
+# Source: newt/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: newt-matrix-extra-containers-newt
+  labels:
+    app.kubernetes.io/name: newt
+    app.kubernetes.io/instance: newt-matrix-extra-containers
+    app.kubernetes.io/version: "1.10.1"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: newt-1.3.0
+subjects:
+  - kind: ServiceAccount
+    name: newt-matrix-extra-containers-newt-sa
+    namespace: kube-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: newt-matrix-extra-containers-newt
+---
+# Source: newt/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: newt-matrix-extra-containers-newt-extra-containers
+  labels:
+    app.kubernetes.io/name: newt
+    app.kubernetes.io/instance: newt-matrix-extra-containers
+    app.kubernetes.io/version: "1.10.1"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: newt-1.3.0
+    newt.instance: extra-containers
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/instance: newt-matrix-extra-containers
+    newt.instance: extra-containers
+  ports:
+    - name: wg
+      port: 51820
+      targetPort: 51820
+      protocol: UDP
+    - name: tester
+      port: 51821
+      targetPort: 51821
+      protocol: UDP
+---
+# Source: newt/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: newt-matrix-extra-containers-newt-extra-containers
+  labels:
+    app.kubernetes.io/name: newt
+    app.kubernetes.io/instance: newt-matrix-extra-containers
+    app.kubernetes.io/version: "1.10.1"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: newt-1.3.0
+    app.kubernetes.io/component: newt
+    newt.instance: extra-containers
+spec:
+  revisionHistoryLimit: 3
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: newt-matrix-extra-containers
+      newt.instance: extra-containers
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: newt
+        app.kubernetes.io/instance: newt-matrix-extra-containers
+        newt.instance: extra-containers
+    spec:
+      serviceAccountName: newt-matrix-extra-containers-newt-sa
+      automountServiceAccountToken: false
+      initContainers:
+        - command:
+          - sh
+          - -c
+          - echo init
+          image: busybox:1.36
+          name: init-myscript
+      containers:
+        - name: newt
+          image: docker.io/fosrl/newt:1.10.1
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 65534
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: PANGOLIN_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: newt-auth
+                  key: PANGOLIN_ENDPOINT
+            - name: NEWT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: newt-auth
+                  key: NEWT_ID
+            - name: NEWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: newt-auth
+                  key: NEWT_SECRET
+            - name: LOG_LEVEL
+              value: "INFO"
+          ports:
+            - name: wg
+              containerPort: 51820
+              protocol: UDP
+            - name: tester
+              containerPort: 51821
+              protocol: UDP
+          resources:
+            limits:
+              cpu: 200m
+              ephemeral-storage: 256Mi
+              memory: 256Mi
+            requests:
+              cpu: 100m
+              ephemeral-storage: 128Mi
+              memory: 128Mi
+        - image: nginx:1.25-alpine
+          name: sidecar
+          ports:
+          - containerPort: 80

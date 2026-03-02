@@ -1,0 +1,64 @@
+suite: Newt probes, security, and misc
+templates:
+  - templates/deployment.yaml
+tests:
+  - it: creates liveness and readiness probes when health enabled
+    set:
+      global:
+        health:
+          enabled: true
+      newtInstances:
+        - name: test-probes
+          enabled: true
+          healthFile: /tmp/healthy
+          pangolinEndpoint: https://example.com
+          id: test
+    asserts:
+      - exists:
+          path: spec.template.spec.containers[0].livenessProbe
+      - exists:
+          path: spec.template.spec.containers[0].readinessProbe
+
+  - it: uses default secure non-root security context
+    set:
+      newtInstances:
+        - name: test-sec
+          enabled: true
+          pangolinEndpoint: https://example.com
+          id: test
+          secret: test-secret
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsUser
+          value: 65534
+
+  - it: applies nodeSelector
+    set:
+      newtInstances:
+        - name: test-nodesel
+          enabled: true
+          pangolinEndpoint: https://example.com
+          id: test
+          nodeSelector:
+            disktype: ssd
+    asserts:
+      - equal:
+          path: spec.template.spec.nodeSelector.disktype
+          value: ssd
+
+  - it: applies tolerations
+    set:
+      newtInstances:
+        - name: test-tolerations
+          enabled: true
+          pangolinEndpoint: https://example.com
+          id: test
+          tolerations:
+            - key: dedicated
+              operator: Equal
+              value: newt
+              effect: NoSchedule
+    asserts:
+      - equal:
+          path: spec.template.spec.tolerations[0].key
+          value: dedicated

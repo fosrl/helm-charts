@@ -1,3 +1,4 @@
+{{- if .Values.global.tests.enabled }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -80,8 +81,9 @@ spec:
   restartPolicy: Never
   containers:
     - name: kubectl
-      image: bitnami/kubectl:1.28.15
-      command: ["/bin/sh", "-c"]
+      image: {{ .Values.global.tests.image.repository }}:{{ .Values.global.tests.image.tag }}
+      imagePullPolicy: {{ .Values.global.tests.image.pullPolicy | default "IfNotPresent" }}
+      command: ["/bin/bash", "-lc"]
       args:
         - >-
           set -euo pipefail;
@@ -91,4 +93,33 @@ spec:
           fi;
           kubectl rollout status deploy -l app.kubernetes.io/instance={{ .Release.Name }} -n {{ .Release.Namespace }} --timeout=300s;
           echo OK;
+          
+      resources:
+        {{- $r := (default (dict) .Values.global.tests.resources) }}
+        {{- if kindIs "map" $r }}
+        requests:
+          {{- if kindIs "map" (index $r "requests") }}
+          cpu: {{ default "50m" (index $r "requests" "cpu") | quote }}
+          memory: {{ default "64Mi" (index $r "requests" "memory") | quote }}
+          {{- else }}
+          cpu: "50m"
+          memory: "64Mi"
+          {{- end }}
+        limits:
+          {{- if kindIs "map" (index $r "limits") }}
+          cpu: {{ default "200m" (index $r "limits" "cpu") | quote }}
+          memory: {{ default "128Mi" (index $r "limits" "memory") | quote }}
+          {{- else }}
+          cpu: "200m"
+          memory: "128Mi"
+          {{- end }}
+        {{- else }}
+        requests:
+          cpu: "50m"
+          memory: "64Mi"
+        limits:
+          cpu: "200m"
+          memory: "128Mi"
+        {{- end }}
+{{- end }}
 

@@ -1,0 +1,11 @@
+# Blueprint file enabled
+newtInstances:
+  - name: blueprint
+    enabled: true
+    auth:
+      existingSecretName: newt-auth
+    blueprintFile: /config/blueprint.yaml
+    blueprintData: |
+      version: 1
+      routes:
+        - 10.0.0.0/8

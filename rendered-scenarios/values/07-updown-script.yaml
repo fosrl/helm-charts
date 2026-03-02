@@ -1,0 +1,18 @@
+# 07-updown-script.yaml - Updown script enabled with ConfigMap mount
+
+global:
+  updownScripts:
+    demo: |
+      #!/bin/sh
+      echo "Updown script executed"
+
+newtInstances:
+  - name: "updown"
+    enabled: true
+    auth:
+      existingSecretName: "newt-auth"
+    updown:
+      enabled: true
+      script: "demo"
+      mountPath: "/opt/newt/updown"
+      fileName: "updown.sh"

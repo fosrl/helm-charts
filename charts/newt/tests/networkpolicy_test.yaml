@@ -1,0 +1,19 @@
+suite: NetworkPolicy rendering
+templates:
+  - templates/networkpolicy.yaml
+values:
+  - ../tests/values/dev.yaml
+tests:
+  - it: does not render when globally disabled
+    set:
+      global:
+        networkPolicy:
+          enabled: false
+      newtInstances:
+        - name: test-disabled
+          enabled: true
+          auth:
+            existingSecretName: newt-auth
+    asserts:
+      - hasDocuments:
+          count: 0

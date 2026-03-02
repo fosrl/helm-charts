@@ -1,0 +1,10 @@
+# Example enabling docker socket mount
+newtInstances:
+  - name: main-tunnel
+    enabled: true
+    auth:
+      existingSecretName: newt-cred
+    dockerSocket:
+      enabled: true
+      path: /var/run/docker.sock
+      enforceNetworkValidation: true

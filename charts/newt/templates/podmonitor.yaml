@@ -1,45 +1,69 @@
-{{- $gm := (default (dict) .Values.global.metrics) -}}
-{{- $tm := (default (dict) .Values.metrics) -}}
+{{- $root := $ -}}
+{{- $vals := $root.Values | default dict -}}
+{{- $global := (default (dict) (get $vals "global")) -}}
+{{- $gm := (default (dict) (get $global "metrics")) -}}
+{{- $tm := (default (dict) (get $vals "metrics")) -}}
 {{- $m := mergeOverwrite (deepCopy $gm) $tm -}}
-{{- if and $m.enabled $m.podMonitor.enabled }}
-apiVersion: {{ $m.podMonitor.apiVersion | default "monitoring.coreos.com/v1" }}
+
+{{- /* Determine if we should render PodMonitor: global enabled and either global.podMonitor.enabled or any instance's effective metrics.podMonitor.enabled */ -}}
+{{- $mPM := (default (dict) (get $m "podMonitor")) -}}
+{{- $shouldPM := false -}}
+{{- if $m.enabled -}}
+  {{- if $mPM.enabled -}}
+    {{- $shouldPM = true -}}
+  {{- else -}}
+    {{- range $i, $inst := (get $vals "newtInstances") -}}
+      {{- if $inst.enabled -}}
+        {{- $eff := (include "newt.effectiveMetrics" (list $inst $gm)) | fromJson -}}
+        {{- $effPM := (default (dict) (get $eff "podMonitor")) -}}
+        {{- if $effPM.enabled -}}
+          {{- $shouldPM = true -}}
+          {{- break -}}
+        {{- end -}}
+      {{- end -}}
+    {{- end -}}
+  {{- end -}}
+{{- end -}}
+
+{{- if $shouldPM -}}
+apiVersion: {{ $mPM.apiVersion | default "monitoring.coreos.com/v1" }}
 kind: PodMonitor
 metadata:
   name: {{ include "newt.fullname" . }}
-  {{- with $m.podMonitor.namespace }}
+  {{- with $mPM.namespace }}
   {{- if . }}
   namespace: {{ . }}
   {{- end }}
   {{- end }}
   labels:
     {{- include "newt.labels" . | nindent 4 }}
-  {{- with $m.podMonitor.labels }}
+    {{- with $mPM.labels }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
-  {{- with $m.podMonitor.annotations }}
+  {{- with $mPM.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
   podMetricsEndpoints:
-    - port: {{ $m.podMonitor.portName | default "metrics" }}
-      {{- with $m.podMonitor.scheme }}
+    - port: {{ $mPM.portName | default "metrics" }}
+      {{- with $mPM.scheme }}
       scheme: {{ . }}
       {{- end }}
-      {{- with $m.podMonitor.path }}
+      {{- with $mPM.path }}
       path: {{ . }}
       {{- end }}
-      {{- with $m.podMonitor.interval }}
+      {{- with $mPM.interval }}
       interval: {{ . }}
       {{- end }}
-      {{- with $m.podMonitor.scrapeTimeout }}
+      {{- with $mPM.scrapeTimeout }}
       scrapeTimeout: {{ . }}
       {{- end }}
-      {{- with $m.podMonitor.relabelings }}
+      {{- with $mPM.relabelings }}
       relabelings:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with $m.podMonitor.metricRelabelings }}
+      {{- with $mPM.metricRelabelings }}
       metricRelabelings:
         {{- toYaml . | nindent 8 }}
       {{- end }}

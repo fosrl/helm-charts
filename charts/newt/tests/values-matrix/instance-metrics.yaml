@@ -1,0 +1,13 @@
+# Instance with metrics enabled
+newtInstances:
+  - name: instance-metrics
+    enabled: true
+    auth:
+      existingSecretName: newt-auth
+    metrics:
+      enabled: true
+      port: 9091
+      path: /metrics
+      service:
+        enabled: true
+        type: ClusterIP

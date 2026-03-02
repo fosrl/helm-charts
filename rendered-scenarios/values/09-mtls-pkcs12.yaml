@@ -1,0 +1,15 @@
+# 09-mtls-pkcs12.yaml - mTLS with PKCS12 (deprecated but still supported)
+
+global:
+  metrics:
+    enabled: false
+    annotations: null
+
+newtInstances:
+  - name: "pkcs12"
+    enabled: true
+    auth:
+      existingSecretName: "newt-auth"
+    mtls:
+      enabled: true
+      mode: "pkcs12"

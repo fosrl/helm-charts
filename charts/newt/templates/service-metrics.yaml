@@ -1,30 +1,33 @@
-{{- $gm := (default (dict) .Values.global.metrics) -}}
-{{- $tm := (default (dict) .Values.metrics) -}}
-{{- $m := mergeOverwrite (deepCopy $gm) $tm -}}
-{{- if and $m.enabled $m.service.enabled }}
-{{- range $i, $inst := .Values.newtInstances }}
-{{- if $inst.enabled }}
+{{- $root := $ -}}
+{{- /* Metrics: instance overrides global.metrics, unify using helper */}}
+{{- $vals := $root.Values | default dict -}}
+{{- $global := (default (dict) (get $vals "global")) -}}
+{{- $gm := (default (dict) (get $global "metrics")) -}}
+{{- range $i, $inst := (get $vals "newtInstances") }}
+  {{- if $inst.enabled }}
+  {{- $m := (include "newt.effectiveMetrics" (list $inst $gm)) | fromJson -}}
+  {{- if and $m.enabled $m.service.enabled }}
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "newt.instance.fullname" (dict "root" . "inst" $inst) }}-metrics
+  name: {{ include "newt.instance.fullname" (dict "root" $root "inst" $inst) }}-metrics
   labels:
-    {{- include "newt.labels" . | nindent 4 }}
+    {{- include "newt.labels" $root | nindent 4 }}
     app.kubernetes.io/component: metrics
     newt.instance: {{ $inst.name }}
     {{- /* Global extra labels for external Services */}}
-    {{- range $k,$v := .Values.global.additionalServiceLabels }}
-    {{ $k }}: {{ $v | quote }}
-    {{- end }}
+  {{- range $k,$v := $root.Values.global.additionalServiceLabels }}
+  {{ $k }}: {{ $v | quote }}
+  {{- end }}
   {{- $anns := dict }}
-  {{- range $k,$v := .Values.global.additionalAnnotations }}
+  {{- range $k,$v := $root.Values.global.additionalAnnotations }}
   {{- $_ := set $anns $k (printf "%v" $v) }}
   {{- end }}
-  {{- range $k,$v := .Values.global.additionalServiceAnnotations }}
+  {{- range $k,$v := $root.Values.global.additionalServiceAnnotations }}
   {{- $_ := set $anns $k (printf "%v" $v) }}
   {{- end }}
-  {{- $svcAnns := .Values.global.metrics.service.annotations | default (dict) -}}
+  {{- $svcAnns := $root.Values.global.metrics.service.annotations | default (dict) -}}
   {{- range $k,$v := $svcAnns }}
   {{- $_ := set $anns $k (printf "%v" $v) }}
   {{- end }}
@@ -35,7 +38,52 @@ metadata:
 spec:
   type: {{ $m.service.type | default "ClusterIP" }}
   selector:
-    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/instance: {{ $root.Release.Name }}
+    newt.instance: {{ $inst.name }}
+  ports:
+      - name: {{ $m.service.portName | default "metrics" }}
+        port: {{ $m.service.port | default 9090 }}
+        {{- if $m.targetPortName }}
+        targetPort: {{ $m.targetPortName }}
+        {{- else }}
+        targetPort: {{ $m.port | default 9090 }}
+        {{- end }}
+        protocol: TCP
+    {{- else }}
+    {{- $m := $gm -}}
+    {{- if and $m.enabled $m.service.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "newt.instance.fullname" (dict "root" $root "inst" $inst) }}-metrics
+  labels:
+    {{- include "newt.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: metrics
+    newt.instance: {{ $inst.name }}
+    {{- /* Global extra labels for external Services */}}
+  {{- range $k,$v := $root.Values.global.additionalServiceLabels }}
+  {{ $k }}: {{ $v | quote }}
+  {{- end }}
+  {{- $anns := dict }}
+  {{- range $k,$v := $root.Values.global.additionalAnnotations }}
+  {{- $_ := set $anns $k (printf "%v" $v) }}
+  {{- end }}
+  {{- range $k,$v := $root.Values.global.additionalServiceAnnotations }}
+  {{- $_ := set $anns $k (printf "%v" $v) }}
+  {{- end }}
+  {{- $svcAnns := $root.Values.global.metrics.service.annotations | default (dict) -}}
+  {{- range $k,$v := $svcAnns }}
+  {{- $_ := set $anns $k (printf "%v" $v) }}
+  {{- end }}
+  {{- if gt (len $anns) 0 }}
+  annotations:
+    {{- toYaml $anns | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ $m.service.type | default "ClusterIP" }}
+  selector:
+    app.kubernetes.io/instance: {{ $root.Release.Name }}
     newt.instance: {{ $inst.name }}
   ports:
     - name: {{ $m.service.portName | default "metrics" }}
@@ -46,6 +94,8 @@ spec:
       targetPort: {{ $m.port | default 9090 }}
       {{- end }}
       protocol: TCP
+    {{- end }}
+  {{- end }}
+  {{- end }}
 {{- end }}
-{{- end }}
-{{- end }}
+

@@ -1,0 +1,11 @@
+# Service with LoadBalancer
+newtInstances:
+  - name: service-lb
+    enabled: true
+    auth:
+      existingSecretName: newt-auth
+    service:
+      enabled: true
+      type: LoadBalancer
+      loadBalancerIP: 1.2.3.4
+      externalTrafficPolicy: Local

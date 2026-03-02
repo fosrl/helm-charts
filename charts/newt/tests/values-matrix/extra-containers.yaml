@@ -1,0 +1,15 @@
+# Extra containers (sidecars and init)
+newtInstances:
+  - name: extra-containers
+    enabled: true
+    auth:
+      existingSecretName: newt-auth
+    initContainers:
+      - name: init-myscript
+        image: busybox:1.36
+        command: ['sh', '-c', 'echo init']
+    extraContainers:
+      - name: sidecar
+        image: nginx:1.25-alpine
+        ports:
+          - containerPort: 80

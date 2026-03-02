@@ -1,0 +1,926 @@
+# Default values for Newt.
+# This is a YAML-formatted file.
+# yaml-language-server: $schema=./values.schema.json
+# Declare variables to be passed into templates.
+#
+# NOTE: The comments in this file are consumed by helm-docs to generate the README.md
+# See https://github.com/norwoodj/helm-docs
+
+# -----------------------------------------------------------------------------
+# Global Parameters
+# -----------------------------------------------------------------------------
+
+## @section Global parameters
+global:
+  # -----------------------------------------------------------------------------
+  # Global Image Configuration
+  # -----------------------------------------------------------------------------
+
+  # -- Global container image configuration used by all chart components.
+  image: # @schema type: object ; additionalProperties: false
+    # -- Container image registry (e.g., docker.io, ghcr.io, registry.example.com).
+    registry: "docker.io" # @schema type: string ; minLength: 1
+    # -- Container image repository (e.g., fosrl/newt).
+    repository: "fosrl/newt" # @schema type: string ; minLength: 1
+    # -- Image tag (defaults to Chart.appVersion if empty).
+    tag: "" # @schema type: string
+    # -- Image digest (overrides tag when set). Format: sha256:<64-hex>.
+    digest: "" # @schema type: string ; pattern: ^$|^sha256:[a-f0-9]{64}$
+    # -- Image pull policy.
+    imagePullPolicy: IfNotPresent # @schema type: string ; enum: [Always, IfNotPresent, Never]
+    # -- Image pull secrets (list of Kubernetes Secret references).
+    # Each entry should be an object like: { name: "my-secret" }
+    imagePullSecrets: [] # @schema type:[array, null] ; item: object ; default: []
+  # -----------------------------------------------------------------------------
+  # Naming & Namespace Overrides
+  # -----------------------------------------------------------------------------
+
+  # -- Override chart name (replaces .Chart.Name).
+  nameOverride: "" # @schema type: string ; pattern: ^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+  # -- Fully override the computed fullname.
+  fullnameOverride: "" # @schema type: string ; pattern: ^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+  # -- Override the namespace for rendered resources (defaults to .Release.Namespace).
+  namespaceOverride: "" # @schema type: string ; pattern: ^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+
+  # -----------------------------------------------------------------------------
+  # Global Labels, Annotations & Environment
+  # -----------------------------------------------------------------------------
+
+  # -- Additional labels applied to all rendered resources.
+  additionalLabels: {} # @schema type: object ; additionalProperties: {type: string}
+  # -- Additional annotations applied to all rendered resources.
+  additionalAnnotations: {} # @schema type: object ; additionalProperties: {type: string}
+  # -- Additional labels applied to external Service resources.
+  additionalServiceLabels: {} # @schema type: object ; additionalProperties: {type: string}
+  # -- Additional annotations applied to external Service resources.
+  additionalServiceAnnotations: {} # @schema type: object ; additionalProperties: {type: string}
+  # -- Additional annotations applied to StatefulSet resources.
+  statefulsetAnnotations: {} # @schema type: object ; additionalProperties: {type: string}
+  # -- Additional annotations applied to Deployment resources.
+  deploymentAnnotations: {} # @schema type: object ; additionalProperties: {type: string}
+  # -- Additional labels applied to Deployment resources.
+  deploymentLabels: {} # @schema type: object ; additionalProperties: {type: string}
+  # -- Additional annotations applied to Pod resources.
+  podAnnotations: {} # @schema type: object ; additionalProperties: {type: string}
+  # -- Additional labels applied to Pod resources.
+  podLabels: {} # @schema type: object ; additionalProperties: {type: string}
+  # -- Extra environment variables injected into all containers (global scope).
+  # Map format: KEY: "value"
+  extraEnv: {} # @schema type: object ; additionalProperties: {type: string}
+
+  # -- Number of old ReplicaSets/ControllerRevisions to retain.
+  revisionHistoryLimit: 3 # @schema type: integer ; minimum: 0 ; maximum: 50
+
+  # -----------------------------------------------------------------------------
+  # Global NetworkPolicy Configuration
+  # -----------------------------------------------------------------------------
+
+  # -- Global NetworkPolicy configuration.
+  # -- Defines reusable policy "components" (defaultApp, dns, kubeApi, custom) and optional named ruleSets.
+  # -- Instance-level networkPolicy can inherit, merge, or replace these settings.
+  networkPolicy: # @schema type: object ; additionalProperties: false
+    # -- Master switch controlling whether NetworkPolicies are rendered.
+    # -- If false, no NetworkPolicies are created globally.
+    # -- Instances may explicitly override via:
+    # -- newtInstances[].networkPolicy.enabled: true
+    enabled: false # @schema type: boolean ; default: true
+
+    # -- Controls how global policies are applied to instances:
+    # -- - inherit: instances use only global components/ruleSets
+    # -- - merge:   instances combine global + instance policies (recommended)
+    # -- - replace: instances use only instance-level networkPolicy
+    # --
+    # -- This defines the global default. Instances may override via:
+    # -- newtInstances[].networkPolicy.mode
+    defaultMode: merge # @schema type: string ; enum: [inherit, merge, replace] ; default: merge
+
+    # -----------------------------------------------------------------------------
+    # Reusable Policy Components
+    # -----------------------------------------------------------------------------
+    components: # @schema type: object ; additionalProperties: false
+      # -------------------------------------------------------------------------
+      # defaultApp — Baseline application rules required for Newt operation
+      # -------------------------------------------------------------------------
+      defaultApp: # @schema type: object ; additionalProperties: false
+        enabled: true # @schema type: boolean ; default: true
+
+        # -- NetworkPolicy policyTypes
+        policyTypes:
+          - Ingress
+          - Egress
+        # @schema type: array
+        # @schema item: string
+        # @schema minItems: 1
+        # @schema uniqueItems: true
+
+        # -- Raw Kubernetes NetworkPolicySpec.ingress rules
+        ingress: [] # @schema type: array ; item: object ; default: []
+
+        # -- Raw Kubernetes NetworkPolicySpec.egress rules
+        egress: [] # @schema type: array ; item: object ; default: []
+
+      # -------------------------------------------------------------------------
+      # dns — Optional DNS egress rules (e.g., CoreDNS)
+      # -------------------------------------------------------------------------
+      dns: # @schema type: object ; additionalProperties: false
+        enabled: false # @schema type: boolean ; default: false
+
+        # -- DNS egress rules (raw NetworkPolicySpec.egress objects)
+        egress:
+          - to:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: kube-system
+                podSelector:
+                  matchLabels:
+                    k8s-app: kube-dns
+            ports:
+              - port: 53
+                protocol: UDP
+              - port: 53
+                protocol: TCP
+        # @schema type: array
+        # @schema item: object
+        # @schema default: []
+
+      # -------------------------------------------------------------------------
+      # kubeApi — Optional Kubernetes API server egress (typically TCP 6443)
+      # -------------------------------------------------------------------------
+      kubeApi: # @schema type: object ; additionalProperties: false
+        enabled: false # @schema type: boolean ; default: false
+
+        # -- Kubernetes API egress rules
+        egress:
+          - to:
+              - ipBlock:
+                  cidr: 0.0.0.0/0
+              - ipBlock:
+                  cidr: "::/0"
+            ports:
+              - port: 6443
+                protocol: TCP
+        # @schema type: array
+        # @schema item: object
+        # @schema default: []
+
+      # -------------------------------------------------------------------------
+      # custom — User-defined rules
+      # -------------------------------------------------------------------------
+      custom: # @schema type: object ; additionalProperties: false
+        enabled: false # @schema type: boolean ; default: false
+
+        policyTypes:
+          - Ingress
+          - Egress
+        # @schema type: array
+        # @schema item: string
+        # @schema minItems: 1
+        # @schema uniqueItems: true
+
+        # -- Custom ingress rules (raw NetworkPolicySpec.ingress objects)
+        ingress: [] # @schema type: array ; item: object ; default: []
+
+        # -- Custom egress rules (raw NetworkPolicySpec.egress objects)
+        egress: [] # @schema type: array ; item: object ; default: []
+
+    # -----------------------------------------------------------------------------
+    # Named RuleSets
+    # -----------------------------------------------------------------------------
+    # -- Optional named rule sets referenced via newtInstances[].networkPolicy.includeRuleSets
+    #
+    #  Each ruleSet must resemble a NetworkPolicySpec fragment:
+    #    policyTypes: ["Ingress","Egress"]
+    #    ingress: [...]
+    #    egress: [...]
+    #
+    #  Example:
+    #  ruleSets:
+    #    allow-internet:
+    #      policyTypes: ["Egress"]
+    #      egress:
+    #        - to:
+    #            - ipBlock: { cidr: 0.0.0.0/0 }
+    #          ports:
+    #            - { port: 80, protocol: TCP }
+    #            - { port: 443, protocol: TCP }
+    ruleSets: {} # @schema type: object ; additionalProperties: {type: object} ; default: {}
+
+  # -----------------------------------------------------------------------------
+  # Scheduling & Placement Configuration
+  # -----------------------------------------------------------------------------
+
+  # -- PriorityClass applied to all Pods.
+  priorityClassName: "" # @schema type: string ; pattern: ^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+  # -- Node selector constraints applied to all Pods.
+  nodeSelector: {} # @schema type: object ; additionalProperties: {type: string}
+  # -- Tolerations applied to all Pods.
+  # Each item must be a Kubernetes Toleration object:
+  # key, operator (Exists|Equal), value, effect (NoSchedule|PreferNoSchedule|NoExecute), tolerationSeconds
+  tolerations: [] # @schema type: array ; item: object ; default: []
+  # -- Pod affinity and anti-affinity
+  affinity: # @schema type: object
+    # -- Node affinity rules
+    nodeAffinity: {} # @schema type: object
+    # -- Pod affinity rules
+    podAffinity: {} # @schema type: object
+    # -- Pod anti-affinity rules
+    podAntiAffinity: {} # @schema type: object
+  # -- Pod topology spread constraints (applied to all Pods)
+  topologySpreadConstraints: [] # @schema type: array ; item: object
+
+  # -----------------------------------------------------------------------------
+  # Pod Disruption Budget
+  # -----------------------------------------------------------------------------
+
+  podDisruptionBudget: # @schema type: object ; additionalProperties: false
+    enabled: false # @schema type: boolean
+
+    # -- Minimum available pods (mutually exclusive with maxUnavailable)
+    minAvailable: 1 # @schema type:[integer, string] ; minimum: 0
+
+    # -- Maximum unavailable pods (mutually exclusive with minAvailable)
+    maxUnavailable: "" # @schema type:[integer, string, null]
+
+    # -- Additional annotations
+    annotations: {} # @schema type: object ; additionalProperties: {type: string}
+
+    # -- Additional labels
+    labels: {} # @schema type: object ; additionalProperties: {type: string}
+
+  # -----------------------------------------------------------------------------
+  # Security Context
+  # -----------------------------------------------------------------------------
+
+  # -- Pod-level securityContext override
+  podSecurityContext: {} # @schema type: object ; additionalProperties: {type: [string, integer, boolean]}
+
+  # -- Container-level securityContext override
+  # SECURITY NOTE: By default (when nativeMode is disabled), Newt runs as non-root:
+  #   runAsUser: 65534
+  #   runAsNonRoot: true
+  #   allowPrivilegeEscalation: false
+  #   readOnlyRootFilesystem: true
+  #   capabilities.drop: ["ALL"]
+  #
+  # When nativeMode.enabled=true OR useNativeInterface=true:
+  #   runAsUser: 0 (root)
+  #   allowPrivilegeEscalation: true
+  #   privileged: true
+  #   capabilities.add: [NET_ADMIN, SYS_MODULE]
+  #
+  # IMPORTANT: Do NOT set capabilities.drop when running as root - this is invalid.
+  securityContext: {} # @schema type: object
+
+  # -----------------------------------------------------------------------------
+  # App Configuration
+  # -----------------------------------------------------------------------------
+
+  # -- Global log level
+  logLevel: "INFO" # @schema type: string ; enum: [TRACE, DEBUG, INFO, WARN, ERROR]
+
+  nativeMode:
+    # -- Enable native WireGuard interface (requires privileged container)
+    enabled: false # @schema type: boolean
+
+  notes:
+    # -- Default internal Traefik service target for NOTES output
+    defaultTraefikTarget: "traefik.kube-system.svc.cluster.local:80"
+    # @schema type: string ; pattern: ^[a-z0-9.-]+:[0-9]+$
+
+  # -- Map of filename -> script content (mounted when updown.enabled=true)
+  updownScripts: {} # @schema type: object ; additionalProperties: {type: string}
+
+  # -----------------------------------------------------------------------------
+  # Health Probes
+  # -----------------------------------------------------------------------------
+
+  health: # @schema type: object ; additionalProperties: false
+    enabled: false # @schema type: boolean
+
+    # -- Health file path checked by probes
+    path: "/tmp/healthy" # @schema type: string ; minLength: 1
+
+    # -- Readiness probe failure threshold
+    readinessFailureThreshold: 3 # @schema type: integer ; minimum: 1 ; maximum: 20
+
+  # -----------------------------------------------------------------------------
+  # Resource Requests & Limits
+  # -----------------------------------------------------------------------------
+
+  resources: # @schema type: object
+    requests:
+      cpu: "100m" # @schema type: string ; pattern: ^[0-9]+m?$
+      memory: "128Mi" # @schema type: string
+      ephemeral-storage: "128Mi" # @schema type: string
+
+    limits:
+      cpu: "200m" # @schema type: string ; pattern: ^[0-9]+m?$
+      memory: "256Mi" # @schema type: string
+      ephemeral-storage: "256Mi" # @schema type: string
+
+  # -----------------------------------------------------------------------------
+  # Helm Test Configuration
+  # -----------------------------------------------------------------------------
+
+  tests:
+    enabled: false # @schema type: boolean
+
+    image: # @schema type: object ; additionalProperties: false
+      # -- Container image repository for Helm test jobs.
+      repository: registry.k8s.io/kubectl # @schema type: string ; minLength: 1
+      tag: "1.30.14" # @schema type: string ; minLength: 1
+      pullPolicy: IfNotPresent # @schema type: string ; enum: [Always, IfNotPresent, Never]
+    resources: # @schema type: object
+      requests:
+        cpu: "100m" # @schema type: string ; pattern: ^[0-9]+m?$
+        memory: "128Mi" # @schema type: string
+        #ephemeral-storage: "128Mi" # @schema type: string
+      limits:
+        cpu: "200m" # @schema type: string ; pattern: ^[0-9]+m?$
+        memory: "256Mi" # @schema type: string
+        #ephemeral-storage: "256Mi" # @schema type: string
+
+  # -----------------------------------------------------------------------------
+  # Global Metrics Configuration
+  # -----------------------------------------------------------------------------
+
+  # @section Global Metrics
+  metrics: # @schema type: object ; additionalProperties: false
+    # -- Enable Prometheus-compatible metrics exposure
+    enabled: false # @schema type: boolean
+    # -- Metrics endpoint port exposed by the workload container
+    port: 9090 # @schema type: integer ; minimum: 1 ; maximum: 65535
+    # -- Metrics HTTP path
+    path: /metrics # @schema type: string ; minLength: 1 ; pattern: ^/.*
+    # -- Metrics admin server address (NEWT_ADMIN_ADDR). Used for health checks and metrics endpoint.
+    adminAddr: "127.0.0.1:2112" # @schema type: string ; pattern: ^.+:[0-9]+$
+    # -- Enable async bytes metrics (NEWT_METRICS_ASYNC_BYTES)
+    asyncBytes: false # @schema type: boolean
+    # -- Region for metrics/telemetry (NEWT_REGION)
+    region: "" # @schema type: string
+    # -- Enable OTLP exporter (NEWT_METRICS_OTLP_ENABLED)
+    otlpEnabled: false # @schema type: boolean
+
+    # -- OTEL exporter configuration (used when otlpEnabled=true)
+    # These are passed as environment variables to the container
+    otel: # @schema type: object ; additionalProperties: false
+      # -- OTLP endpoint (OTEL_EXPORTER_OTLP_ENDPOINT)
+      exporterOtlpEndpoint: "" # @schema type: string ; pattern: ^$|^https?://.+$
+      # -- OTLP exporter protocol (OTEL_EXPORTER_OTLP_PROTOCOL) - grpc or http/proto
+      exporterOtlpProtocol: "" # @schema type: string ; enum: ["", grpc, http/proto]
+      # -- OTLP headers (OTEL_EXPORTER_OTLP_HEADERS) - comma-separated key=value pairs
+      exporterOtlpHeaders: "" # @schema type: string
+      # -- Service name for OTLP (OTEL_SERVICE_NAME)
+      serviceName: "" # @schema type: string
+
+    # -- Extra annotations added to metrics-related objects (e.g., Pods/Service depending on chart logic)
+    annotations: {} # @schema type: object ; additionalProperties: {type: string}
+    # -- Optional Service port name (used when creating a Service)
+    portName: metrics # @schema type: string ; minLength: 1 ; pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+    # -- Optional container port name to target instead of numeric port
+    targetPortName: "" # @schema type: string ; pattern: ^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+
+    # -----------------------------------------------------------------------------
+    # Metrics Service (for scraping via Service endpoints)
+    # -----------------------------------------------------------------------------
+
+    service: # @schema type: object ; additionalProperties: false
+      # -- Create a dedicated Service for metrics scraping
+      enabled: false # @schema type: boolean
+      # -- Kubernetes Service type
+      type: ClusterIP # @schema type: string ; enum: [ClusterIP, LoadBalancer, NodePort]
+      # -- Service port exposed for scraping
+      port: 9090 # @schema type: integer ; minimum: 1 ; maximum: 65535
+      # -- Service port name
+      portName: metrics # @schema type: string ; minLength: 1 ; pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+      # -- Additional Service annotations
+      annotations: {} # @schema type: object ; additionalProperties: {type: string}
+
+    # -----------------------------------------------------------------------------
+    # PodMonitor (Prometheus Operator)
+    # -----------------------------------------------------------------------------
+
+    podMonitor: # @schema type: object ; additionalProperties: false
+      # -- Create a PodMonitor resource
+      enabled: false # @schema type: boolean
+      # -- PodMonitor API version (Prometheus Operator)
+      apiVersion: monitoring.coreos.com/v1 # @schema type: string ; minLength: 1
+      # -- Namespace override for PodMonitor (empty = release namespace)
+      namespace: "" # @schema type: string ; pattern: ^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+      # -- Scrape port name (must match a named port on the Pod/Service endpoints)
+      portName: metrics # @schema type: string ; minLength: 1 ; pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+      # -- HTTP scheme for scraping
+      scheme: http # @schema type: string ; enum: [http, https]
+      # -- Metrics path
+      path: /metrics # @schema type: string ; minLength: 1 ; pattern: ^/.*
+      # -- Scrape interval (Prometheus duration, e.g., 30s, 1m)
+      interval: 30s # @schema type: string ; pattern: ^[0-9]+(ms|s|m|h)$
+      # -- Scrape timeout (must be <= interval)
+      scrapeTimeout: 10s # @schema type: string ; pattern: ^[0-9]+(ms|s|m|h)$
+      # -- Whether to honor labels from the scraped target
+      honorLabels: true # @schema type: boolean
+      # -- Extra labels applied to the PodMonitor
+      labels: {} # @schema type: object ; additionalProperties: {type: string}
+      # -- Extra annotations applied to the PodMonitor
+      annotations: {} # @schema type: object ; additionalProperties: {type: string}
+      # -- Relabeling rules (Prometheus Operator schema; treated as opaque objects)
+      relabelings: [] # @schema type: array ; item: object
+      # -- Metric relabeling rules (Prometheus Operator schema; treated as opaque objects)
+      metricRelabelings: [] # @schema type: array ; item: object
+
+    # -----------------------------------------------------------------------------
+    # ServiceMonitor (Prometheus Operator)
+    # -----------------------------------------------------------------------------
+
+    serviceMonitor: # @schema type: object ; additionalProperties: false
+      # -- Create a ServiceMonitor resource
+      enabled: false # @schema type: boolean
+      # -- ServiceMonitor API version (Prometheus Operator)
+      apiVersion: monitoring.coreos.com/v1 # @schema type: string ; minLength: 1
+      # -- Namespace override for ServiceMonitor (empty = release namespace)
+      namespace: "" # @schema type: string ; pattern: ^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+      # -- Extra labels applied to the ServiceMonitor
+      labels: {} # @schema type: object ; additionalProperties: {type: string}
+      # -- Scrape interval (Prometheus duration, e.g., 30s, 1m)
+      interval: 30s # @schema type: string ; pattern: ^[0-9]+(ms|s|m|h)$
+      # -- Scrape timeout (Prometheus duration)
+      scrapeTimeout: 10s # @schema type: string ; pattern: ^[0-9]+(ms|s|m|h)$
+      # -- Job label override (if your Prometheus setup uses a custom jobLabel)
+      jobLabel: "" # @schema type: string
+      # -- HTTP scheme for scraping
+      scheme: http # @schema type: string ; enum: [http, https]
+      # -- Relabeling rules (Prometheus Operator schema; treated as opaque objects)
+      relabelings: [] # @schema type: array ; item: object
+      # -- Metric relabeling rules (Prometheus Operator schema; treated as opaque objects)
+      metricRelabelings: [] # @schema type: array ; item: object
+      # -- Labels to transfer from the target Service onto metrics
+      targetLabels: [] # @schema type: array ; item: string
+      # -- Sample limit (0 = unlimited)
+      sampleLimit: 0 # @schema type: integer ; minimum: 0
+
+    # -----------------------------------------------------------------------------
+    # PrometheusRule (Prometheus Operator)
+    # -----------------------------------------------------------------------------
+
+    prometheusRule: # @schema type: object ; additionalProperties: false
+      # -- Create a PrometheusRule resource
+      enabled: false # @schema type: boolean
+      # -- PrometheusRule API version (Prometheus Operator)
+      apiVersion: monitoring.coreos.com/v1 # @schema type: string ; minLength: 1
+      # -- Namespace override for PrometheusRule (empty = release namespace)
+      namespace: "" # @schema type: string ; pattern: ^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+      # -- Extra labels applied to the PrometheusRule
+      labels: {} # @schema type: object ; additionalProperties: {type: string}
+      # -- Rule groups/rules (templated). Structure is PrometheusRule-compatible; treated as opaque objects.
+      rules: [] # @schema type: array ; item: object
+
+# Chart-level image fallback (prefer global.image)
+image:
+  # -- Container image repository (fallback; prefer global.image)
+  repository: ""
+  # -- Image tag (ignored if digest is set)
+  tag: ""
+  # -- Image pull policy (fallback when global.image.imagePullPolicy not set)
+  pullPolicy: IfNotPresent # @schema enum: [Always, IfNotPresent, Never]
+  # -- Image digest (sha256:...)
+  digest: ""
+
+# -----------------------------------------------------------------------------
+# RBAC Configuration
+# -----------------------------------------------------------------------------
+
+rbac:
+  # -- Create RBAC resources (Role/RoleBinding or ClusterRole/ClusterRoleBinding).
+  create: true # @schema type: boolean ; default: true
+  # -- Create ClusterRole/ClusterRoleBinding instead of namespaced Role/RoleBinding.
+  clusterRole: false # @schema type: boolean ; default: false
+  # -- Additional annotations applied to RBAC resources.
+  annotations: {} # @schema type: object ; additionalProperties: {type: string}
+  # -- Additional labels applied to RBAC resources.
+  labels: {} # @schema type: object ; additionalProperties: {type: string}
+
+# -----------------------------------------------------------------------------
+# ServiceAccount Configuration
+# -----------------------------------------------------------------------------
+
+serviceAccount:
+  # -- Create a dedicated ServiceAccount for this release.
+  create: true # @schema type: boolean ; default: true
+  # -- ServiceAccount name.
+  # If empty and create=true, the chart generates a name.
+  # If create=false and empty, the "default" ServiceAccount is used.
+  name: "" # @schema type: string ; pattern: ^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+  # -- Additional annotations applied to the ServiceAccount.
+  annotations: {} # @schema type: object ; additionalProperties: {type: string}
+  # -- Control automounting of the ServiceAccount token on Pods.
+  automountServiceAccountToken: false # @schema type: boolean ; default: false
+
+# -----------------------------------------------------------------------------
+# Newt Instances
+# -----------------------------------------------------------------------------
+
+# @section Newt instances
+# @schema type: array ; item: object
+# -- List of Newt instances to deploy. Each instance can optionally override
+newtInstances:
+  - name: "main-tunnel" # @schema pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ; minLength: 1 ; maxLength: 63
+    # @schema type: boolean
+    # @schema default: false
+    # -- Allow this instance to override global settings (image, logLevel, etc).
+    allowGlobalOverride: false
+    # @schema type: boolean
+    # @schema default: true
+    enabled: true
+    # -- Number of replicas for this instance (default: 1)
+    replicas: 1 # @schema type: integer ; minimum: 1
+    # Preferred: use an existing Secret to source all credentials
+    auth:
+      # @schema type: string ; pattern: ^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+      # -- Name of the existing Secret with endpoint/id/secret keys
+      existingSecretName: ""
+      # -- Key mappings used inside the existing Secret
+      keys:
+        # -- Key name for the Pangolin endpoint (default: PANGOLIN_ENDPOINT)
+        endpointKey: PANGOLIN_ENDPOINT
+        # -- Key name for the Newt ID (default: NEWT_ID)
+        idKey: NEWT_ID
+        # -- Key name for the Newt secret (default: NEWT_SECRET)
+        secretKey: NEWT_SECRET
+    # Alternative (inline): provide credentials directly (schema enforces non-empty when used)
+    # @schema type: string ; pattern: ^$|^https?://[a-zA-Z0-9.-]+(/.*)?$
+    # -- Pangolin control-plane endpoint URL (e.g., https://pangolin.example.com)
+    pangolinEndpoint: ""
+    # @schema type: string ; pattern: ^$|^[a-zA-Z0-9_-]+$
+    # @schema description: WARNING: Use auth.existingSecretName for production to avoid secrets in values
+    # -- Instance ID issued by Pangolin
+    id: ""
+    # @schema type: string ; pattern: ^$|^[a-zA-Z0-9_-]+$
+    # -- Instance secret issued by Pangolin (WARNING: Use existingSecretName for production)
+    secret: ""
+    # -- Health file path used by liveness/readiness probes
+    healthFile: "/tmp/healthy"
+    # -- Enforce health check certificate validation (ENFORCE_HC_CERT env).
+    # When enabled, health checks must verify TLS certificates.
+    enforceHcCert: false
+    # -- Per-instance log level (falls back to global.logLevel when empty)
+    logLevel: "INFO"
+    # -- WireGuard interface MTU (typical cloud path MTU ~1380). Leave at 1280 unless tuning
+    mtu: 1280
+    # -- Optional DNS server address pushed to the client (leave empty to omit)
+    dns: ""
+    # -- Optional ping interval (e.g., "3s"). Leave empty to use default
+    pingInterval: ""
+    # -- Optional ping timeout (e.g., "5s"). Leave empty to use default
+    pingTimeout: ""
+    # -- Accept client connections for runtime only (ACCEPT_CLIENTS env). Does NOT create any Service; Service is controlled by newtInstances[x].service.enabled
+    acceptClients: false
+    # -- Use native WireGuard kernel interface (requires nativeMode.enabled=true and privileged)
+    useNativeInterface: false
+    # -- WireGuard interface name in the pod
+    interface: "newt"
+    # -- Keep the interface on shutdown (native mode)
+    keepInterface: false
+    # -- Optional config file path for Newt (CONFIG_FILE env)
+    configFile: ""
+    # -- Optional path to save generated private key (GENERATE_AND_SAVE_KEY_TO env)
+    generateAndSaveKeyTo: ""
+    # -- Disable cloud connectivity (NO_CLOUD env). When enabled, Newt operates without connecting to Pangolin cloud.
+    noCloud: false
+    # -- Disable client connections (DISABLE_CLIENTS env). When enabled, Newt does not accept incoming client connections.
+    disableClients: false
+    # -- Blueprint file path (BLUEPRINT_FILE env). Path to a Newt blueprint configuration file.
+    blueprintFile: ""
+    # -- Blueprint file content (inline). When provided, creates a ConfigMap with this content.
+    # Use this for simple inline blueprints, or leave empty to reference an existing ConfigMap.
+    blueprintData: ""
+    # -- WireGuard UDP port (PORT env). Default is 51820.
+    port: ""
+    dockerSocket:
+      # -- Mount the host's Docker socket into the pod
+      enabled: false
+      # -- Docker socket mount path
+      path: "/var/run/docker.sock"
+      # -- Enforce Docker network validation when enabled
+      enforceNetworkValidation: false
+    mtls:
+      # -- Enable mTLS client cert mounting
+      enabled: false
+      # -- mTLS mode: "pkcs12" (legacy) or "pem" (split PEM certificates)
+      mode: pkcs12 # @schema type: string ; enum: [pkcs12, pem]
+      # -- Secret name containing client.p12 (if empty and p12Base64 provided, a Secret is generated)
+      secretName: ""
+      # -- In-container path to mount the PKCS12 file
+      certPath: "/certs/client.p12"
+      # -- Inline base64 content for client.p12 (not recommended for production)
+      p12Base64: ""
+      # -- Split PEM certificate configuration (used when mode=pem)
+      pem: # @schema type: object ; additionalProperties: false
+        # -- Secret name containing client.crt, client.key, and optionally ca.crt
+        secretName: ""
+        # -- In-container path to mount client certificate (client.crt)
+        clientCertPath: "/certs/client.crt"
+        # -- In-container path to mount client key (client.key)
+        clientKeyPath: "/certs/client.key"
+        # -- In-container path to mount CA certificate(s) (ca.crt) - comma-separated list
+        caPath: "/certs/ca.crt"
+    updown:
+      # -- Mount and execute a shared up/down script
+      enabled: false
+      # -- (Deprecated) inline script content (prefer updownScripts map)
+      script: ""
+      # -- Container mount path for up/down script files
+      mountPath: "/opt/newt/updown"
+      # -- (Deprecated) filename for the single up/down script
+      fileName: "updown.sh"
+
+    # -------------------------------------------------------------------------
+    # Per-instance NetworkPolicy overrides
+    # -------------------------------------------------------------------------
+
+    # @schema type: object
+    # @schema additionalProperties: false
+    # -- NetworkPolicy behavior (inherit/merge/replace) and enable/disable components.
+    networkPolicy:
+      # @schema type: ["boolean","null"]
+      # @schema default: null
+      # -- Per-instance master switch.
+      # -- - null: inherit `global.networkPolicy.enabled`
+      # -- - true/false: explicitly enable/disable NetworkPolicies for this instance
+      enabled: null
+
+      # @schema type: string
+      # @schema enum: ["inherit", "merge", "replace"]
+      # @schema default: "merge"
+      # -- Composition mode for this instance:
+      # -- - inherit: use global components/ruleSets only (instance adds ignored)
+      # -- - merge:   combine global + instance components/ruleSets
+      # -- - replace: use instance components/ruleSets only (global ignored)
+      #
+      #  Typical examples:
+      #  - "merge": global defaultApp + (instance enables dns) + (instance adds custom)
+      #  - "replace": instance defines a fully custom policy set, independent of global
+      mode: merge
+
+      # @schema type: object
+      # @schema additionalProperties: false
+      # -- Select which global components are used for this instance (when mode is inherit/merge).
+      # -- This allows per-instance toggling of global building blocks.
+      useGlobalComponents:
+        # @schema type: boolean
+        # @schema default: true
+        # -- Include global defaultApp component (if enabled globally).
+        defaultApp: true
+
+        # @schema type: boolean
+        # @schema default: false
+        # -- Include global dns component (if enabled globally).
+        dns: false
+
+        # @schema type: boolean
+        # @schema default: false
+        # -- Include global kubeApi component (if enabled globally).
+        kubeApi: false
+
+        # @schema type: boolean
+        # @schema default: true
+        # -- Include global custom component (if enabled globally).
+        custom: true
+
+      # @schema type: object
+      # @schema additionalProperties: false
+      # -- Instance-local components that can be merged in (mode=merge) or used exclusively (mode=replace).
+      components:
+        # @schema type: object
+        # @schema additionalProperties: false
+        defaultApp:
+          # @schema type: boolean
+          # @schema default: false
+          enabled: false
+          # @schema type: array
+          # @schema default: []
+          policyTypes: []
+          # @schema type: array
+          # @schema default: []
+          ingress: []
+          # @schema type: array
+          # @schema default: []
+          egress: []
+
+        # @schema type: object
+        # @schema additionalProperties: false
+        dns:
+          # @schema type: boolean
+          # @schema default: false
+          enabled: false
+          # @schema type: array
+          # @schema default: []
+          egress: []
+
+        # @schema type: object
+        # @schema additionalProperties: false
+        kubeApi:
+          # @schema type: boolean
+          # @schema default: false
+          enabled: false
+          # @schema type: array
+          # @schema default: []
+          egress: []
+
+        # @schema type: object
+        # @schema additionalProperties: false
+        custom:
+          # @schema type: boolean
+          # @schema default: false
+          enabled: false
+          # @schema type: array
+          # @schema item: string
+          # @schema minItems: 1
+          # @schema uniqueItems: true
+          policyTypes:
+            - Ingress
+            - Egress
+          # @schema type: array
+          # @schema default: []
+          ingress: []
+          # @schema type: array
+          # @schema default: []
+          egress: []
+
+      # @schema type: array
+      # @schema default: []
+      # -- List of named global `global.networkPolicy.ruleSets` to include for this instance.
+      # -- Only applied when mode is inherit/merge, unless you later decide to allow
+      # -- referencing ruleSets even in replace-mode.
+      includeRuleSets: []
+
+    # @schema type: object ; additionalProperties: {type: [string, integer, boolean]}
+    # -- Pod-level securityContext override
+    podSecurityContext: {}
+
+    # -- Container-level securityContext override
+    # SECURITY NOTE: By default (when nativeMode is disabled), Newt runs as non-root.
+    # When nativeMode.enabled=true OR useNativeInterface=true, Newt runs as root with privileges.
+    # IMPORTANT: Do NOT set capabilities.drop when running as root - this is invalid.
+    securityContext: {} # @schema type: object
+    service:
+      # -- Create a Service for this instance
+      enabled: true
+      # -- Create Service when acceptClients is true (alternative to service.enabled)
+      enabledWhenAcceptClients: true
+      # -- Service type for this instance
+      type: ClusterIP # @schema enum: [ClusterIP, LoadBalancer, NodePort]
+      # -- WireGuard UDP service port
+      port: 51820
+      # -- Tester/diagnostic UDP service port
+      testerPort: 51821
+      # -- External traffic policy (Cluster or Local). Empty = omit field
+      externalTrafficPolicy: "" # @schema enum: ["", Cluster, Local]
+      # -- Static loadBalancerIP (when type=LoadBalancer). Empty = omit field
+      loadBalancerIP: ""
+      # -- loadBalancerClass (when type=LoadBalancer). Empty = omit field
+      loadBalancerClass: ""
+      # -- Source ranges to allow (when type=LoadBalancer). Empty = omit field
+      loadBalancerSourceRanges: []
+      # -- NodePorts for NodePort type (optional, set only to fix ports)
+      nodePorts:
+        # -- NodePort to expose WireGuard UDP (leave empty to let K8s assign one)
+        wg: "" # @schema type: [integer, string]
+        # -- NodePort to expose tester UDP (leave empty to let K8s assign one)
+        tester: "" # @schema type: [integer, string]
+      # -- Service annotations
+      annotations: {}
+      # -- Additional service labels
+      labels: {}
+    resources:
+      requests:
+        # -- CPU request
+        cpu: "100m"
+        # -- Memory request
+        memory: "128Mi"
+        # -- Ephemeral storage request
+        ephemeral-storage: "128Mi"
+      limits:
+        # -- CPU limit
+        cpu: "500m"
+        # -- Memory limit
+        memory: "256Mi"
+        # Optional: also set a limit if desired
+    metrics:
+      # -- Enable Prometheus metrics
+      enabled: false
+      # -- Metrics port
+      port: 9090
+      # -- Metrics path
+      path: /metrics
+      # -- Override or add custom metrics annotations
+      annotations: {}
+      # -- Optional Service port name
+      portName: metrics
+      # -- Optional container port name to target instead of number
+      targetPortName: ""
+      service:
+        # -- Create metrics Service for scraping
+        enabled: false
+        # -- Service type
+        type: ClusterIP # @schema enum: [ClusterIP, LoadBalancer, NodePort]
+        # -- Service port
+        port: 9090
+        # -- Service port name
+        portName: metrics
+        # -- Service annotations
+        annotations: {} # @schema type: object
+      podMonitor:
+        # -- Create PodMonitor (Prometheus Operator)
+        enabled: false
+        # -- API version for PodMonitor
+        apiVersion: monitoring.coreos.com/v1
+        # -- Optional namespace override
+        namespace: ""
+        # -- PodMonitor scrape port name
+        portName: metrics
+        # -- HTTP scheme
+        scheme: http
+        # -- HTTP path
+        path: /metrics
+        # -- Scrape interval
+        interval: 30s
+        # -- Scrape timeout
+        scrapeTimeout: 10s
+        # -- Honor labels from target
+        honorLabels: true
+        # -- Extra labels
+        labels: {} # @schema type: object
+        # -- Extra annotations
+        annotations: {}
+        # -- Relabelings
+        relabelings: [] # @schema type: array ; item: object
+        # -- Metric relabelings
+        metricRelabelings: [] # @schema type: array ; item: object
+      serviceMonitor:
+        # -- Create ServiceMonitor (Prometheus Operator)
+        enabled: false
+        # -- API version for ServiceMonitor
+        apiVersion: monitoring.coreos.com/v1
+        # -- Optional namespace override
+        namespace: ""
+        # -- Extra labels on ServiceMonitor
+        labels: {} # @schema type: object
+        # -- Scrape interval
+        interval: 30s # @schema type: string
+        # -- Optional scrape timeout
+        scrapeTimeout: 10s
+        # -- Job label override
+        jobLabel: ""
+        # -- HTTP scheme
+        scheme: http
+        # -- Relabelings
+        relabelings: [] # @schema type: array ; item: object
+        # -- Metric relabelings
+        metricRelabelings: [] # @schema type: array ; item: object
+        # -- Target labels
+        targetLabels: [] # @schema type: array ; item: string
+        # -- Sample limit
+        sampleLimit: 0 # @schema type: integer
+      prometheusRule:
+        # -- Create PrometheusRule (Prometheus Operator)
+        enabled: false
+        # -- API version for PrometheusRule
+        apiVersion: monitoring.coreos.com/v1
+        # -- Optional namespace override
+        namespace: ""
+        # -- Extra labels on PrometheusRule
+        labels: {}
+        # -- Array of rule groups/rules (processed as templates)
+        rules: []
+    # -- Pod Disruption Budget override for this instance
+    podDisruptionBudget: {}
+    # -- Pod topology spread constraints
+    topologySpreadConstraints: [] # @schema type: array ; item: object
+    # -- Node selection constraints
+    nodeSelector: {}
+    # -- Pod tolerations
+    tolerations: []
+    # -- Pod affinity and anti-affinity
+    affinity: # @schema type: object
+      # -- Node affinity rules
+      nodeAffinity: {} # @schema type: object
+      # -- Pod affinity rules
+      podAffinity: {} # @schema type: object
+      # -- Pod anti-affinity rules
+      podAntiAffinity: {} # @schema type: object
+    # -- Extra environment variables to inject into the container
+    extraEnv: {} # @schema type: object
+    # -- Extra pod volumes to add
+    extraVolumes: [] # @schema type: array ; item: object
+    # -- Extra volume mounts to add to the container
+    extraVolumeMounts: [] # @schema type: array ; item: object
+    # -- Additional init containers to add to the pod
+    initContainers: [] # @schema type: array ; item: object
+    # -- Additional sidecar containers to add to the pod
+    extraContainers: [] # @schema type: array ; item: object
+    # -- Use command/args instead of environment-variable configuration
+    useCommandArgs: false # @schema type: boolean
+    # -- Enable host networking (useful with native mode)
+    hostNetwork: false
+    # -- Enable sharing host PID namespace (rarely needed)
+    hostPID: false

@@ -138,10 +138,11 @@ validate_template_cleanliness() {
 check_prerequisites() {
   print_header "Checking Prerequisites"
 
-  # Required/optional tools
+  # Required tools (helm is required, others are recommended but optional)
   check_tool helm true
   check_tool yq || true
   check_tool jq || true
+  # kubeconform is recommended for Kubernetes schema validation
   check_tool kubeconform || true
   check_tool kube-score || true
   check_tool kubescape || true

@@ -40,11 +40,11 @@ metadata:
     {{- toYaml $svcAnns | nindent 4 }}
   {{- end }}
 spec:
-  type: {{ default "LoadBalancer" $svc.type }}
+  type: {{ default "ClusterIP" $svc.type }}
   {{- with $svc.externalTrafficPolicy }}
   externalTrafficPolicy: {{ . }}
   {{- end }}
-  {{- if eq (default "LoadBalancer" $svc.type) "LoadBalancer" }}
+  {{- if eq (default "ClusterIP" $svc.type) "LoadBalancer" }}
   {{- with $svc.loadBalancerIP }}
   loadBalancerIP: {{ . | quote }}
   {{- end }}
@@ -68,14 +68,14 @@ spec:
       port: {{ default 51820 $svc.port }}
       targetPort: 51820
       protocol: UDP
-      {{- if and (eq (default "LoadBalancer" $svc.type) "NodePort") $wgNodePort }}
+      {{- if and (eq (default "ClusterIP" $svc.type) "NodePort") $wgNodePort }}
       nodePort: {{ $wgNodePort | int }}
       {{- end }}
     - name: tester
       port: {{ default 51821 $svc.testerPort }}
       targetPort: 51821
       protocol: UDP
-      {{- if and (eq (default "LoadBalancer" $svc.type) "NodePort") $testerNodePort }}
+      {{- if and (eq (default "ClusterIP" $svc.type) "NodePort") $testerNodePort }}
       nodePort: {{ $testerNodePort | int }}
       {{- end }}
 {{- end }}

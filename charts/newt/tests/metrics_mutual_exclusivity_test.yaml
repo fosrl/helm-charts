@@ -1,0 +1,24 @@
+suite: Metrics mutual exclusivity
+templates:
+  - templates/servicemonitor.yaml
+  - templates/podmonitor.yaml
+tests:
+  - it: fails when both podMonitor and serviceMonitor are enabled
+    set:
+      global:
+        metrics:
+          enabled: true
+          podMonitor:
+            enabled: true
+          serviceMonitor:
+            enabled: true
+          service:
+            enabled: true
+      newtInstances:
+        - name: test-conflict
+          enabled: true
+          secret: test-secret
+    asserts:
+      - template: servicemonitor.yaml
+        failedTemplate:
+          errorMessage: "Either metrics.podMonitor.enabled or metrics.serviceMonitor.enabled can be enabled at a time, but not both."

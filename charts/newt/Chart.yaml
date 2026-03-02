@@ -1,7 +1,7 @@
 apiVersion: v2
-version: 1.1.0
-appVersion: "1.5.0"
-kubeVersion: ">=1.28.15-0"
+version: 1.2.0
+appVersion: "1.10.1"
+kubeVersion: ">=1.30.14-0"
 name: newt
 description: Helm chart to deploy Newt (fosrl/newt) client instance
 type: application
@@ -22,13 +22,103 @@ maintainers:
     url: https://github.com/marcschaeferger
 annotations:
   artifacthub.io/category: networking
+  artifacthub.io/changes: |
+    - kind: changed
+      description: Bump Chart version to 1.2.0 and Chart AppVersion to Newt v1.10.1  with full Newt 1.10.1 support.
+    - kind: changed
+      description: Rework NetworkPolicy template to consistently honor both `global.networkPolicy.*` and chart-local `networkPolicy.*` settings and generate deterministic manifests.
+    - kind: changed
+      description: Rework PodDisruptionBudget template to consistently honor both `global.podDisruptionBudget.*` and chart-local `podDisruptionBudget.*` settings and generate deterministic manifests.
+    - kind: changed
+      description: enhance test scripts for connection and readiness checks with better error handling
+    - kind: changed
+      description: update docs with examples and update to reflect new configuration options, features and newt 1.10.1 support
+    - kind: added
+      description: add development values file for CI
+    - kind: added
+      description: Add new configuration options: port, noCloud, disableClients, blueprintFile, enforceHcCert.
+    - kind: added
+      description: Add enhanced metrics support: adminAddr, asyncBytes, region, otlpEnabled, and OTEL configuration.
+    - kind: added
+      description: Add split PEM mTLS support (mode: pem) with TLS_CLIENT_CERT, TLS_CLIENT_KEY, TLS_CLIENT_CAS.
+    - kind: added
+      description: Add Artifact Hub metadata annotations, including support and documentation links.
+    - kind: added
+      description: Enable Helm chart provenance signing.
+    - kind: added
+      description: Add resource requests and limits for global tests configuration.
+    - kind: fixed
+      description: Resolve JSON Schema generation failures caused by malformed `# @schema` annotations in `values.yaml`.
+    - kind: fixed
+      description: Revert incorrectly merged Pull Request that introduced versioning inconsistencies and incomplete template fixes.
+      links:
+        - name: Pull Request #12
+          url: https://github.com/fosrl/helm-charts/pull/12
+    - kind: fixed
+      description: Fix corrupted helper templates that caused Helm parse and runtime errors.
+      links:
+        - name: Pull Request #12
+          url: https://github.com/fosrl/helm-charts/pull/12
+    - kind: fixed
+      description: Fix metrics Service template rendering when `global.metrics.service.enabled=true` by preserving root context across `range` and passing it explicitly to helper templates (prevents nil pointer on `.Values.global`).
+      links:
+        - name: GitHub Issue #8
+          url: https://github.com/fosrl/helm-charts/issues/8
+    - kind: fixed
+      description: Fix Helm test ImagePullBackOff by updating the default kubectl test image to `registry.k8s.io/kubectl`, honoring `global.tests.image.*` values, and resolving shell compatibility issues.
+      links:
+        - name: GitHub Issue #7
+          url: https://github.com/fosrl/helm-charts/issues/7
+  artifacthub.io/containsSecurityUpdates: "false"
+  artifacthub.io/images: |
+    - name: docker.io/fosrl/newt
+      version: 1.10.1
+      whitelisted: false
+      platforms:
+        - linux/amd64
+        - linux/arm64
+        - linux/arm/v7
+    - name: ghcr.io/fosrl/newt
+      version: 1.10.1
+      whitelisted: false
+      platforms:
+        - linux/amd64
+        - linux/arm64
+        - linux/arm/v7
+  artifacthub.io/license: MIT
   artifacthub.io/links: |
-    - name: source
-      url: https://github.com/fosrl/helm-charts/tree/main/charts/newt
-    - name: homepage
-      url: https://digpangolin.com/
+    - name: support
+      url: https://github.com/fosrl/helm-charts/issues
     - name: documentation
       url: https://docs.digpangolin.com/self-host/manual/kubernetes
-  artifacthub.io/screenshots: |
-    - title: Newt
-      url: https://raw.githubusercontent.com/fosrl/pangolin/refs/heads/main/public/logo/pangolin_orange.svg
+  artifacthub.io/prerelease: "false"
+#  artifacthub.io/recommendations: |
+#    - url: https://artifacthub.io/packages/helm/fosrl/pangolin
+  artifacthub.io/signKey: |
+    fingerprint: C874011F0AB405110D02105534365D9472D7468F
+    url: https://keybase.io/hashicorp/pgp_keys.asc
+
+# Other annotations for artifacthub.io:
+# References:
+#   - https://artifacthub.io/docs/topics/annotations/helm/
+#
+# artifacthub.io/crds: |
+#   - kind: MyKind
+#     version: v1
+#     name: mykind
+#     displayName: My Kind
+#     description: Some nice description
+# artifacthub.io/crdsExamples: |
+#   - apiVersion: v1
+#     kind: MyKind
+#     metadata:
+#       name: mykind
+#     spec:
+#       replicas: 1
+# artifacthub.io/operator: "true"
+# artifacthub.io/operatorCapabilities: Basic Install
+#
+#
+# artifacthub.io/screenshots: |
+#   - title: Newt
+#     url: https://raw.githubusercontent.com/fosrl/pangolin/refs/heads/main/public/logo/pangolin_orange.svg

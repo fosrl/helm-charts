@@ -1,0 +1,12 @@
+# Service with NodePort
+newtInstances:
+  - name: service-nodeport
+    enabled: true
+    auth:
+      existingSecretName: newt-auth
+    service:
+      enabled: true
+      type: NodePort
+      nodePorts:
+        wg: 30080
+        tester: 30081
