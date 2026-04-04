@@ -1,6 +1,6 @@
 apiVersion: v2
-version: 1.2.0
-appVersion: "1.10.1"
+version: 1.2.1
+appVersion: "1.11.0"
 kubeVersion: ">=1.30.14-0"
 name: newt
 description: Helm chart to deploy Newt (fosrl/newt) client instance
@@ -24,62 +24,18 @@ annotations:
   artifacthub.io/category: networking
   artifacthub.io/changes: |
     - kind: changed
-      description: "Bump Chart version to 1.3.0 and Chart AppVersion to Newt v1.10.1 with full Newt 1.10.1 support."
-    - kind: changed
-      description: "Rework NetworkPolicy template to consistently honor both `global.networkPolicy.*` and chart-local `networkPolicy.*` settings and generate deterministic manifests."
-    - kind: changed
-      description: "Rework PodDisruptionBudget template to consistently honor both `global.podDisruptionBudget.*` and chart-local `podDisruptionBudget.*` settings and generate deterministic manifests."
-    - kind: changed
-      description: "Enhance test scripts for connection and readiness checks with better error handling."
-    - kind: changed
-      description: "Update docs with examples and update to reflect new configuration options, features and Newt 1.10.1 support."
-    - kind: added
-      description: "Add development values file for CI."
-    - kind: added
-      description: "Add new configuration options: port, noCloud, disableClients, blueprintFile, enforceHcCert."
-    - kind: added
-      description: "Add enhanced metrics support: adminAddr, asyncBytes, region, otlpEnabled, and OTEL configuration."
-    - kind: added
-      description: "Add split PEM mTLS support (mode: pem) with TLS_CLIENT_CERT, TLS_CLIENT_KEY, TLS_CLIENT_CAS."
-    - kind: added
-      description: "Add Artifact Hub metadata annotations, including support and documentation links."
-    - kind: added
-      description: "Enable Helm chart provenance signing."
-    - kind: added
-      description: "Add resource requests and limits for global tests configuration."
-    - kind: fixed
-      description: "Resolve JSON Schema generation failures caused by malformed `# @schema` annotations in `values.yaml`."
-    - kind: fixed
-      description: "Revert incorrectly merged Pull Request that introduced versioning inconsistencies and incomplete template fixes."
-      links:
-        - name: "Pull Request #12"
-          url: https://github.com/fosrl/helm-charts/pull/12
-    - kind: fixed
-      description: "Fix corrupted helper templates that caused Helm parse and runtime errors."
-      links:
-        - name: "Pull Request #12"
-          url: https://github.com/fosrl/helm-charts/pull/12
-    - kind: fixed
-      description: "Fix metrics Service template rendering when `global.metrics.service.enabled=true` by preserving root context across `range` and passing it explicitly to helper templates (prevents nil pointer on `.Values.global`)."
-      links:
-        - name: "GitHub Issue #8"
-          url: https://github.com/fosrl/helm-charts/issues/8
-    - kind: fixed
-      description: "Fix Helm test ImagePullBackOff by updating the default kubectl test image to `registry.k8s.io/kubectl`, honoring `global.tests.image.*` values, and resolving shell compatibility issues."
-      links:
-        - name: "GitHub Issue #7"
-          url: https://github.com/fosrl/helm-charts/issues/7
+      description: "Bump Chart version to 1.2.1 and Chart AppVersion to Newt v1.11.0."
   artifacthub.io/containsSecurityUpdates: "false"
   artifacthub.io/images: |
     - name: newt-dockerhub
-      image: docker.io/fosrl/newt:1.10.1
+      image: docker.io/fosrl/newt:1.11.0
       whitelisted: false
       platforms:
         - linux/amd64
         - linux/arm64
         - linux/arm/v7
     - name: newt-ghcr
-      image: ghcr.io/fosrl/newt:1.10.1
+      image: ghcr.io/fosrl/newt:1.11.0
       whitelisted: false
       platforms:
         - linux/amd64
