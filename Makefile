@@ -26,10 +26,10 @@ examples: schema
 examples-templates: 
 	./scripts/render.sh --examples -c $(CHART_DIR)
 
-docs: schema
+docs: schema-only
 	helm-docs
 
-all: sync schema examples examples-templates docs
+all: schema-only examples examples-templates docs
 
 # Lint the chart with default and dev values
 lint:
