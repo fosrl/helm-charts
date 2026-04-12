@@ -1,6 +1,8 @@
-<!-- markdownlint-disable MD060 -->
+<!-- markdownlint-disable MD013 -->
 <!-- markdownlint-disable MD034 -->
 <!-- markdownlint-disable MD056 -->
+<!-- markdownlint-disable MD060 -->
+
 # Newt Helm Chart
 
 {{ template "chart.badgesSection" . }}
@@ -10,6 +12,9 @@
 ## ✨ Features
 
 - Env var or CLI flag configuration
+- Newt 1.11+ provisioning support (key-based bootstrap)
+- First-class writable config persistence for CONFIG_FILE (emptyDir or existing PVC)
+- Provisioning blueprint support (single-use)
 - Optional mTLS (PKCS12) secret mount
 - Optional up/down script injection
 - Native WireGuard (privileged) mode (opt-in)
@@ -17,18 +22,91 @@
 - RBAC Role/ClusterRole (opt-in)
 - NetworkPolicy (opt-in)
 - Prometheus metrics, PodMonitor, ServiceMonitor, PrometheusRule (opt-in)
+- Optional pprof endpoint enablement (opt-in)
 - Multi-instance (array-driven) deployments with per-instance overrides
 
 ## Prerequisites
 
-- Kubernetes >= 1.28.15
+- Kubernetes >= 1.30.14
 - Helm 3.x
-- kubectl >= v1.28.15
+- kubectl >= v1.30.14
 - Newt Credentials from Pangolin
 
 ## Quick Start
 
 See [QUICKSTART-NEWT.md](../QUICKSTART-NEWT.md) for detailed instructions.
+
+## Newt 1.11.0 notes (Chart version 1.3.0+)
+
+- This chart targets Newt 1.11.0 by default.
+- Upstream ping defaults changed in Newt 1.11.0. If you rely on the older 1.10.1 behavior, set `newtInstances[x].pingInterval` and `newtInstances[x].pingTimeout` explicitly.
+- Legacy installs using ID/secret (including `auth.existingSecretName`) still work unchanged.
+
+## Provisioning examples
+
+### Provisioning (emptyDir) + writable config persistence
+
+```yaml
+newtInstances:
+    - name: main-tunnel
+        enabled: true
+        pangolinEndpoint: https://pangolin.example.com
+        provisioningKey: "YOUR_PROVISIONING_KEY"
+        newtName: "my-site"
+
+        # Required for provisioning-based installs so Newt can write credentials
+        configPersistence:
+            enabled: true
+            type: emptyDir
+            mountPath: /var/lib/newt
+            fileName: config.json
+```
+
+### Provisioning (existing PVC) + writable config persistence
+
+```yaml
+newtInstances:
+    - name: main-tunnel
+        enabled: true
+        pangolinEndpoint: https://pangolin.example.com
+        provisioningKey: "YOUR_PROVISIONING_KEY"
+        newtName: "my-site"
+
+        configPersistence:
+            enabled: true
+            type: persistentVolumeClaim
+            existingClaim: my-newt-config
+            mountPath: /var/lib/newt
+            fileName: config.json
+```
+
+### Provisioning blueprint (single-use)
+
+```yaml
+newtInstances:
+    - name: main-tunnel
+        enabled: true
+        pangolinEndpoint: https://pangolin.example.com
+        provisioningKey: "YOUR_PROVISIONING_KEY"
+        newtName: "my-site"
+
+        configPersistence:
+            enabled: true
+            type: emptyDir
+
+        provisioningBlueprintFile: /etc/newt/provisioning-blueprint.yaml
+        provisioningBlueprintData: |
+            version: 1
+            routes: []
+```
+
+### pprof enablement
+
+```yaml
+global:
+    metrics:
+        pprofEnabled: true
+```
 
 {{ template "chart.valuesSection" . }}
 

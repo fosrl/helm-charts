@@ -1,15 +1,20 @@
-<!-- markdownlint-disable MD060 -->
+<!-- markdownlint-disable MD013 -->
 <!-- markdownlint-disable MD034 -->
 <!-- markdownlint-disable MD056 -->
+<!-- markdownlint-disable MD060 -->
+
 # Newt Helm Chart
 
-![Version: 1.3.0](https://img.shields.io/badge/Version-1.3.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 1.10.1](https://img.shields.io/badge/AppVersion-1.10.1-informational?style=flat-square)
+![Version: 1.3.0](https://img.shields.io/badge/Version-1.3.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 1.11.0](https://img.shields.io/badge/AppVersion-1.11.0-informational?style=flat-square)
 
 Helm chart to deploy Newt (fosrl/newt) client instance
 
 ## ✨ Features
 
 - Env var or CLI flag configuration
+- Newt 1.11+ provisioning support (key-based bootstrap)
+- First-class writable config persistence for CONFIG_FILE (emptyDir or existing PVC)
+- Provisioning blueprint support (single-use)
 - Optional mTLS (PKCS12) secret mount
 - Optional up/down script injection
 - Native WireGuard (privileged) mode (opt-in)
@@ -17,18 +22,91 @@ Helm chart to deploy Newt (fosrl/newt) client instance
 - RBAC Role/ClusterRole (opt-in)
 - NetworkPolicy (opt-in)
 - Prometheus metrics, PodMonitor, ServiceMonitor, PrometheusRule (opt-in)
+- Optional pprof endpoint enablement (opt-in)
 - Multi-instance (array-driven) deployments with per-instance overrides
 
 ## Prerequisites
 
-- Kubernetes >= 1.28.15
+- Kubernetes >= 1.30.14
 - Helm 3.x
-- kubectl >= v1.28.15
+- kubectl >= v1.30.14
 - Newt Credentials from Pangolin
 
 ## Quick Start
 
 See [QUICKSTART-NEWT.md](../QUICKSTART-NEWT.md) for detailed instructions.
+
+## Newt 1.11.0 notes (Chart version 1.3.0+)
+
+- This chart targets Newt 1.11.0 by default.
+- Upstream ping defaults changed in Newt 1.11.0. If you rely on the older 1.10.1 behavior, set `newtInstances[x].pingInterval` and `newtInstances[x].pingTimeout` explicitly.
+- Legacy installs using ID/secret (including `auth.existingSecretName`) still work unchanged.
+
+## Provisioning examples
+
+### Provisioning (emptyDir) + writable config persistence
+
+```yaml
+newtInstances:
+    - name: main-tunnel
+        enabled: true
+        pangolinEndpoint: https://pangolin.example.com
+        provisioningKey: "YOUR_PROVISIONING_KEY"
+        newtName: "my-site"
+
+        # Required for provisioning-based installs so Newt can write credentials
+        configPersistence:
+            enabled: true
+            type: emptyDir
+            mountPath: /var/lib/newt
+            fileName: config.json
+```
+
+### Provisioning (existing PVC) + writable config persistence
+
+```yaml
+newtInstances:
+    - name: main-tunnel
+        enabled: true
+        pangolinEndpoint: https://pangolin.example.com
+        provisioningKey: "YOUR_PROVISIONING_KEY"
+        newtName: "my-site"
+
+        configPersistence:
+            enabled: true
+            type: persistentVolumeClaim
+            existingClaim: my-newt-config
+            mountPath: /var/lib/newt
+            fileName: config.json
+```
+
+### Provisioning blueprint (single-use)
+
+```yaml
+newtInstances:
+    - name: main-tunnel
+        enabled: true
+        pangolinEndpoint: https://pangolin.example.com
+        provisioningKey: "YOUR_PROVISIONING_KEY"
+        newtName: "my-site"
+
+        configPersistence:
+            enabled: true
+            type: emptyDir
+
+        provisioningBlueprintFile: /etc/newt/provisioning-blueprint.yaml
+        provisioningBlueprintData: |
+            version: 1
+            routes: []
+```
+
+### pprof enablement
+
+```yaml
+global:
+    metrics:
+        pprofEnabled: true
+```
 
 ## Values
 
@@ -57,7 +135,7 @@ See [QUICKSTART-NEWT.md](../QUICKSTART-NEWT.md) for detailed instructions.
 | global.image.repository | string | `"fosrl/newt"` | Container image repository (e.g., fosrl/newt). |
 | global.image.tag | string | `""` | Image tag (defaults to Chart.appVersion if empty). |
 | global.logLevel | string | `"INFO"` | Global log level |
-| global.metrics | object | `{"adminAddr":"127.0.0.1:2112","annotations":{},"asyncBytes":false,"enabled":false,"otel":{"exporterOtlpEndpoint":"","exporterOtlpHeaders":"","exporterOtlpProtocol":"","serviceName":""},"otlpEnabled":false,"path":"/metrics","podMonitor":{"annotations":{},"apiVersion":"monitoring.coreos.com/v1","enabled":false,"honorLabels":true,"interval":"30s","labels":{},"metricRelabelings":[],"namespace":"","path":"/metrics","portName":"metrics","relabelings":[],"scheme":"http","scrapeTimeout":"10s"},"port":9090,"portName":"metrics","prometheusRule":{"apiVersion":"monitoring.coreos.com/v1","enabled":false,"labels":{},"namespace":"","rules":[]},"region":"","service":{"annotations":{},"enabled":false,"port":9090,"portName":"metrics","type":"ClusterIP"},"serviceMonitor":{"apiVersion":"monitoring.coreos.com/v1","enabled":false,"interval":"30s","jobLabel":"","labels":{},"metricRelabelings":[],"namespace":"","relabelings":[],"sampleLimit":0,"scheme":"http","scrapeTimeout":"10s","targetLabels":[]},"targetPortName":""}` | --------------------------------------------------------------------------- @section Global Metrics |
+| global.metrics | object | `{"adminAddr":"127.0.0.1:2112","annotations":{},"asyncBytes":false,"enabled":false,"otel":{"exporterOtlpEndpoint":"","exporterOtlpHeaders":"","exporterOtlpProtocol":"","serviceName":""},"otlpEnabled":false,"path":"/metrics","podMonitor":{"annotations":{},"apiVersion":"monitoring.coreos.com/v1","enabled":false,"honorLabels":true,"interval":"30s","labels":{},"metricRelabelings":[],"namespace":"","path":"/metrics","portName":"metrics","relabelings":[],"scheme":"http","scrapeTimeout":"10s"},"port":9090,"portName":"metrics","pprofEnabled":false,"prometheusRule":{"apiVersion":"monitoring.coreos.com/v1","enabled":false,"labels":{},"namespace":"","rules":[]},"region":"","service":{"annotations":{},"enabled":false,"port":9090,"portName":"metrics","type":"ClusterIP"},"serviceMonitor":{"apiVersion":"monitoring.coreos.com/v1","enabled":false,"interval":"30s","jobLabel":"","labels":{},"metricRelabelings":[],"namespace":"","relabelings":[],"sampleLimit":0,"scheme":"http","scrapeTimeout":"10s","targetLabels":[]},"targetPortName":""}` | --------------------------------------------------------------------------- @section Global Metrics |
 | global.metrics.adminAddr | string | `"127.0.0.1:2112"` | Metrics admin server address (NEWT_ADMIN_ADDR). Used for health checks and metrics endpoint. |
 | global.metrics.annotations | object | `{}` | Extra annotations added to metrics-related objects (e.g., Pods/Service depending on chart logic) |
 | global.metrics.asyncBytes | bool | `false` | Enable async bytes metrics (NEWT_METRICS_ASYNC_BYTES) |
@@ -85,6 +163,7 @@ See [QUICKSTART-NEWT.md](../QUICKSTART-NEWT.md) for detailed instructions.
 | global.metrics.podMonitor.scrapeTimeout | string | `"10s"` | Scrape timeout (must be <= interval) |
 | global.metrics.port | int | `9090` | Metrics endpoint port exposed by the workload container |
 | global.metrics.portName | string | `"metrics"` | Optional Service port name (used when creating a Service) |
+| global.metrics.pprofEnabled | bool | `false` | Enable pprof endpoints (NEWT_PPROF_ENABLED). Disabled by default. |
 | global.metrics.prometheusRule | object | `{"apiVersion":"monitoring.coreos.com/v1","enabled":false,"labels":{},"namespace":"","rules":[]}` | --------------------------------------------------------------------------- |
 | global.metrics.prometheusRule.apiVersion | string | `"monitoring.coreos.com/v1"` | PrometheusRule API version (Prometheus Operator) |
 | global.metrics.prometheusRule.enabled | bool | `false` | Create a PrometheusRule resource |
@@ -155,7 +234,7 @@ See [QUICKSTART-NEWT.md](../QUICKSTART-NEWT.md) for detailed instructions.
 | image.pullPolicy | string | `"IfNotPresent"` | Image pull policy (fallback when global.image.imagePullPolicy not set) |
 | image.repository | string | `""` | Container image repository (fallback; prefer global.image) |
 | image.tag | string | `""` | Image tag (ignored if digest is set) |
-| newtInstances | list | `[{"acceptClients":false,"affinity":{"nodeAffinity":{},"podAffinity":{},"podAntiAffinity":{}},"allowGlobalOverride":false,"auth":{"existingSecretName":"","keys":{"endpointKey":"PANGOLIN_ENDPOINT","idKey":"NEWT_ID","secretKey":"NEWT_SECRET"}},"blueprintData":"","blueprintFile":"","configFile":"","disableClients":false,"dns":"","dockerSocket":{"enabled":false,"enforceNetworkValidation":false,"path":"/var/run/docker.sock"},"enabled":true,"enforceHcCert":false,"extraContainers":[],"extraEnv":{},"extraVolumeMounts":[],"extraVolumes":[],"generateAndSaveKeyTo":"","healthFile":"/tmp/healthy","hostNetwork":false,"hostPID":false,"id":"","initContainers":[],"interface":"newt","keepInterface":false,"lifecycle":{},"logLevel":"INFO","metrics":{"annotations":{},"enabled":false,"path":"/metrics","podMonitor":{"annotations":{},"apiVersion":"monitoring.coreos.com/v1","enabled":false,"honorLabels":true,"interval":"30s","labels":{},"metricRelabelings":[],"namespace":"","path":"/metrics","portName":"metrics","relabelings":[],"scheme":"http","scrapeTimeout":"10s"},"port":9090,"portName":"metrics","prometheusRule":{"apiVersion":"monitoring.coreos.com/v1","enabled":false,"labels":{},"namespace":"","rules":[]},"service":{"annotations":{},"enabled":false,"port":9090,"portName":"metrics","type":"ClusterIP"},"serviceMonitor":{"apiVersion":"monitoring.coreos.com/v1","enabled":false,"interval":"30s","jobLabel":"","labels":{},"metricRelabelings":[],"namespace":"","relabelings":[],"sampleLimit":0,"scheme":"http","scrapeTimeout":"10s","targetLabels":[]},"targetPortName":""},"mtls":{"certPath":"/certs/client.p12","enabled":false,"mode":"pkcs12","p12Base64":"","pem":{"caPath":"/certs/ca.crt","clientCertPath":"/certs/client.crt","clientKeyPath":"/certs/client.key","secretName":""},"secretName":""},"mtu":1280,"name":"main-tunnel","networkPolicy":{"components":{"custom":{"egress":[],"enabled":false,"ingress":[],"policyTypes":["Ingress","Egress"]},"defaultApp":{"egress":[],"enabled":false,"ingress":[],"policyTypes":[]},"dns":{"egress":[],"enabled":false},"kubeApi":{"egress":[],"enabled":false}},"enabled":null,"includeRuleSets":[],"mode":"merge","useGlobalComponents":{"custom":true,"defaultApp":true,"dns":false,"kubeApi":false}},"noCloud":false,"nodeSelector":{},"pangolinEndpoint":"","pingInterval":"","pingTimeout":"","podDisruptionBudget":{},"podSecurityContext":{},"port":"","replicas":1,"resources":{"limits":{"cpu":"500m","memory":"256Mi"},"requests":{"cpu":"100m","ephemeral-storage":"128Mi","memory":"128Mi"}},"secret":"","securityContext":{},"service":{"annotations":{},"enabled":true,"enabledWhenAcceptClients":true,"externalTrafficPolicy":"","labels":{},"loadBalancerClass":"","loadBalancerIP":"","loadBalancerSourceRanges":[],"nodePorts":{"tester":"","wg":""},"port":51820,"testerPort":51821,"type":"ClusterIP"},"tolerations":[],"topologySpreadConstraints":[],"updown":{"enabled":false,"fileName":"updown.sh","mountPath":"/opt/newt/updown","script":""},"useCommandArgs":false,"useNativeInterface":false}]` | List of Newt instances to deploy. Each instance can optionally override |
+| newtInstances | list | `[{"acceptClients":false,"affinity":{"nodeAffinity":{},"podAffinity":{},"podAntiAffinity":{}},"allowGlobalOverride":false,"auth":{"existingSecretName":"","keys":{"endpointKey":"PANGOLIN_ENDPOINT","idKey":"NEWT_ID","secretKey":"NEWT_SECRET"}},"blueprintData":"","blueprintFile":"","configFile":"","configPersistence":{"enabled":false,"existingClaim":"","fileName":"config.json","mountPath":"/var/lib/newt","type":"emptyDir"},"disableClients":false,"dns":"","dockerSocket":{"enabled":false,"enforceNetworkValidation":false,"path":"/var/run/docker.sock"},"enabled":true,"enforceHcCert":false,"extraContainers":[],"extraEnv":{},"extraVolumeMounts":[],"extraVolumes":[],"generateAndSaveKeyTo":"","healthFile":"/tmp/healthy","hostNetwork":false,"hostPID":false,"id":"","initContainers":[],"interface":"newt","keepInterface":false,"lifecycle":{},"logLevel":"INFO","metrics":{"annotations":{},"enabled":false,"path":"/metrics","podMonitor":{"annotations":{},"apiVersion":"monitoring.coreos.com/v1","enabled":false,"honorLabels":true,"interval":"30s","labels":{},"metricRelabelings":[],"namespace":"","path":"/metrics","portName":"metrics","relabelings":[],"scheme":"http","scrapeTimeout":"10s"},"port":9090,"portName":"metrics","prometheusRule":{"apiVersion":"monitoring.coreos.com/v1","enabled":false,"labels":{},"namespace":"","rules":[]},"service":{"annotations":{},"enabled":false,"port":9090,"portName":"metrics","type":"ClusterIP"},"serviceMonitor":{"apiVersion":"monitoring.coreos.com/v1","enabled":false,"interval":"30s","jobLabel":"","labels":{},"metricRelabelings":[],"namespace":"","relabelings":[],"sampleLimit":0,"scheme":"http","scrapeTimeout":"10s","targetLabels":[]},"targetPortName":""},"mtls":{"certPath":"/certs/client.p12","enabled":false,"mode":"pkcs12","p12Base64":"","pem":{"caPath":"/certs/ca.crt","clientCertPath":"/certs/client.crt","clientKeyPath":"/certs/client.key","secretName":""},"secretName":""},"mtu":1280,"name":"main-tunnel","networkPolicy":{"components":{"custom":{"egress":[],"enabled":false,"ingress":[],"policyTypes":["Ingress","Egress"]},"defaultApp":{"egress":[],"enabled":false,"ingress":[],"policyTypes":[]},"dns":{"egress":[],"enabled":false},"kubeApi":{"egress":[],"enabled":false}},"enabled":null,"includeRuleSets":[],"mode":"merge","useGlobalComponents":{"custom":true,"defaultApp":true,"dns":false,"kubeApi":false}},"newtName":"","noCloud":false,"nodeSelector":{},"pangolinEndpoint":"","pingInterval":"","pingTimeout":"","podDisruptionBudget":{},"podSecurityContext":{},"port":"","provisioningBlueprintData":"","provisioningBlueprintFile":"","provisioningKey":"","replicas":1,"resources":{"limits":{"cpu":"500m","memory":"256Mi"},"requests":{"cpu":"100m","ephemeral-storage":"128Mi","memory":"128Mi"}},"secret":"","securityContext":{},"service":{"annotations":{},"enabled":true,"enabledWhenAcceptClients":true,"externalTrafficPolicy":"","labels":{},"loadBalancerClass":"","loadBalancerIP":"","loadBalancerSourceRanges":[],"nodePorts":{"tester":"","wg":""},"port":51820,"testerPort":51821,"type":"ClusterIP"},"tolerations":[],"topologySpreadConstraints":[],"updown":{"enabled":false,"fileName":"updown.sh","mountPath":"/opt/newt/updown","script":""},"useCommandArgs":false,"useNativeInterface":false}]` | List of Newt instances to deploy. Each instance can optionally override |
 | newtInstances[0].acceptClients | bool | `false` | Accept client connections for runtime only (ACCEPT_CLIENTS env). Does NOT create any Service; Service is controlled by newtInstances[x].service.enabled |
 | newtInstances[0].affinity | object | `{"nodeAffinity":{},"podAffinity":{},"podAntiAffinity":{}}` | Pod affinity and anti-affinity |
 | newtInstances[0].affinity.nodeAffinity | object | `{}` | Node affinity rules |
@@ -170,6 +249,12 @@ See [QUICKSTART-NEWT.md](../QUICKSTART-NEWT.md) for detailed instructions.
 | newtInstances[0].blueprintData | string | `""` | Blueprint file content (inline). When provided, creates a ConfigMap with this content. Use this for simple inline blueprints, or leave empty to reference an existing ConfigMap. |
 | newtInstances[0].blueprintFile | string | `""` | Blueprint file path (BLUEPRINT_FILE env). Path to a Newt blueprint configuration file. |
 | newtInstances[0].configFile | string | `""` | Optional config file path for Newt (CONFIG_FILE env) |
+| newtInstances[0].configPersistence | object | `{"enabled":false,"existingClaim":"","fileName":"config.json","mountPath":"/var/lib/newt","type":"emptyDir"}` | Writable config persistence (recommended for provisioning-based installs). When enabled, the chart mounts writable storage at mountPath and auto-sets CONFIG_FILE to mountPath/fileName. This does not remove support for the legacy `configFile` value. |
+| newtInstances[0].configPersistence.enabled | bool | `false` | Enable writable config persistence. |
+| newtInstances[0].configPersistence.existingClaim | string | `""` | Existing PVC name when type=persistentVolumeClaim. |
+| newtInstances[0].configPersistence.fileName | string | `"config.json"` | File name inside mountPath for the persisted config. |
+| newtInstances[0].configPersistence.mountPath | string | `"/var/lib/newt"` | Directory mount path for config persistence. |
+| newtInstances[0].configPersistence.type | string | `"emptyDir"` | Storage type. Use emptyDir for ephemeral persistence or persistentVolumeClaim for durable persistence. |
 | newtInstances[0].disableClients | bool | `false` | Disable client connections (DISABLE_CLIENTS env). When enabled, Newt does not accept incoming client connections. |
 | newtInstances[0].dns | string | `""` | Optional DNS server address pushed to the client (leave empty to omit) |
 | newtInstances[0].dockerSocket.enabled | bool | `false` | Mount the host's Docker socket into the pod |
@@ -252,14 +337,18 @@ See [QUICKSTART-NEWT.md](../QUICKSTART-NEWT.md) for detailed instructions.
 | newtInstances[0].networkPolicy.useGlobalComponents.defaultApp | bool | `true` | Include global defaultApp component (if enabled globally). |
 | newtInstances[0].networkPolicy.useGlobalComponents.dns | bool | `false` | Include global dns component (if enabled globally). |
 | newtInstances[0].networkPolicy.useGlobalComponents.kubeApi | bool | `false` | Include global kubeApi component (if enabled globally). |
+| newtInstances[0].newtName | string | `""` | Provisioning site name (NEWT_NAME env). Use newtName to avoid colliding with newtInstances[].name (instance identifier). |
 | newtInstances[0].noCloud | bool | `false` | Disable cloud connectivity (NO_CLOUD env). When enabled, Newt operates without connecting to Pangolin cloud. |
 | newtInstances[0].nodeSelector | object | `{}` | Node selection constraints |
 | newtInstances[0].pangolinEndpoint | string | `""` | Pangolin control-plane endpoint URL (e.g., https://pangolin.example.com) |
-| newtInstances[0].pingInterval | string | `""` | Optional ping interval (e.g., "3s"). Leave empty to use default |
+| newtInstances[0].pingInterval | string | `""` | Optional ping interval (e.g., "3s"). Leave empty to use default NOTE: Newt 1.11.0 changed upstream default ping timings. If you rely on the legacy 1.10.1 behavior, set pingInterval/pingTimeout explicitly. |
 | newtInstances[0].pingTimeout | string | `""` | Optional ping timeout (e.g., "5s"). Leave empty to use default |
 | newtInstances[0].podDisruptionBudget | object | `{}` | Pod Disruption Budget override for this instance |
 | newtInstances[0].podSecurityContext | object | `{}` | Pod-level securityContext override |
 | newtInstances[0].port | string | `""` | WireGuard UDP port (PORT env). Default is 51820. |
+| newtInstances[0].provisioningBlueprintData | string | `""` | Provisioning blueprint file content (inline). Required when provisioningBlueprintFile is set. |
+| newtInstances[0].provisioningBlueprintFile | string | `""` | Provisioning blueprint file path (PROVISIONING_BLUEPRINT_FILE env). Newt 1.11.0 applies this blueprint once during provisioning. |
+| newtInstances[0].provisioningKey | string | `""` | Provisioning key (NEWT_PROVISIONING_KEY env). When set, Newt can bootstrap credentials and persist them to CONFIG_FILE. |
 | newtInstances[0].replicas | int | `1` | Number of replicas for this instance (default: 1) |
 | newtInstances[0].resources.limits.cpu | string | `"500m"` | CPU limit |
 | newtInstances[0].resources.limits.memory | string | `"256Mi"` | Memory limit |
