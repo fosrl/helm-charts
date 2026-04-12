@@ -1,30 +1,56 @@
-# Exclude duplicate/experimental schema files from chart packages
 # This supports shell glob matching, relative path matching, and
 # negation (prefixed with !). Only one pattern per line.
-# Common VCS dirs
+
+# VCS
 .git/
 .gitignore
-# Common backup files
+.github/
+
+# IDE
+.project
+.idea/
+*.tmproj
+.vscode/
+
+# Temp / Backup
 *.swp
 *.bak
 *.tmp
 *.orig
 *~
-# Various IDEs
-.project
-.idea/
-*.tmproj
-.vscode/
-# Specific to helm charts
-/tests
-/scripts
-.pre-commit-config.yaml
-.env-template
-.env
-.github
+
+# Helm / Repo Meta
 .helmignore
-.schema.yaml
-README.md.gotmpl
 artifacthub-repo.yml
-Taskfile.yaml
 renovate.json
+Taskfile.yaml
+
+# Env / Config
+.env
+.env-template
+.pre-commit-config.yaml
+
+# Docs / Templates
+README.md.gotmpl
+
+# Schemas (global + custom)
+*.schema.yaml
+chart_schema.yaml
+
+# Chart-specific values and schema variants
+values.default.yaml
+values.dev.yaml
+values.fulldev.yaml
+values.schema.dev.json
+
+# Chart-internal test & CI artifacts (paths relative to chart root)
+/ci/
+/tests/
+/examples/
+/scripts/
+
+# Helm unittest snapshots / fixtures
+__snapshot__/
+
+# Rendered output (safety net)
+rendered-scenarios/
