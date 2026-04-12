@@ -5,6 +5,20 @@
 {{- if and $inst.blueprintFile (not $inst.blueprintData) }}
 {{- fail (printf "newtInstances[%d].blueprintFile is set but blueprintData is empty. Provide blueprintData or reference an existing ConfigMap." $index) }}
 {{- end }}
+{{- /* Validate provisioningBlueprintFile has corresponding provisioningBlueprintData */ -}}
+{{- if and $inst.provisioningBlueprintFile (not $inst.provisioningBlueprintData) }}
+{{- fail (printf "newtInstances[%d].provisioningBlueprintFile is set but provisioningBlueprintData is empty. Provide provisioningBlueprintData." $index) }}
+{{- end }}
+{{- /* Validate configPersistence settings when enabled */ -}}
+{{- $cp := (default (dict) $inst.configPersistence) -}}
+{{- $cpEnabled := and (kindIs "map" $cp) (default false $cp.enabled) -}}
+{{- $cpType := (default "emptyDir" $cp.type) -}}
+{{- if and $cpEnabled (not (or (eq $cpType "emptyDir") (eq $cpType "persistentVolumeClaim"))) }}
+{{- fail (printf "newtInstances[%d].configPersistence.type must be one of [emptyDir, persistentVolumeClaim]" $index) }}
+{{- end }}
+{{- if and $cpEnabled (eq $cpType "persistentVolumeClaim") (not $cp.existingClaim) }}
+{{- fail (printf "newtInstances[%d].configPersistence.type is persistentVolumeClaim but existingClaim is empty" $index) }}
+{{- end }}
 {{- /* Warn about inline secrets - show warning but don't fail */ -}}
 {{- if and $inst.secret (not (get (default dict $inst.auth) "existingSecretName")) }}
 {{- $root := $ -}}
@@ -231,9 +245,12 @@ spec:
           {{- $hasMtlsMount := and $mtls.enabled (or (not $mtls.secretName) $mtls.secretName) }}
           {{- $hasPemMount := and $mtls.enabled (eq (default "pkcs12" $mtls.mode) "pem") }}
           {{- $hasUpdownMount := and (kindIs "map" $inst.updown) $inst.updown.enabled }}
+          {{- $cp := (default (dict) $inst.configPersistence) -}}
+          {{- $hasConfigPersistenceMount := and (kindIs "map" $cp) (default false $cp.enabled) -}}
           {{- $hasBlueprintMount := $inst.blueprintFile }}
+          {{- $hasProvisioningBlueprintMount := $inst.provisioningBlueprintFile }}
           {{- $hasExtraMounts := gt (len (default (list) $inst.extraVolumeMounts)) 0 }}
-          {{- if or $hasDockerMount $hasMtlsMount $hasPemMount $hasUpdownMount $hasBlueprintMount $hasExtraMounts }}
+          {{- if or $hasDockerMount $hasMtlsMount $hasPemMount $hasUpdownMount $hasConfigPersistenceMount $hasBlueprintMount $hasProvisioningBlueprintMount $hasExtraMounts }}
           volumeMounts:
             {{- if and (kindIs "map" $inst.dockerSocket) $inst.dockerSocket.enabled (not $inst.useNativeInterface) }}
             - name: docker-socket
@@ -269,10 +286,21 @@ spec:
               readOnly: true
             {{- end }}
             {{- end }}
+            {{- /* Writable config persistence mount */ -}}
+            {{- if $hasConfigPersistenceMount }}
+            - name: config-persistence
+              mountPath: {{ default "/var/lib/newt" $cp.mountPath | quote }}
+            {{- end }}
             {{- /* Blueprint file mount */ -}}
             {{- if $inst.blueprintFile }}
             - name: blueprint-file
               mountPath: {{ dir $inst.blueprintFile | quote }}
+              readOnly: true
+            {{- end }}
+            {{- /* Provisioning blueprint file mount */ -}}
+            {{- if $inst.provisioningBlueprintFile }}
+            - name: provisioning-blueprint-file
+              mountPath: {{ dir $inst.provisioningBlueprintFile | quote }}
               readOnly: true
             {{- end }}
             {{- if and (kindIs "map" $inst.updown) $inst.updown.enabled }}
@@ -331,9 +359,12 @@ spec:
   {{- $hasMtlsVol := and $mtls.enabled }}
   {{- $hasPemVol := and $mtls.enabled (eq (default "pkcs12" $mtls.mode) "pem") }}
   {{- $hasUpdownVol := and (kindIs "map" $inst.updown) $inst.updown.enabled }}
+      {{- $cp := (default (dict) $inst.configPersistence) -}}
+      {{- $hasConfigPersistenceVol := and (kindIs "map" $cp) (default false $cp.enabled) -}}
   {{- $hasBlueprintVol := $inst.blueprintFile }}
+      {{- $hasProvisioningBlueprintVol := $inst.provisioningBlueprintFile }}
   {{- $hasExtraVols := gt (len (default (list) $inst.extraVolumes)) 0 }}
-      {{- if or $hasDockerVol $hasMtlsVol $hasPemVol $hasUpdownVol $hasBlueprintVol $hasExtraVols }}
+        {{- if or $hasDockerVol $hasMtlsVol $hasPemVol $hasUpdownVol $hasConfigPersistenceVol $hasBlueprintVol $hasProvisioningBlueprintVol $hasExtraVols }}
       volumes:
         {{- if and (kindIs "map" $inst.dockerSocket) $inst.dockerSocket.enabled }}
         - name: docker-socket
@@ -385,6 +416,23 @@ spec:
         - name: blueprint-file
           configMap:
             name: {{ include "newt.instance.fullname" (dict "root" $root "inst" $inst) }}-blueprint
+        {{- end }}
+        {{- /* Provisioning blueprint file */ -}}
+        {{- if $inst.provisioningBlueprintFile }}
+        - name: provisioning-blueprint-file
+          configMap:
+            name: {{ include "newt.instance.fullname" (dict "root" $root "inst" $inst) }}-provisioning-blueprint
+        {{- end }}
+        {{- /* Writable config persistence */ -}}
+        {{- if $hasConfigPersistenceVol }}
+        - name: config-persistence
+          {{- $cpType := (default "emptyDir" $cp.type) -}}
+          {{- if eq $cpType "emptyDir" }}
+          emptyDir: {}
+          {{- else if eq $cpType "persistentVolumeClaim" }}
+          persistentVolumeClaim:
+            claimName: {{ $cp.existingClaim | quote }}
+          {{- end }}
         {{- end }}
         {{- if and (kindIs "map" $inst.updown) $inst.updown.enabled }}
         - name: updown-script

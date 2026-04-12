@@ -130,8 +130,10 @@ imagePullSecrets:
 {{- else }}
 - name: PANGOLIN_ENDPOINT
   value: {{ $inst.pangolinEndpoint | quote }}
+{{- if $inst.id }}
 - name: NEWT_ID
   value: {{ $inst.id | quote }}
+{{- end }}
 {{- if $inst.secret }}
 - name: NEWT_SECRET
   valueFrom:
@@ -139,6 +141,14 @@ imagePullSecrets:
       name: {{ include "newt.instance.fullname" (dict "root" $root "inst" $inst) }}
       key: NEWT_SECRET
 {{- end }}
+{{- end }}
+{{- if $inst.provisioningKey }}
+- name: NEWT_PROVISIONING_KEY
+  value: {{ $inst.provisioningKey | quote }}
+{{- end }}
+{{- if $inst.newtName }}
+- name: NEWT_NAME
+  value: {{ $inst.newtName | quote }}
 {{- end }}
 {{- if and $canOverride $inst.logLevel }}
 - name: LOG_LEVEL
@@ -194,7 +204,12 @@ imagePullSecrets:
 - name: UPDOWN_SCRIPT
   value: {{ printf "%s/%s" (default "/opt/newt/updown" $inst.updown.mountPath) (default "updown.sh" $inst.updown.fileName) | quote }}
 {{ end }}
-{{- if $inst.configFile }}
+{{- $cp := (default (dict) $inst.configPersistence) -}}
+{{- $cpEnabled := and (kindIs "map" $cp) (default false $cp.enabled) -}}
+{{- if $cpEnabled }}
+- name: CONFIG_FILE
+  value: {{ printf "%s/%s" (trimSuffix "/" (default "/var/lib/newt" $cp.mountPath)) (default "config.json" $cp.fileName) | quote }}
+{{- else if $inst.configFile }}
 - name: CONFIG_FILE
   value: {{ $inst.configFile | quote }}
 {{- end }}
@@ -217,6 +232,10 @@ imagePullSecrets:
 {{- if $inst.blueprintFile }}
 - name: BLUEPRINT_FILE
   value: {{ $inst.blueprintFile | quote }}
+{{- end }}
+{{- if $inst.provisioningBlueprintFile }}
+- name: PROVISIONING_BLUEPRINT_FILE
+  value: {{ $inst.provisioningBlueprintFile | quote }}
 {{- end }}
 {{- if $inst.enforceHcCert }}
 - name: ENFORCE_HC_CERT

@@ -215,10 +215,6 @@
                             "description": "Enable OTLP exporter (NEWT_METRICS_OTLP_ENABLED)",
                             "type": "boolean"
                         },
-                        "pprofEnabled": {
-                            "description": "Enable pprof endpoints (NEWT_PPROF_ENABLED). Disabled by default.",
-                            "type": "boolean"
-                        },
                         "path": {
                             "description": "Metrics HTTP path",
                             "type": "string",
@@ -319,6 +315,10 @@
                             "type": "string",
                             "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
                             "minLength": 1
+                        },
+                        "pprofEnabled": {
+                            "description": "Enable pprof endpoints (NEWT_PPROF_ENABLED). Disabled by default.",
+                            "type": "boolean"
                         },
                         "prometheusRule": {
                             "description": "--------------------------------------------------------------------------- PrometheusRule (Prometheus Operator) ",
@@ -1054,6 +1054,41 @@
                         "description": "Optional config file path for Newt (CONFIG_FILE env)",
                         "type": "string"
                     },
+                    "configPersistence": {
+                        "description": "Writable config persistence (recommended for provisioning-based installs). When enabled, the chart mounts writable storage at mountPath and auto-sets CONFIG_FILE to mountPath/fileName. This does not remove support for the legacy `configFile` value.",
+                        "type": "object",
+                        "properties": {
+                            "enabled": {
+                                "description": "Enable writable config persistence.",
+                                "type": "boolean"
+                            },
+                            "existingClaim": {
+                                "description": "Existing PVC name when type=persistentVolumeClaim.",
+                                "type": "string",
+                                "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+                            },
+                            "fileName": {
+                                "description": "File name inside mountPath for the persisted config.",
+                                "type": "string",
+                                "minLength": 1
+                            },
+                            "mountPath": {
+                                "description": "Directory mount path for config persistence.",
+                                "type": "string",
+                                "pattern": "^/.*",
+                                "minLength": 1
+                            },
+                            "type": {
+                                "description": "Storage type. Use emptyDir for ephemeral persistence or persistentVolumeClaim for durable persistence.",
+                                "type": "string",
+                                "enum": [
+                                    "emptyDir",
+                                    "persistentVolumeClaim"
+                                ]
+                            }
+                        },
+                        "additionalProperties": false
+                    },
                     "disableClients": {
                         "description": "Disable client connections (DISABLE_CLIENTS env). When enabled, Newt does not accept incoming client connections.",
                         "type": "boolean"
@@ -1567,6 +1602,10 @@
                         },
                         "additionalProperties": false
                     },
+                    "newtName": {
+                        "description": "Provisioning site name (NEWT_NAME env). Use newtName to avoid colliding with newtInstances[].name (instance identifier).",
+                        "type": "string"
+                    },
                     "noCloud": {
                         "description": "Disable cloud connectivity (NO_CLOUD env). When enabled, Newt operates without connecting to Pangolin cloud.",
                         "type": "boolean"
@@ -1581,7 +1620,7 @@
                         "pattern": "^$|^https?://[a-zA-Z0-9.-]+(/.*)?$"
                     },
                     "pingInterval": {
-                        "description": "Optional ping interval (e.g., \"3s\"). Leave empty to use default",
+                        "description": "Optional ping interval (e.g., \"3s\"). Leave empty to use default NOTE: Newt 1.11.0 changed upstream default ping timings. If you rely on the legacy 1.10.1 behavior, set pingInterval/pingTimeout explicitly.",
                         "type": "string"
                     },
                     "pingTimeout": {
@@ -1605,6 +1644,18 @@
                     },
                     "port": {
                         "description": "WireGuard UDP port (PORT env). Default is 51820.",
+                        "type": "string"
+                    },
+                    "provisioningBlueprintData": {
+                        "description": "Provisioning blueprint file content (inline). Required when provisioningBlueprintFile is set.",
+                        "type": "string"
+                    },
+                    "provisioningBlueprintFile": {
+                        "description": "Provisioning blueprint file path (PROVISIONING_BLUEPRINT_FILE env). Newt 1.11.0 applies this blueprint once during provisioning.",
+                        "type": "string"
+                    },
+                    "provisioningKey": {
+                        "description": "Provisioning key (NEWT_PROVISIONING_KEY env). When set, Newt can bootstrap credentials and persist them to CONFIG_FILE.",
                         "type": "string"
                     },
                     "replicas": {

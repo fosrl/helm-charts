@@ -1,0 +1,16 @@
+newtInstances:
+  - name: main-tunnel
+    enabled: true
+    pangolinEndpoint: https://pangolin.example.com
+
+    provisioningKey: "YOUR_PROVISIONING_KEY"
+    newtName: "my-site"
+
+    configPersistence:
+      enabled: true
+      type: emptyDir
+
+    provisioningBlueprintFile: /etc/newt/provisioning-blueprint.yaml
+    provisioningBlueprintData: |
+      version: 1
+      routes: []
