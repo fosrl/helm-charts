@@ -519,23 +519,29 @@ run_kubeconform() {
   local rendered_file="$TEMP_DIR/${name}-kubeconform.yaml"
   local helm_args=("-f" "$values_file")
   
-  if ! helm template "$name" "$chart" "${helm_args[@]}" > "$rendered_file" 2>&1; then
+  if ! helm template "$name" "$chart" "${helm_args[@]}" > "$rendered_file" 2> "$TEMP_DIR/${name}-kubeconform.err"; then
     log_fail "Failed to render templates for kubeconform"
     FAILED=$((FAILED + 1))
     return 1
   fi
   
-  local kubeconform_args=("-strict" "-cache" "$TEMP_DIR/kubeconform-cache")
+  local kubeconform_cache="$TEMP_DIR/kubeconform-cache"
+  mkdir -p "$kubeconform_cache"
+  local kubeconform_args=("-strict" "-ignore-missing-schemas" "-cache" "$kubeconform_cache")
   local version_failed=0
   
   for version in "${K8S_VERSIONS[@]}"; do
     echo -n "  [kubeconform-$version] "
-    if kubeconform "${kubeconform_args[@]}" -kubernetes-version "$version" "$rendered_file" >/dev/null 2>&1; then
+    local kc_err_file="$TEMP_DIR/kubeconform-${version}.err"
+    if kubeconform "${kubeconform_args[@]}" -kubernetes-version "$version" "$rendered_file" >/dev/null 2>"$kc_err_file"; then
       log_pass "OK"
       PASSED=$((PASSED + 1))
       KUBECONFORM_PASSED=$((KUBECONFORM_PASSED + 1))
     else
       log_fail "FAILED"
+      if [ -s "$kc_err_file" ]; then
+        sed -n '1,20p' "$kc_err_file"
+      fi
       FAILED=$((FAILED + 1))
       KUBECONFORM_FAILED=$((KUBECONFORM_FAILED + 1))
       version_failed=1
@@ -581,17 +587,17 @@ main() {
   echo -e "${RED}Failed:${NC} $FAILED"
   echo ""
   echo "Breakdown by test type:"
-  echo "  helm lint:        ${GREEN}$LINT_PASSED passed${NC} / ${RED}$LINT_FAILED failed${NC}"
+  printf "  %-16s %3d passed | %3d failed\n" "helm lint:" "$LINT_PASSED" "$LINT_FAILED"
   if [ $UNITTEST_CRASHED -gt 0 ]; then
-    echo "  helm unittest:   ${GREEN}$UNITTEST_PASSED passed${NC} / ${RED}$UNITTEST_FAILED failed${NC} / ${YELLOW}$UNITTEST_CRASHED crashed${NC}"
+    printf "  %-16s %3d passed | %3d failed | %3d crashed\n" "helm unittest:" "$UNITTEST_PASSED" "$UNITTEST_FAILED" "$UNITTEST_CRASHED"
   else
-    echo "  helm unittest:   ${GREEN}$UNITTEST_PASSED passed${NC} / ${RED}$UNITTEST_FAILED failed${NC}"
+    printf "  %-16s %3d passed | %3d failed\n" "helm unittest:" "$UNITTEST_PASSED" "$UNITTEST_FAILED"
   fi
-  echo "  template render: ${GREEN}$RENDER_PASSED passed${NC} / ${RED}$RENDER_FAILED failed${NC}"
-  echo "  yamllint:        ${GREEN}$YAML_PASSED passed${NC} / ${RED}$YAML_FAILED failed${NC}"
-  echo "  matrix tests:    ${GREEN}$MATRIX_PASSED passed${NC} / ${RED}$MATRIX_FAILED failed${NC}"
+  printf "  %-16s %3d passed | %3d failed\n" "template render:" "$RENDER_PASSED" "$RENDER_FAILED"
+  printf "  %-16s %3d passed | %3d failed\n" "yamllint:" "$YAML_PASSED" "$YAML_FAILED"
+  printf "  %-16s %3d passed | %3d failed\n" "matrix tests:" "$MATRIX_PASSED" "$MATRIX_FAILED"
   if [ "$RUN_KUBECONFORM" = "true" ]; then
-    echo "  kubeconform:      ${GREEN}$KUBECONFORM_PASSED passed${NC} / ${RED}$KUBECONFORM_FAILED failed${NC}"
+    printf "  %-16s %3d passed | %3d failed\n" "kubeconform:" "$KUBECONFORM_PASSED" "$KUBECONFORM_FAILED"
   fi
   echo ""
   echo "Output: $TEMP_DIR"

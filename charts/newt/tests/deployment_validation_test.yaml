@@ -11,6 +11,7 @@ tests:
     asserts:
       - failedTemplate: {}
 
+
   - it: fails when configPersistence.type is persistentVolumeClaim but existingClaim is empty
     set:
       newtInstances:

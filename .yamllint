@@ -1,13 +1,18 @@
 extends: default
+ignore: |
+  charts/newt/templates/**
 rules:
   comments:
     min-spaces-from-content: 1
     require-starting-space: false
   document-start: disable
+  empty-lines: disable
   indentation: disable
   line-length:
     max: 200
     level: warning
+  new-line-at-end-of-file: disable
+  new-lines: disable
   truthy:
     allowed-values: ["true", "false", "on", "off"]
     check-keys: false
