@@ -48,64 +48,64 @@ See [QUICKSTART-NEWT.md](../QUICKSTART-NEWT.md) for detailed instructions.
 
 ```yaml
 newtInstances:
-    - name: main-tunnel
-        enabled: true
-        pangolinEndpoint: https://pangolin.example.com
-        provisioningKey: "YOUR_PROVISIONING_KEY"
-        newtName: "my-site"
+  - name: main-tunnel
+    enabled: true
+    pangolinEndpoint: https://pangolin.example.com
+    provisioningKey: "YOUR_PROVISIONING_KEY"
+    newtName: "my-site"
 
-        # Required for provisioning-based installs so Newt can write credentials
-        configPersistence:
-            enabled: true
-            type: emptyDir
-            mountPath: /var/lib/newt
-            fileName: config.json
+    # Required for provisioning-based installs so Newt can write credentials
+    configPersistence:
+      enabled: true
+      type: emptyDir
+      mountPath: /var/lib/newt
+      fileName: config.json
 ```
 
 ### Provisioning (existing PVC) + writable config persistence
 
 ```yaml
 newtInstances:
-    - name: main-tunnel
-        enabled: true
-        pangolinEndpoint: https://pangolin.example.com
-        provisioningKey: "YOUR_PROVISIONING_KEY"
-        newtName: "my-site"
+  - name: main-tunnel
+    enabled: true
+    pangolinEndpoint: https://pangolin.example.com
+    provisioningKey: "YOUR_PROVISIONING_KEY"
+    newtName: "my-site"
 
-        configPersistence:
-            enabled: true
-            type: persistentVolumeClaim
-            existingClaim: my-newt-config
-            mountPath: /var/lib/newt
-            fileName: config.json
+    configPersistence:
+      enabled: true
+      type: persistentVolumeClaim
+      existingClaim: my-newt-config
+      mountPath: /var/lib/newt
+      fileName: config.json
 ```
 
 ### Provisioning blueprint (single-use)
 
 ```yaml
 newtInstances:
-    - name: main-tunnel
-        enabled: true
-        pangolinEndpoint: https://pangolin.example.com
-        provisioningKey: "YOUR_PROVISIONING_KEY"
-        newtName: "my-site"
+  - name: main-tunnel
+    enabled: true
+    pangolinEndpoint: https://pangolin.example.com
+    provisioningKey: "YOUR_PROVISIONING_KEY"
+    newtName: "my-site"
 
-        configPersistence:
-            enabled: true
-            type: emptyDir
+    configPersistence:
+      enabled: true
+      type: emptyDir
 
-        provisioningBlueprintFile: /etc/newt/provisioning-blueprint.yaml
-        provisioningBlueprintData: |
-            version: 1
-            routes: []
+    provisioningBlueprintFile: /etc/newt/provisioning-blueprint.yaml
+    provisioningBlueprintData: |
+      version: 1
+      routes: []
 ```
 
 ### pprof enablement
 
 ```yaml
 global:
-    metrics:
-        pprofEnabled: true
+  metrics:
+    pprofEnabled: true
 ```
 
 {{ template "chart.valuesSection" . }}
