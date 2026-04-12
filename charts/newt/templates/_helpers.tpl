@@ -224,6 +224,10 @@ imagePullSecrets:
 {{- end }}
 {{- /* Metrics and OTEL env vars */ -}}
 {{- $gm := (default (dict) $root.Values.global.metrics) -}}
+{{- if $gm.pprofEnabled }}
+- name: NEWT_PPROF_ENABLED
+  value: "true"
+{{- end }}
 {{- if $gm.enabled }}
 {{- if and $gm.adminAddr (ne $gm.adminAddr "127.0.0.1:2112") }}
 - name: NEWT_ADMIN_ADDR

@@ -360,7 +360,8 @@ global:
     region: "" # @schema type: string
     # -- Enable OTLP exporter (NEWT_METRICS_OTLP_ENABLED)
     otlpEnabled: false # @schema type: boolean
-
+    # -- Enable pprof endpoints (NEWT_PPROF_ENABLED). Disabled by default.
+    pprofEnabled: false # @schema type: boolean
     # -- OTEL exporter configuration (used when otlpEnabled=true)
     # These are passed as environment variables to the container
     otel: # @schema type: object ; additionalProperties: false

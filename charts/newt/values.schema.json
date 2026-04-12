@@ -215,6 +215,10 @@
                             "description": "Enable OTLP exporter (NEWT_METRICS_OTLP_ENABLED)",
                             "type": "boolean"
                         },
+                        "pprofEnabled": {
+                            "description": "Enable pprof endpoints (NEWT_PPROF_ENABLED). Disabled by default.",
+                            "type": "boolean"
+                        },
                         "path": {
                             "description": "Metrics HTTP path",
                             "type": "string",
