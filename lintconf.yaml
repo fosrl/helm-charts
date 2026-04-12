@@ -1,0 +1,8 @@
+---
+rules:
+  indentation:
+    spaces: consistent
+    indent-sequences: whatever
+  line-length: disable
+  trailing-spaces: enable
+  key-duplicates: enable

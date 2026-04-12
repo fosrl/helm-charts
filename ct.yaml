@@ -1,0 +1,13 @@
+# See https://github.com/helm/chart-testing#configuration
+
+remote: origin
+target-branch: main
+
+chart-dirs:
+  - charts
+
+validate-maintainers: false
+helm-extra-args: --timeout 600s
+check-version-increment: true
+additional-commands:
+  - helm unittest --debug --strict {{ .Path }}

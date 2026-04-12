@@ -1,0 +1,10 @@
+global:
+  metrics:
+    pprofEnabled: true
+
+newtInstances:
+  - name: ci-pprof
+    enabled: true
+    pangolinEndpoint: https://example.com
+    id: test-id
+    secret: test-secret

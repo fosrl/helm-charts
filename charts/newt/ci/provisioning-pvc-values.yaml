@@ -1,0 +1,10 @@
+newtInstances:
+  - name: ci-provisioning-pvc
+    enabled: true
+    pangolinEndpoint: https://example.com
+    provisioningKey: test-key
+    newtName: ci-site
+    configPersistence:
+      enabled: true
+      type: persistentVolumeClaim
+      existingClaim: dummy-claim

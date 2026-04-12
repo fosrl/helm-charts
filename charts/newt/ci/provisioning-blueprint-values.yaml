@@ -1,0 +1,12 @@
+newtInstances:
+  - name: ci-blueprint
+    enabled: true
+    pangolinEndpoint: https://example.com
+    provisioningKey: test-key
+    newtName: ci-site
+    configPersistence:
+      enabled: true
+    provisioningBlueprintFile: /etc/newt/provisioning.yaml
+    provisioningBlueprintData: |
+      version: 1
+      routes: []
