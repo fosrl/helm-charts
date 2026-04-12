@@ -11,6 +11,12 @@ This changelog is chart-scoped to support multiple charts over time.
 
 ### Unreleased
 
+- No changes yet.
+
+---
+
+### 1.3.0 - 2026-04-12
+
 #### Added
 
 - Added support for Newt 1.11 provisioning via `NEWT_PROVISIONING_KEY` and `NEWT_NAME` (backward compatible with existing ID/secret installs).
