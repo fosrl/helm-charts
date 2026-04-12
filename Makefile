@@ -3,7 +3,7 @@ VALUES_DEV := $(CHART_DIR)/values.dev.yaml
 EXAMPLE_VALUES := $(wildcard $(CHART_DIR)/examples/values/*.yaml)
 EXAMPLE_TEMPLATES_DIR := $(CHART_DIR)/examples/renderd-manifests
 
-.PHONY: sync schema schema-dev examples examples-templates docs all lint unittest unittest-examples pre-commit helm-test test test-matrix
+.PHONY: sync schema schema-only schema-dev examples examples-templates docs all lint unittest unittest-examples pre-commit helm-test test test-matrix
 
 # Sync values.yaml from dev + protected
 sync:
@@ -12,8 +12,12 @@ sync:
 schema: sync
 	helm schema -f $(CHART_DIR)/values.yaml -o $(CHART_DIR)/values.schema.json --config $(CHART_DIR)/.schema.yaml
 
+# Generate schema directly from values.yaml without running sync
+schema-only:
+	helm schema -f $(CHART_DIR)/values.yaml -o $(CHART_DIR)/values.schema.json --config $(CHART_DIR)/.schema.yaml
+
 schema-dev:
-	helm schema -f $(CHART_DIR)/values.dev.yaml -o $(CHART_DIR)/values.schema.dev.json --config $(CHART_DIR)/.schema.dev.yaml
+	helm schema -f $(CHART_DIR)/values.dev.yaml -o $(CHART_DIR)/values.schema.dev.json --config $(CHART_DIR)/.schema.yaml
 
 examples: schema
 	./scripts/render.sh --generate -c $(CHART_DIR)

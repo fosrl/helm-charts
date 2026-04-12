@@ -126,7 +126,7 @@ global:
         enabled: false # @schema type: boolean ; default: false
 
         # -- DNS egress rules (raw NetworkPolicySpec.egress objects)
-        egress:
+        egress: # @schema type: array ; item: object ; default: []
           - to:
               - namespaceSelector:
                   matchLabels:
@@ -139,9 +139,6 @@ global:
                 protocol: UDP
               - port: 53
                 protocol: TCP
-        # @schema type: array
-        # @schema item: object
-        # @schema default: []
 
       # -------------------------------------------------------------------------
       # kubeApi — Optional Kubernetes API server egress (typically TCP 6443)
@@ -150,7 +147,7 @@ global:
         enabled: false # @schema type: boolean ; default: false
 
         # -- Kubernetes API egress rules
-        egress:
+        egress: # @schema type: array ; item: object ; default: []
           - to:
               - ipBlock:
                   cidr: 0.0.0.0/0
@@ -159,9 +156,6 @@ global:
             ports:
               - port: 6443
                 protocol: TCP
-        # @schema type: array
-        # @schema item: object
-        # @schema default: []
 
       # -------------------------------------------------------------------------
       # custom — User-defined rules
@@ -218,7 +212,7 @@ global:
   # key, operator (Exists|Equal), value, effect (NoSchedule|PreferNoSchedule|NoExecute), tolerationSeconds
   tolerations: [] # @schema type: array ; item: object ; default: []
   # -- Pod affinity and anti-affinity
-  affinity: # @schema type: object
+  affinity: # @schema type: object ; additionalProperties: false
     # -- Node affinity rules
     nodeAffinity: {} # @schema type: object
     # -- Pod affinity rules
@@ -226,7 +220,7 @@ global:
     # -- Pod anti-affinity rules
     podAntiAffinity: {} # @schema type: object
   # -- Pod topology spread constraints (applied to all Pods)
-  topologySpreadConstraints: [] # @schema type: array ; item: object
+  topologySpreadConstraints: [] # @schema type: array ; item: object ; additionalProperties: false
 
   # -----------------------------------------------------------------------------
   # Pod Disruption Budget
@@ -360,7 +354,8 @@ global:
     region: "" # @schema type: string
     # -- Enable OTLP exporter (NEWT_METRICS_OTLP_ENABLED)
     otlpEnabled: false # @schema type: boolean
-
+    # -- Enable pprof endpoints (NEWT_PPROF_ENABLED). Disabled by default.
+    pprofEnabled: false # @schema type: boolean
     # -- OTEL exporter configuration (used when otlpEnabled=true)
     # These are passed as environment variables to the container
     otel: # @schema type: object ; additionalProperties: false
@@ -557,6 +552,10 @@ newtInstances:
     # @schema type: string ; pattern: ^$|^[a-zA-Z0-9_-]+$
     # -- Instance secret issued by Pangolin (WARNING: Use existingSecretName for production)
     secret: ""
+    # -- Provisioning key (NEWT_PROVISIONING_KEY env). When set, Newt can bootstrap credentials and persist them to CONFIG_FILE.
+    provisioningKey: "" # @schema type: string
+    # -- Provisioning site name (NEWT_NAME env). Use newtName to avoid colliding with newtInstances[].name (instance identifier).
+    newtName: "" # @schema type: string
     # -- Health file path used by liveness/readiness probes
     healthFile: "/tmp/healthy"
     # -- Enforce health check certificate validation (ENFORCE_HC_CERT env).
@@ -569,6 +568,8 @@ newtInstances:
     # -- Optional DNS server address pushed to the client (leave empty to omit)
     dns: ""
     # -- Optional ping interval (e.g., "3s"). Leave empty to use default
+    # NOTE: Newt 1.11.0 changed upstream default ping timings.
+    # If you rely on the legacy 1.10.1 behavior, set pingInterval/pingTimeout explicitly.
     pingInterval: ""
     # -- Optional ping timeout (e.g., "5s"). Leave empty to use default
     pingTimeout: ""
@@ -582,6 +583,20 @@ newtInstances:
     keepInterface: false
     # -- Optional config file path for Newt (CONFIG_FILE env)
     configFile: ""
+    # -- Writable config persistence (recommended for provisioning-based installs).
+    # When enabled, the chart mounts writable storage at mountPath and auto-sets CONFIG_FILE to mountPath/fileName.
+    # This does not remove support for the legacy `configFile` value.
+    configPersistence: # @schema type: object ; additionalProperties: false
+      # -- Enable writable config persistence.
+      enabled: false # @schema type: boolean
+      # -- Directory mount path for config persistence.
+      mountPath: "/var/lib/newt" # @schema type: string ; minLength: 1 ; pattern: ^/.*
+      # -- File name inside mountPath for the persisted config.
+      fileName: "config.json" # @schema type: string ; minLength: 1
+      # -- Storage type. Use emptyDir for ephemeral persistence or persistentVolumeClaim for durable persistence.
+      type: emptyDir # @schema type: string ; enum: [emptyDir, persistentVolumeClaim]
+      # -- Existing PVC name when type=persistentVolumeClaim.
+      existingClaim: "" # @schema type: string ; pattern: ^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
     # -- Optional path to save generated private key (GENERATE_AND_SAVE_KEY_TO env)
     generateAndSaveKeyTo: ""
     # -- Disable cloud connectivity (NO_CLOUD env). When enabled, Newt operates without connecting to Pangolin cloud.
@@ -593,6 +608,11 @@ newtInstances:
     # -- Blueprint file content (inline). When provided, creates a ConfigMap with this content.
     # Use this for simple inline blueprints, or leave empty to reference an existing ConfigMap.
     blueprintData: ""
+    # -- Provisioning blueprint file path (PROVISIONING_BLUEPRINT_FILE env).
+    # Newt 1.11.0 applies this blueprint once during provisioning.
+    provisioningBlueprintFile: "" # @schema type: string
+    # -- Provisioning blueprint file content (inline). Required when provisioningBlueprintFile is set.
+    provisioningBlueprintData: "" # @schema type: string
     # -- WireGuard UDP port (PORT env). Default is 51820.
     port: ""
     dockerSocket:
@@ -626,11 +646,11 @@ newtInstances:
     updown:
       # -- Mount and execute a shared up/down script
       enabled: false
-      # -- (Deprecated) inline script content (prefer updownScripts map)
+      # -- inline script content (prefer updownScripts map)
       script: ""
       # -- Container mount path for up/down script files
       mountPath: "/opt/newt/updown"
-      # -- (Deprecated) filename for the single up/down script
+      # --filename for the single up/down script
       fileName: "updown.sh"
 
     # -------------------------------------------------------------------------
@@ -910,9 +930,9 @@ newtInstances:
       podAntiAffinity: {} # @schema type: object
     # -- Extra environment variables to inject into the container
     extraEnv: {} # @schema type: object
-    # -- Extra pod volumes to add
-    extraVolumes: [] # @schema type: array ; item: object
-    # -- Extra volume mounts to add to the container
+    # -- Extra pod volumes to add (must be valid Kubernetes Volume objects)
+    extraVolumes: [] # @schema type: array ; item: object ; additionalProperties: true
+    # -- Extra volume mounts to add (must be valid Kubernetes VolumeMount objects)
     extraVolumeMounts: [] # @schema type: array ; item: object
     # -- Additional init containers to add to the pod
     initContainers: [] # @schema type: array ; item: object
@@ -924,3 +944,5 @@ newtInstances:
     hostNetwork: false
     # -- Enable sharing host PID namespace (rarely needed)
     hostPID: false
+    # -- Container lifecycle hooks (e.g., preStop for graceful WireGuard shutdown)
+    lifecycle: {} # @schema type: object

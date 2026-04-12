@@ -126,7 +126,7 @@ global:
         enabled: false # @schema type: boolean ; default: false
 
         # -- DNS egress rules (raw NetworkPolicySpec.egress objects)
-        egress:
+        egress: # @schema type: array ; item: object ; default: []
           - to:
               - namespaceSelector:
                   matchLabels:
@@ -139,9 +139,6 @@ global:
                 protocol: UDP
               - port: 53
                 protocol: TCP
-        # @schema type: array
-        # @schema item: object
-        # @schema default: []
 
       # -------------------------------------------------------------------------
       # kubeApi — Optional Kubernetes API server egress (typically TCP 6443)
@@ -150,7 +147,7 @@ global:
         enabled: false # @schema type: boolean ; default: false
 
         # -- Kubernetes API egress rules
-        egress:
+        egress: # @schema type: array ; item: object ; default: []
           - to:
               - ipBlock:
                   cidr: 0.0.0.0/0
@@ -159,9 +156,6 @@ global:
             ports:
               - port: 6443
                 protocol: TCP
-        # @schema type: array
-        # @schema item: object
-        # @schema default: []
 
       # -------------------------------------------------------------------------
       # custom — User-defined rules
