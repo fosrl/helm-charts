@@ -1,0 +1,39 @@
+suite: Deployment validation
+templates:
+  - templates/deployment.yaml
+tests:
+  - it: fails when provisioningBlueprintFile is set but provisioningBlueprintData is empty
+    set:
+      newtInstances:
+        - name: test-missing-prov-blueprint-data
+          enabled: true
+          provisioningBlueprintFile: /etc/newt/provisioning-blueprint.yaml
+    asserts:
+      - failedTemplate: {}
+
+  - it: fails when configPersistence.type is persistentVolumeClaim but existingClaim is empty
+    set:
+      newtInstances:
+        - name: test-pvc-missing-claim
+          enabled: true
+          configPersistence:
+            enabled: true
+            type: persistentVolumeClaim
+            existingClaim: ""
+            mountPath: /var/lib/newt
+            fileName: config.json
+    asserts:
+      - failedTemplate: {}
+
+  - it: fails when configPersistence.type is invalid
+    set:
+      newtInstances:
+        - name: test-invalid-cfg-type
+          enabled: true
+          configPersistence:
+            enabled: true
+            type: invalidType
+            mountPath: /var/lib/newt
+            fileName: config.json
+    asserts:
+      - failedTemplate: {}

@@ -62,3 +62,86 @@ tests:
     asserts:
       - isKind:
           of: Deployment
+
+  - it: mounts config-persistence volume and volumeMount when configPersistence enabled (emptyDir)
+    set:
+      newtInstances:
+        - name: test-cfg-persist-emptydir
+          enabled: true
+          configPersistence:
+            enabled: true
+            type: emptyDir
+            mountPath: /var/lib/newt
+            fileName: config.json
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: config-persistence
+            mountPath: "/var/lib/newt"
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: config-persistence
+            emptyDir: {}
+
+  - it: mounts config-persistence volume with persistentVolumeClaim when type is PVC
+    set:
+      newtInstances:
+        - name: test-cfg-persist-pvc
+          enabled: true
+          configPersistence:
+            enabled: true
+            type: persistentVolumeClaim
+            existingClaim: my-newt-config
+            mountPath: /var/lib/newt
+            fileName: config.json
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: config-persistence
+            mountPath: "/var/lib/newt"
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: config-persistence
+            persistentVolumeClaim:
+              claimName: "my-newt-config"
+
+  - it: mounts provisioning-blueprint-file volume and volumeMount when provisioningBlueprintFile is set
+    set:
+      newtInstances:
+        - name: test-prov-blueprint
+          enabled: true
+          provisioningBlueprintFile: /etc/newt/provisioning-blueprint.yaml
+          provisioningBlueprintData: |
+            version: 1
+            routes: []
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: provisioning-blueprint-file
+            mountPath: "/etc/newt"
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: provisioning-blueprint-file
+            configMap:
+              name: RELEASE-NAME-newt-test-prov-blueprint-provisioning-blueprint
+
+  - it: does not mount config-persistence volume when configPersistence is disabled
+    set:
+      newtInstances:
+        - name: test-no-cfg-persist
+          enabled: true
+          pangolinEndpoint: https://example.com
+          id: test
+          secret: test-secret
+    asserts:
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: config-persistence

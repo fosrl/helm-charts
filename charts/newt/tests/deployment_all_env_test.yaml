@@ -469,3 +469,116 @@ tests:
           content:
             name: ANOTHER_VAR
             value: "123"
+
+  - it: renders NEWT_PROVISIONING_KEY when provisioningKey is set
+    set:
+      newtInstances:
+        - name: test-prov-key
+          enabled: true
+          provisioningKey: "prov-key-abc123"
+          newtName: "my-site"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: NEWT_PROVISIONING_KEY
+            value: "prov-key-abc123"
+
+  - it: renders NEWT_NAME when newtName is set
+    set:
+      newtInstances:
+        - name: test-newt-name
+          enabled: true
+          provisioningKey: "prov-key-abc123"
+          newtName: "my-site"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: NEWT_NAME
+            value: "my-site"
+
+  - it: does not render NEWT_ID when only provisioningKey is set
+    set:
+      newtInstances:
+        - name: test-prov-only
+          enabled: true
+          provisioningKey: "prov-key-abc123"
+          newtName: "my-site"
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: NEWT_ID
+
+  - it: renders CONFIG_FILE from configPersistence when enabled
+    set:
+      newtInstances:
+        - name: test-cfg-persist
+          enabled: true
+          configPersistence:
+            enabled: true
+            type: emptyDir
+            mountPath: /var/lib/newt
+            fileName: config.json
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CONFIG_FILE
+            value: "/var/lib/newt/config.json"
+
+  - it: falls back to legacy configFile when configPersistence is disabled
+    set:
+      newtInstances:
+        - name: test-legacy-config
+          enabled: true
+          configFile: /etc/newt/custom-config.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CONFIG_FILE
+            value: "/etc/newt/custom-config.yaml"
+
+  - it: renders NEWT_PPROF_ENABLED when global.metrics.pprofEnabled is true
+    set:
+      newtInstances:
+        - name: test-pprof
+          enabled: true
+      global:
+        metrics:
+          pprofEnabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: NEWT_PPROF_ENABLED
+            value: "true"
+
+  - it: does not render NEWT_PPROF_ENABLED when global.metrics.pprofEnabled is false
+    set:
+      newtInstances:
+        - name: test-no-pprof
+          enabled: true
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: NEWT_PPROF_ENABLED
+
+  - it: renders PROVISIONING_BLUEPRINT_FILE when provisioningBlueprintFile is set
+    set:
+      newtInstances:
+        - name: test-prov-blueprint
+          enabled: true
+          provisioningBlueprintFile: /etc/newt/provisioning-blueprint.yaml
+          provisioningBlueprintData: |
+            version: 1
+            routes: []
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PROVISIONING_BLUEPRINT_FILE
+            value: "/etc/newt/provisioning-blueprint.yaml"
