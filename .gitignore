@@ -5,3 +5,4 @@ charts/newt/tests/output/*
 render-test/*
 tmp/*
 out*.yaml
+**/__snapshot__/**
