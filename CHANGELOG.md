@@ -7,11 +7,66 @@ This changelog is chart-scoped to support multiple charts over time.
 
 ---
 
+## Pangolin Chart (`charts/pangolin`)
+
+### Unreleased
+
+- No changes yet.
+
+---
+
+### 0.1.0-alpha.1 - 2026-05-07
+
+#### Added
+
+- Initial alpha release of the Pangolin Helm chart (`charts/pangolin`).
+
+---
+
 ## Newt Chart (`charts/newt`)
 
 ### Unreleased
 
 - No changes yet.
+
+---
+
+### 1.4.0 - 2026-05-04
+
+#### Added
+
+- Added support for namespace creation and Pod Security Admission labels, including per-instance namespace overrides.
+- Added per-instance ServiceAccount override support (create/name/automount) when global override is enabled.
+- Added `tests.enabled` controls (global and per-instance) to manage tester UDP port exposure.
+- Added helper logic for effective namespace, namespace labels, PSA labels, tests enablement, and metrics admin port resolution.
+- Added `auth.createSecret` and `auth.envVarsDirect` authentication modes for inline/development workflows.
+- Added runtime NOTES warnings for insecure inline credential patterns.
+- Added explicit namespace rendering for generated ConfigMaps, Services, Secrets, and ServiceAccounts in multi-namespace deployments.
+- Added GHCR OCI publish step in release automation for packaged chart artifacts.
+
+#### Changed
+
+- Bumped Newt chart version to `1.4.0` and app version to `1.12.3`.
+- Changed default RBAC behavior to least-privilege by setting `rbac.create=false`.
+- Changed tester port behavior to disabled by default unless enabled via tests settings or legacy tester port config.
+- Refactored Role/RoleBinding rendering to create one pair per unique effective namespace when `clusterRole=false`.
+- Updated metrics defaults and behavior around `adminAddr` (default `:2112`), including metrics Service default port alignment.
+- Increased default `revisionHistoryLimit` from `3` to `10`.
+- Hardened release workflow for tag-driven releases, expanded permissions, and improved signing/publishing flow.
+
+#### Fixed
+
+- Fixed metrics env var rendering to avoid YAML block sequence errors.
+- Fixed OTLP protocol enum usage to `http/protobuf`.
+- Fixed container ports and Prometheus annotations to follow `adminAddr`-driven metrics exposure.
+- Fixed NetworkPolicy tester ingress generation to avoid opening tester UDP rules when tester exposure is disabled.
+- Fixed secret generation in create-secret mode to include endpoint/id/secret credentials consistently.
+- Fixed auth validation for partial inline credentials and conflicting auth mode combinations.
+
+#### Removed
+
+- Removed implicit default RBAC creation; RBAC is now opt-in.
+- Removed the broad all-env deployment test from active execution and retained it as a disabled fixture.
 
 ---
 
