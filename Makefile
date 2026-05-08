@@ -37,7 +37,7 @@ lint:
 
 # Run unit tests using helm-unittest plugin
 unittest:
-	helm unittest $(CHART_DIR) -v $(VALUES_DEV)
+	bash ./scripts/helm-unittest-path.sh "$(CHART_DIR)" -v "$(VALUES_DEV)"
 
 # Run unit tests using example values files (smoke tests)
 unittest-examples:
@@ -47,7 +47,7 @@ unittest-examples:
 			minimalistic*.yaml) pattern="examples/tests/examples_defaultsecret_test.yaml" ;; \
 			*) pattern="examples/tests/examples_smoke_test.yaml" ;; \
 		esac; \
-		helm unittest $(CHART_DIR) -f $$pattern -v $$v || exit 1; \
+		bash ./scripts/helm-unittest-path.sh "$(CHART_DIR)" -f "$$pattern" -v "$$v" || exit 1; \
 	done
 
 # Run all pre-commit hooks across the repo
