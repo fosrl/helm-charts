@@ -1,0 +1,84 @@
+# GitHub Actions install smoke-test values for the Pangolin chart.
+#
+# This file targets the deterministic kind-based install smoke test used by
+# `.github/workflows/pangolin-e2e.yaml`. Talos remains the preferred real-world
+# target for Pangolin, and a separate Talos-Docker workflow can be added later.
+# This workflow intentionally avoids Talos VM-style testing on GitHub-hosted
+# runners.
+#
+# Topology:
+#   - deployment.type=controller
+#   - deployment.mode=multi
+#   - external Traefik controller installed separately in `traefik-system`
+#   - CloudNativePG operator installed separately in `cnpg-system` so CRDs exist
+#     before the chart installs the CNPG cluster in `pangolin-e2e`
+#   - persistence kept enabled against kind's default `standard` StorageClass
+
+deployment:
+  type: controller
+  mode: multi
+  traefikNamespace: traefik-system
+
+networkPolicy:
+  enabled: false
+
+global:
+  storageClass: standard
+
+namespace:
+  create: true
+  name: pangolin-e2e
+  podSecurity:
+    enforce: privileged
+    warn: baseline
+    audit: baseline
+
+pangolin:
+  databaseWait:
+    enabled: true
+    stableSeconds: 30
+  config:
+    app:
+      dashboard_url: https://pangolin.example.test
+    gerbil:
+      base_endpoint: gerbil.example.test
+
+controller:
+  waitForPangolin:
+    enabled: true
+    stableSeconds: 30
+  config:
+    targetNamespace: pangolin-e2e
+
+gerbil:
+  # Fresh Pangolin installs can return "Exit node not found" to Gerbil until setup is completed.
+  # Keep Gerbil rendered but not started for smoke tests; enable later with:
+  # helm upgrade pangolin-e2e charts/pangolin -f charts/pangolin/examples/values-e2e-kind.yaml --namespace pangolin-e2e --set gerbil.startupMode=normal
+  startupMode: delayed
+  waitForPangolin:
+    enabled: true
+  service:
+    type: ClusterIP
+  persistence:
+    enabled: true
+    storageClass: standard
+
+cnpg-operator:
+  enabled: false
+
+cnpg-cluster:
+  enabled: true
+  fullnameOverride: pangolin-db
+  type: postgresql
+  mode: standalone
+  cluster:
+    instances: 1
+    storage:
+      size: 1Gi
+      storageClass: standard
+
+database:
+  mode: cloudnativepg
+  cloudnativepg:
+    cluster:
+      name: pangolin-db

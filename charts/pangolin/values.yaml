@@ -1,0 +1,1799 @@
+# Default values for Pangolin-1.
+# This is a YAML-formatted file.
+# yaml-language-server: $schema=./values.schema.json
+# Declare variables to be passed into templates.
+#
+# NOTE: The comments in this file are consumed by helm-docs to generate the README.md
+# See https://github.com/norwoodj/helm-docs for more details.
+
+# -----------------------------------------------------------------------------
+# Deployment topology
+# -----------------------------------------------------------------------------
+## @section Deployment topology
+deployment:
+  # -- Pangolin deployment integration mode. `controller` uses pangolin-kube-controller and Traefik CRDs. `standalone` runs an internal Traefik Pod (not recommended for production).
+  type: controller # @schema type: string ; enum: [controller, standalone]
+  # -- Pod topology for Pangolin application components. `single` runs one Pod containing Pangolin plus optional Gerbil and either pangolin-kube-controller (controller type) or standalone Traefik (standalone type). `multi` runs separate workloads (recommended for production).
+  mode: multi # @schema type: string ; enum: [single, multi]
+  # -- Install bundled Traefik subchart when `deployment.type=controller`.
+  installTraefikController: false # @schema type: boolean
+  # -- Namespace where Traefik controller resources live in controller mode. Defaults to the release namespace.
+  traefikNamespace: "" # @schema type: string
+
+# -----------------------------------------------------------------------------
+# Resource policy
+# -----------------------------------------------------------------------------
+## @section Resource policy
+# -- Global resource rendering policy controlling which optional resource fields are included.
+resourcesPolicy: # @schema type: object ; additionalProperties: false
+  # -- Enable CPU limits on all workloads.
+  # Set to `false` to omit CPU limits without affecting CPU requests or memory resources.
+  # Useful when running VPA or relying on burstable CPU scheduling.
+  cpuLimits: # @schema type: object ; additionalProperties: false
+    enabled: true # @schema type: boolean
+  # -- Enable ephemeral-storage requests and limits on all workloads.
+  # Disabled by default to avoid unexpected pod scheduling constraints and evictions.
+  # Enable only when your cluster enforces ephemeral-storage policies or you want to
+  # bound disk usage per container.
+  ephemeralStorage: # @schema type: object ; additionalProperties: false
+    enabled: false # @schema type: boolean
+
+# -----------------------------------------------------------------------------
+# Global settings
+# -----------------------------------------------------------------------------
+## @section Global settings
+global:
+  # -- Global container image configuration used by all chart components.
+  image: # @schema type: object ; additionalProperties: false
+    # -- Default image registry for all components.
+    registry: docker.io # @schema type: string
+    imagePullPolicy: IfNotPresent # @schema type: string ; enum: [Always, IfNotPresent, Never]
+    # -- Image pull secrets applied to all workloads by default.
+    imagePullSecrets: [] # @schema type:[array, null] ; item: object ; itemProperties: {"name": {"type": "string"}}
+  # -- Default StorageClass used by all PVCs when the local storageClass is empty.
+  storageClass: "" # @schema type: [string, "null"]
+  # -- Override the chart name.
+  nameOverride: "" # @schema type: string
+  # -- Override the fully qualified app name.
+  fullnameOverride: "" # @schema type: string
+  # -- Override namespace for rendered resources.
+  namespaceOverride: "" # @schema type: string
+  # -- Common labels applied to all resources rendered by this chart.
+  additionalLabels: {} # @schema type: object ; additionalProperties: {type: string}
+  # -- Common labels applied to all resources rendered by this chart (preferred alias).
+  commonLabels: {} # @schema type: object ; additionalProperties: {type: string}
+  # -- Common annotations applied to all resources rendered by this chart.
+  additionalAnnotations: {} # @schema type: object ; additionalProperties: {type: string}
+  # -- Common annotations applied to all resources rendered by this chart (preferred alias).
+  commonAnnotations: {} # @schema type: object ; additionalProperties: {type: string}
+  # -- Common labels added to all Services.
+  additionalServiceLabels: {} # @schema type: object ; additionalProperties: {type: string}
+  # -- Common annotations added to all Services.
+  additionalServiceAnnotations: {} # @schema type: object ; additionalProperties: {type: string}
+  # -- Common labels added to all Pods.
+  additionalPodLabels: {} # @schema type: object ; additionalProperties: {type: string}
+  # -- Common annotations added to all Pods.
+  additionalPodAnnotations: {} # @schema type: object ; additionalProperties: {type: string}
+  # -- Revision history limit for Deployments and StatefulSets.
+  revisionHistoryLimit: 10 # @schema type: integer ; minimum: 0
+  # -- Default PriorityClass applied to all Pods.
+  priorityClassName: "" # @schema type: string
+  # -- Node selector applied to all Pods.
+  nodeSelector: {} # @schema type: object ; additionalProperties: { type: string }
+  # -- Tolerations applied to all Pods.
+  tolerations: [] # @schema type: array ; item: object
+  # -- Affinity applied to all Pods.
+  affinity: {} # @schema type: object
+  # -- Topology spread constraints applied to all Pods.
+  topologySpreadConstraints: [] # @schema type: array ; item: object
+  # -- Common extra environment variables added to all containers.
+  extraEnv: {} # @schema type: object ; additionalProperties: { type: string }
+  # -- Default pod security context.
+  podSecurityContext:
+    seccompProfile:
+      type: RuntimeDefault
+    fsGroupChangePolicy: OnRootMismatch
+  # -- Default container security context.
+  containerSecurityContext: {} # @schema type: object
+
+# -----------------------------------------------------------------------------
+# Namespace
+# -----------------------------------------------------------------------------
+## @section Namespace
+# -- Namespace configuration for resources created by this chart.
+# When namespace.create=true the chart renders a Namespace resource and applies the
+# Pod Security Admission labels required for Gerbil (NET_ADMIN / WireGuard).
+# If you manage the namespace outside this chart, apply the label manually:
+#   kubectl label ns <namespace> pod-security.kubernetes.io/enforce=privileged --overwrite
+namespace: # @schema type: object ; additionalProperties: false
+  # -- Create the namespace used by this chart. When false, rely on the Helm release namespace or --create-namespace.
+  create: false # @schema type: boolean
+  # -- Namespace name to create. When empty and create=true, the Helm release namespace (.Release.Namespace) is used.
+  name: "" # @schema type: string ; pattern: ^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+  # -- Additional labels applied to the created namespace.
+  labels: {} # @schema type: object ; additionalProperties: { type: string }
+  # -- Pod Security Admission labels for the created namespace.
+  # Gerbil requires NET_ADMIN (WireGuard). Set enforce: privileged to allow this capability.
+  # audit/warn can be set to a stricter level (e.g. baseline) to flag other policy violations.
+  podSecurity: # @schema type: object ; additionalProperties: false
+    # -- PSA enforce level applied to the namespace. Use "privileged" to allow Gerbil's NET_ADMIN capability.
+    enforce: "" # @schema type: string ; enum: ["", privileged, baseline, restricted]
+    # -- PSA warn level applied to the namespace.
+    warn: "" # @schema type: string ; enum: ["", privileged, baseline, restricted]
+    # -- PSA audit level applied to the namespace.
+    audit: "" # @schema type: string ; enum: ["", privileged, baseline, restricted]
+
+# -----------------------------------------------------------------------------
+# RBAC and ServiceAccount
+# -----------------------------------------------------------------------------
+## @section RBAC and ServiceAccount
+# -- Per-component ServiceAccount configuration. In `deployment.mode=multi`, each component uses its own ServiceAccount so RBAC can be scoped precisely. In `deployment.mode=single` with `deployment.type=controller`, the shared Pod uses the controller ServiceAccount (and its token/RBAC), so Pangolin and Gerbil run in the same Pod security context.
+serviceAccount:
+  pangolin:
+    # -- Create a ServiceAccount for Pangolin Pods.
+    create: true # @schema type: boolean
+    # -- Existing ServiceAccount name. When empty and create=true, a name is generated.
+    name: "" # @schema type: string
+    # -- Automount Kubernetes API token into Pangolin Pods. Pangolin does not need cluster API
+    # access; defaults to false.
+    automountServiceAccountToken: false # @schema type: boolean
+    # -- Extra annotations added to the Pangolin ServiceAccount.
+    annotations: {} # @schema type: object ; additionalProperties: { type: string }
+    # -- Extra labels added to the Pangolin ServiceAccount.
+    labels: {} # @schema type: object ; additionalProperties: { type: string }
+  gerbil:
+    # -- Create a ServiceAccount for Gerbil Pods.
+    create: true # @schema type: boolean
+    # -- Existing ServiceAccount name. When empty and create=true, a name is generated.
+    name: "" # @schema type: string
+    # -- Automount Kubernetes API token into Gerbil Pods. Gerbil does not need cluster API
+    # access; defaults to false.
+    automountServiceAccountToken: false # @schema type: boolean
+    # -- Extra annotations added to the Gerbil ServiceAccount.
+    annotations: {} # @schema type: object ; additionalProperties: { type: string }
+    # -- Extra labels added to the Gerbil ServiceAccount.
+    labels: {} # @schema type: object ; additionalProperties: { type: string }
+  controller:
+    # -- Create a ServiceAccount for the pangolin-kube-controller Pod.
+    create: true # @schema type: boolean
+    # -- Existing ServiceAccount name. When empty and create=true, a name is generated.
+    name: "" # @schema type: string
+    # -- Automount Kubernetes API token into controller Pods. The controller needs in-cluster
+    # API access to manage Traefik CRDs; defaults to true.
+    automountServiceAccountToken: true # @schema type: boolean
+    # -- Extra annotations added to the controller ServiceAccount.
+    annotations: {} # @schema type: object ; additionalProperties: { type: string }
+    # -- Extra labels added to the controller ServiceAccount.
+    labels: {} # @schema type: object ; additionalProperties: { type: string }
+rbac:
+  # -- Create RBAC resources for the pangolin-kube-controller. Only the controller receives
+  # Kubernetes API permissions; Pangolin and Gerbil Pods use their own ServiceAccounts without
+  # any RBAC bindings.
+  create: true # @schema type: boolean
+
+# -----------------------------------------------------------------------------
+# Common runtime settings
+# -----------------------------------------------------------------------------
+## @section Common runtime settings
+runtime:
+  # -- Enable hostNetwork on workloads that support it.
+  hostNetwork: false # @schema type: boolean
+  # -- Grace period in seconds before Pod termination.
+  terminationGracePeriodSeconds: 30 # @schema type: integer ; minimum: 0
+  # -- Min ready seconds for Deployments.
+  minReadySeconds: 0 # @schema type: integer ; minimum: 0
+  dependencyWait:
+    image:
+      # -- Registry used by dependency wait initContainers unless overridden per component.
+      registry: docker.io # @schema type: string
+      # -- Repository used by dependency wait initContainers unless overridden per component.
+      repository: busybox # @schema type: string
+      # -- Tag used by dependency wait initContainers unless overridden per component.
+      tag: "1.36" # @schema type: string
+      # -- Pull policy used by dependency wait initContainers unless overridden per component.
+      pullPolicy: IfNotPresent # @schema type: string ; enum: [Always, IfNotPresent, Never]
+    # -- Default interval between dependency wait probes.
+    intervalSeconds: 5 # @schema type: integer ; minimum: 1
+    # -- Default timeout for dependency wait probes.
+    timeoutSeconds: 300 # @schema type: integer ; minimum: 1
+    # -- Required consecutive successful seconds before a dependency is treated as stable.
+    stableSeconds: 30 # @schema type: integer ; minimum: 1
+  # -- Default update strategy for Deployments managed by this chart.
+  updateStrategy:
+    type: RollingUpdate # @schema type: string ; enum: [RollingUpdate, Recreate]
+    rollingUpdate:
+      maxSurge: 1 # @schema type: [integer, string]
+      maxUnavailable: 0 # @schema type: [integer, string]
+
+# -----------------------------------------------------------------------------
+# High availability
+# -----------------------------------------------------------------------------
+## @section High availability
+highAvailability:
+  # -- Enable a chart-managed PodDisruptionBudget for applicable workloads.
+  podDisruptionBudget:
+    enabled: false # @schema type: boolean
+    minAvailable: 1 # @schema type: [integer, string]
+    maxUnavailable: null # @schema type: [integer, string, "null"]
+    labels: {} # @schema type: object ; additionalProperties: { type: string }
+    annotations: {} # @schema type: object ; additionalProperties: { type: string }
+  # -- Optional anti-affinity helper for spreading replicas.
+  podAntiAffinity:
+    enabled: false # @schema type: boolean
+    type: soft # @schema type: string ; enum: [soft, hard]
+    topologyKey: kubernetes.io/hostname # @schema type: string
+    weight: 100 # @schema type: integer ; minimum: 1 ; maximum: 100
+    labelSelector: {} # @schema type: object
+
+# -----------------------------------------------------------------------------
+# NetworkPolicy
+# -----------------------------------------------------------------------------
+## @section NetworkPolicy
+networkPolicy:
+  # -- Create NetworkPolicy resources.
+  enabled: true # @schema type: boolean
+  # -- Allow ingress from everywhere to public entrypoints / services managed by this chart.
+  # Component-level controls below can further restrict which ports open externally.
+  allowExternalIngress: true # @schema type: boolean
+  # -- Allow HTTPS egress (TCP/443) to 0.0.0.0/0.
+  # Disabled by default; prefer using `networkPolicy.extraEgress` for a scoped allow-list.
+  allowExternalEgressHttps: false # @schema type: boolean
+  # -- Additional ingress rules appended to all generated NetworkPolicies (global escape hatch).
+  # Prefer component-scoped `extraIngress` fields (e.g. `networkPolicy.pangolin.extraIngress`) for precision.
+  extraIngress: [] # @schema type: array ; item: object
+  # -- Additional egress rules appended to all generated NetworkPolicies (global escape hatch).
+  # Prefer component-scoped `extraEgress` fields (e.g. `networkPolicy.pangolin.extraEgress`) for precision.
+  extraEgress: [] # @schema type: array ; item: object
+  # -- DEPRECATED: CIDRs allowed for controller egress to Kubernetes API on TCP/443.
+  # Prefer `networkPolicy.controller.egress.kubernetesApi.cidr`.
+  # Keep this scoped to cluster API ranges when known.
+  kubernetesApiCIDRs: [] # @schema type: array ; item: string
+
+  dns:
+    # -- Enable DNS egress rule for all components. Disable only if you manage DNS egress rules yourself.
+    enabled: true # @schema type: boolean
+    # -- DNS egress ports.
+    ports: # @schema type: array ; item: object
+      - protocol: UDP
+        port: 53
+      - protocol: TCP
+        port: 53
+    # -- DNS egress destination peers.
+    # Defaults to the kube-system namespace for standard Kubernetes cluster DNS.
+    # Override this if your cluster DNS runs in a different namespace or pod selector.
+    to: # @schema type: array ; item: object
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: kube-system
+
+  pangolin:
+    # -- Additional ingress rules appended to the Pangolin NetworkPolicy only.
+    extraIngress: [] # @schema type: array ; item: object
+    # -- Additional egress rules appended to the Pangolin NetworkPolicy only.
+    # Use this for Pangolin-specific outbound rules such as SMTP or OIDC provider egress.
+    extraEgress: [] # @schema type: array ; item: object
+    ingress:
+      dashboard:
+        # -- Optional source peers allowed to reach Pangolin public dashboard/API port.
+        # Each item supports standard NetworkPolicyPeer fields (namespaceSelector, podSelector, ipBlock).
+        # Applies only when `networkPolicy.pangolin.externalIngress.external=true`.
+        from: [] # @schema type: array ; item: object
+    externalIngress:
+      # -- Allow external ingress on Pangolin public port.
+      external: true # @schema type: boolean
+      # -- Allow external ingress on Pangolin next port.
+      next: false # @schema type: boolean
+      # -- Allow external ingress on Pangolin integration API port.
+      integration: false # @schema type: boolean
+      # -- Require `pangolin.config.flags.enable_integration_api=true` before opening integration ingress.
+      requireIntegrationFlag: true # @schema type: boolean
+
+  controller:
+    # -- Additional ingress rules appended to the Controller NetworkPolicy only.
+    extraIngress: [] # @schema type: array ; item: object
+    # -- Additional egress rules appended to the Controller NetworkPolicy only.
+    # Use this for controller-specific outbound rules such as metrics or API access.
+    extraEgress: [] # @schema type: array ; item: object
+    egress:
+      # -- Enable explicit controller egress NetworkPolicy.
+      # When disabled, no controller egress policy is rendered by this chart
+      # even if DNS/Pangolin/Kubernetes API egress rules are configured.
+      enabled: true # @schema type: boolean
+      kubernetesApi:
+        # -- Enable egress rule to Kubernetes API server.
+        enabled: true # @schema type: boolean
+        # -- Single CIDR for Kubernetes API server egress target (for example 10.96.0.1/32).
+        # Leave empty to skip this rule unless legacy `networkPolicy.kubernetesApiCIDRs` is set.
+        # For multiple CIDRs, use the legacy `networkPolicy.kubernetesApiCIDRs` list.
+        cidr: "" # @schema type: string
+        # -- Kubernetes API server egress port.
+        port: 443 # @schema type: integer ; minimum: 1 ; maximum: 65535
+    metrics:
+      # -- Enable controller metrics ingress rule on controller service port.
+      enabled: false # @schema type: boolean
+      # -- Allowed source peers for controller metrics ingress when enabled.
+      # Each item supports standard NetworkPolicyPeer fields (namespaceSelector, podSelector, ipBlock).
+      # If empty, legacy `namespaceSelector`/`podSelector` are used when set; otherwise ingress stays denied.
+      from: [] # @schema type: array ; item: object
+      # -- Allow controller metrics ingress from all Pods.
+      allowExternalIngress: false # @schema type: boolean
+      # -- Optional namespace selector for scoped metrics ingress.
+      namespaceSelector: {} # @schema type: object
+      # -- Optional pod selector for scoped metrics ingress.
+      podSelector: {} # @schema type: object
+
+  database:
+    # -- Add DB egress rules for Pangolin workload.
+    enabled: true # @schema type: boolean
+    # -- Default DB port used when rendering non-embedded DB egress rules.
+    port: 5432 # @schema type: integer ; minimum: 1 ; maximum: 65535
+    # -- Optional explicit peers used for CNPG DB egress. If empty, same-namespace egress is used.
+    cnpgPeers: [] # @schema type: array ; item: object
+    # -- Optional CIDRs used for external DB egress.
+    externalCIDRs: [] # @schema type: array ; item: string
+    # -- Additional ingress rules appended to the embedded-postgres NetworkPolicy only.
+    extraIngress: [] # @schema type: array ; item: object
+    # -- Additional egress rules appended to the embedded-postgres NetworkPolicy only.
+    extraEgress: [] # @schema type: array ; item: object
+
+  gerbil:
+    # -- Allow UDP egress for WireGuard peer traffic.
+    allowWireguardUdpEgress: true # @schema type: boolean
+    # -- CIDRs allowed for Gerbil UDP egress when WireGuard egress is enabled.
+    wireguardUdpCIDRs: # @schema type: array ; item: string
+      - 0.0.0.0/0
+    # -- Additional ingress rules appended to the Gerbil NetworkPolicy only.
+    extraIngress: [] # @schema type: array ; item: object
+    # -- Additional egress rules appended to the Gerbil NetworkPolicy only.
+    # Use this for Gerbil-specific outbound rules.
+    extraEgress: [] # @schema type: array ; item: object
+
+# -----------------------------------------------------------------------------
+# Images
+# -----------------------------------------------------------------------------
+## @section Images
+images:
+  pangolin:
+    # -- Pangolin image registry.
+    # The chart selects the correct image variant based on `database.mode` automatically.
+    # Set an explicit `tag` or `digest` to override automatic image selection.
+    registry: docker.io # @schema type: string
+    # -- Pangolin image repository.
+    repository: fosrl/pangolin # @schema type: string
+    # -- Pangolin image tag. Defaults to .Chart.AppVersion when empty.
+    # Set this to override automatic database-mode-based image selection.
+    tag: "" # @schema type: string
+    # -- Pangolin image digest. Overrides tag and automatic image selection when set.
+    digest: "" # @schema type: string
+    # -- Pangolin image pull policy.
+    pullPolicy: IfNotPresent # @schema type: string ; enum: [Always, IfNotPresent, Never]
+  pangolinPostgresql:
+    # -- PostgreSQL-capable Pangolin image registry.
+    # Used automatically when database.mode is not sqlite (unless images.pangolin.tag or images.pangolin.digest is set).
+    registry: docker.io # @schema type: string
+    # -- PostgreSQL-capable Pangolin image repository.
+    repository: fosrl/pangolin # @schema type: string
+    # -- PostgreSQL-capable Pangolin image tag. Defaults to "postgresql-<AppVersion>" when empty.
+    tag: "" # @schema type: string
+    # -- PostgreSQL-capable Pangolin image digest. Overrides tag when set.
+    digest: "" # @schema type: string
+    # -- PostgreSQL-capable Pangolin image pull policy.
+    pullPolicy: IfNotPresent # @schema type: string ; enum: [Always, IfNotPresent, Never]
+  gerbil:
+    # -- Gerbil image registry.
+    registry: docker.io # @schema type: string
+    # -- Gerbil image repository.
+    repository: fosrl/gerbil # @schema type: string
+    # -- Gerbil image tag.
+    tag: "1.3.1" # @schema type: string
+    # -- Gerbil image digest. Overrides tag when set.
+    digest: "" # @schema type: string
+    # -- Gerbil image pull policy.
+    pullPolicy: IfNotPresent # @schema type: string ; enum: [Always, IfNotPresent, Never]
+  controller:
+    # -- Pangolin kube controller image registry.
+    registry: ghcr.io # @schema type: string
+    # -- Pangolin kube controller image repository.
+    repository: fosrl/pangolin-kube-controller # @schema type: string
+    # -- Pangolin kube controller image tag. Managed independently from `.Chart.AppVersion`.
+    tag: "0.1.0-alpha.1" # @schema type: string
+    # -- Pangolin kube controller image digest. Overrides tag when set.
+    digest: "" # @schema type: string
+    # -- Pangolin kube controller image pull policy.
+    pullPolicy: IfNotPresent # @schema type: string ; enum: [Always, IfNotPresent, Never]
+  traefik:
+    # -- Traefik image registry used for standalone mode and/or bundled Traefik chart overrides.
+    registry: docker.io # @schema type: string
+    # -- Traefik image repository.
+    repository: traefik # @schema type: string
+    # -- Traefik image tag.
+    tag: v3.6.15 # @schema type: string
+    # -- Traefik image digest. Overrides tag when set.
+    digest: "" # @schema type: string
+    # -- Traefik image pull policy.
+    pullPolicy: IfNotPresent # @schema type: string ; enum: [Always, IfNotPresent, Never]
+  postgres:
+    # -- Embedded Postgres image registry.
+    registry: docker.io # @schema type: string
+    # -- Embedded Postgres image repository.
+    repository: postgres # @schema type: string
+    # -- Embedded Postgres image tag.
+    tag: 18.3-alpine # @schema type: string
+    # -- Embedded Postgres image digest. Overrides tag when set.
+    digest: "" # @schema type: string
+    # -- Embedded Postgres image pull policy.
+    pullPolicy: IfNotPresent # @schema type: string ; enum: [Always, IfNotPresent, Never]
+
+# -----------------------------------------------------------------------------
+# Pangolin core application
+# -----------------------------------------------------------------------------
+## @section Pangolin core application
+pangolin:
+  # -- Labels added to all Pangolin resources rendered by this chart.
+  commonLabels: {} # @schema type: object ; additionalProperties: { type: string }
+  # -- Annotations added to all Pangolin resources rendered by this chart.
+  commonAnnotations: {} # @schema type: object ; additionalProperties: { type: string }
+  # -- Number of Pangolin replicas in multi mode.
+  replicaCount: 1 # @schema type: integer ; minimum: 1
+  # -- Workload kind for Pangolin in multi mode.
+  workloadType: Deployment # @schema type: string ; enum: [Deployment, StatefulSet]
+  deployment:
+    # -- Labels applied to Pangolin Deployment/StatefulSet metadata.
+    labels: {} # @schema type: object ; additionalProperties: { type: string }
+    # -- Annotations applied to Pangolin Deployment/StatefulSet metadata.
+    annotations: {} # @schema type: object ; additionalProperties: { type: string }
+    # -- Labels applied to Pangolin Pod template metadata.
+    podLabels: {} # @schema type: object ; additionalProperties: { type: string }
+    # -- Annotations applied to Pangolin Pod template metadata.
+    podAnnotations: {} # @schema type: object ; additionalProperties: { type: string }
+  service:
+    # -- Create an internal Service for Pangolin.
+    enabled: true # @schema type: boolean
+    # -- Pangolin Service type.
+    type: ClusterIP # @schema type: string ; enum: [ClusterIP, NodePort, LoadBalancer]
+    # -- Service port configuration.
+    ports:
+      external: 3000
+      internalApi: 3001
+      next: 3002
+      integration: 3003
+    # -- Additional Service annotations for Pangolin.
+    annotations: {} # @schema type: object ; additionalProperties: { type: string }
+    # -- Additional Service labels for Pangolin.
+    labels: {} # @schema type: object ; additionalProperties: { type: string }
+  ingressRoute:
+    dashboard:
+      # -- Enable chart-managed Traefik IngressRoute for Pangolin dashboard/API in controller mode.
+      enabled: true # @schema type: boolean
+      # -- Override IngressRoute name. Empty uses "<release>-pangolin-dashboard".
+      name: "" # @schema type: string
+      # -- Override IngressRoute namespace. Empty uses release namespace.
+      namespace: "" # @schema type: string
+      # -- Extra metadata labels for the dashboard IngressRoute.
+      labels: {} # @schema type: object ; additionalProperties: { type: string }
+      # -- Extra metadata annotations for the dashboard IngressRoute.
+      annotations: {} # @schema type: object ; additionalProperties: { type: string }
+      # -- Optional selector labels for multi-Traefik setups (matches provider labelSelector).
+      traefikSelectorLabels: {} # @schema type: object ; additionalProperties: { type: string }
+      # -- Optional ingress class value mapped to metadata annotation kubernetes.io/ingress.class.
+      ingressClassName: "" # @schema type: string
+      # -- Set true to permit cross-namespace Traefik service references in routes.service.namespace.
+      # Requires Traefik kubernetesCRD provider allowCrossNamespace settings.
+      allowCrossNamespaceServices: false # @schema type: boolean
+      # -- Traefik entrypoints for this IngressRoute. Empty defaults to pangolin.config.traefik.https_entrypoint.
+      entryPoints:
+        - websecure
+      # -- Dashboard host override for Host(...) match. Empty derives host from pangolin.config.app.dashboard_url.
+      host: "" # @schema type: string
+      routes:
+        api:
+          # -- Enable API route.
+          enabled: true # @schema type: boolean
+          # -- PathPrefix for Pangolin API route.
+          pathPrefix: /api/v1 # @schema type: string
+          # -- Traefik route priority for API route.
+          priority: 100 # @schema type: integer
+          service:
+            # -- Backend service name for API route. Empty uses chart fullname.
+            name: "" # @schema type: string
+            # -- Backend service namespace for API route. Empty uses release namespace.
+            namespace: "" # @schema type: string
+            # -- Backend service port for API route. Empty uses pangolin.service.ports.external.
+            port: null # @schema type: [integer, string, "null"]
+          # -- Optional middleware references for API route (name required, namespace optional).
+          middlewares: [] # @schema type: array ; item: object
+        dashboard:
+          # -- Enable dashboard/UI route.
+          enabled: true # @schema type: boolean
+          # -- Traefik route priority for dashboard/UI route.
+          priority: 10 # @schema type: integer
+          service:
+            # -- Backend service name for dashboard route. Empty uses chart fullname.
+            name: "" # @schema type: string
+            # -- Backend service namespace for dashboard route. Empty uses release namespace.
+            namespace: "" # @schema type: string
+            # -- Backend service port for dashboard route. Empty uses pangolin.service.ports.next.
+            port: null # @schema type: [integer, string, "null"]
+          # -- Optional middleware references for dashboard route (name required, namespace optional).
+          middlewares: [] # @schema type: array ; item: object
+      tls:
+        # -- Enable TLS on the dashboard IngressRoute.
+        enabled: true # @schema type: boolean
+        # -- Traefik certResolver for ACME mode. Empty falls back to pangolin.config.traefik.cert_resolver.
+        certResolver: "" # @schema type: string
+        # -- Existing TLS Secret name. Mutually exclusive with tls.certResolver.
+        secretName: "" # @schema type: string
+        # -- Optional TLS domains list (Traefik IngressRoute tls.domains).
+        domains: [] # @schema type: array ; item: object
+        options:
+          # -- Optional TLSOption reference name.
+          name: "" # @schema type: string
+          # -- Optional TLSOption reference namespace.
+          namespace: "" # @schema type: string
+        store:
+          # -- Optional TLSStore reference name.
+          name: "" # @schema type: string
+          # -- Optional TLSStore reference namespace.
+          namespace: "" # @schema type: string
+  serviceAccount:
+    # -- Labels applied to chart-managed Pangolin ServiceAccount metadata.
+    labels: {} # @schema type: object ; additionalProperties: { type: string }
+    # -- Annotations applied to chart-managed Pangolin ServiceAccount metadata.
+    annotations: {} # @schema type: object ; additionalProperties: { type: string }
+  configMap:
+    # -- Labels applied to chart-managed Pangolin ConfigMap resources.
+    labels: {} # @schema type: object ; additionalProperties: { type: string }
+    # -- Annotations applied to chart-managed Pangolin ConfigMap resources.
+    annotations: {} # @schema type: object ; additionalProperties: { type: string }
+  secret:
+    # -- Labels applied to chart-managed Pangolin Secret resources.
+    labels: {} # @schema type: object ; additionalProperties: { type: string }
+    # -- Annotations applied to chart-managed Pangolin Secret resources.
+    annotations: {} # @schema type: object ; additionalProperties: { type: string }
+    # -- Existing Secret containing the Pangolin application secret (SERVER_SECRET).
+    existingSecretName: "" # @schema type: string
+    # -- Key name inside the existing Secret.
+    existingSecretKey: SERVER_SECRET # @schema type: string
+    generated:
+      # -- Create a chart-managed Secret when no existing Secret is supplied.
+      create: true # @schema type: boolean
+      # -- Name of the generated Secret. Defaults to "<fullname>-app" when empty.
+      name: "" # @schema type: string
+      # -- Key name used inside the generated Secret.
+      key: SERVER_SECRET # @schema type: string
+      # -- Random generated secret length in bytes.
+      length: 64 # @schema type: integer ; minimum: 16
+
+  # -- Pangolin application config rendered into /app/config/config.yml.
+  # Keys and structure follow the Pangolin 1.18.x configSchema (snake_case).
+  config:
+    # ---------- app section ----------
+    app:
+      # -- Public dashboard URL exposed to end users (required by Pangolin at startup).
+      # Set this to your real public dashboard URL for production.
+      dashboard_url: "https://pangolin.example.com" # @schema type: string
+      # -- Pangolin application log level.
+      log_level: info # @schema type: string ; enum: [debug, info, warn, error]
+      # -- Persist application logs to disk. Enabling this writes logs to the
+      # container filesystem; ensure ephemeral-storage limits are sized
+      # accordingly or mount an external volume for log retention.
+      save_logs: false # @schema type: boolean
+      # -- Log failed authentication / access attempts. Enabled by default for
+      # audit and attack-detection purposes. Upstream OSS default is false;
+      # the chart overrides it to true for a security-hardened baseline.
+      # Disable if log volume or storage is a concern.
+      log_failed_attempts: true # @schema type: boolean
+      telemetry:
+        # -- Send anonymous usage telemetry to Fossorial.
+        anonymous_usage: true # @schema type: boolean
+      notifications:
+        # -- Receive product update notifications.
+        product_updates: true # @schema type: boolean
+        # -- Receive new release notifications.
+        new_releases: true # @schema type: boolean
+
+    # ---------- domains section ----------
+    # -- Domain map for Pangolin. Each key is a logical domain name; the value
+    # defines the base domain and optional cert settings.
+    # The default `example.com` entry is a non-production placeholder and must
+    # be replaced with a real domain before deploying to real environments.
+    # Example:
+    #   my-domain:
+    #     base_domain: example.com
+    #     cert_resolver: letsencrypt   # optional; falls back to traefik.cert_resolver
+    #     prefer_wildcard_cert: false
+    # At least one domain is required for non-sqlite installs.
+    domains: # @schema type: object
+      domain1:
+        base_domain: "example.com"
+        cert_resolver: "letsencrypt"
+
+    # ---------- server section ----------
+    server:
+      # -- Internal hostname used by Pangolin when communicating with Gerbil.
+      internal_hostname: pangolin # @schema type: string
+      # -- Session cookie name.
+      session_cookie_name: p_session_token # @schema type: string
+      # -- Request parameter name for resource access tokens.
+      resource_access_token_param: p_token # @schema type: string
+      resource_access_token_headers:
+        # -- Header name for resource identifier.
+        id: P-Access-Token-Id # @schema type: string
+        # -- Header name for resource access token.
+        token: P-Access-Token # @schema type: string
+      # -- Request parameter name for resource session handling. Pangolin docs
+      # and the upstream 1.0.0-beta.9 migration use `p_session_request`.
+      resource_session_request_param: p_session_request # @schema type: string
+      # -- Dashboard session lifetime in hours. Upstream default is 720 (30 days).
+      # For production environments with stricter security requirements, consider
+      # reducing to 168 (7 days) or 336 (14 days) to limit session exposure.
+      dashboard_session_length_hours: 720 # @schema type: integer ; minimum: 1
+      # -- Resource session lifetime in hours. Upstream default is 720 (30 days).
+      # For production environments with stricter security requirements, consider
+      # reducing to 168 (7 days) or 336 (14 days) to limit session exposure.
+      resource_session_length_hours: 720 # @schema type: integer ; minimum: 1
+      cors:
+        # -- Allowed CORS origins. Empty list disables CORS origin restriction.
+        origins: [] # @schema type: array ; item: string
+        # -- Allowed CORS methods. Empty list falls back to Pangolin defaults.
+        methods: [] # @schema type: array ; item: string
+        # -- Allowed CORS request headers.
+        allowed_headers: [] # @schema type: array ; item: string
+        # -- Allow credentials in CORS requests.
+        credentials: false # @schema type: boolean
+      # -- Number of trusted reverse-proxy hops. Use 0 to disable trust-proxy.
+      trust_proxy: 1 # @schema type: integer ; minimum: 0
+
+    # ---------- gerbil section ----------
+    # Describes Gerbil's network settings from Pangolin's perspective.
+    # start_port / clients_start_port should match gerbil.ports.wg1 / wg2.
+    gerbil:
+      # -- WireGuard site start port Gerbil listens on. Keep in sync with gerbil.ports.wg1.
+      start_port: 51820 # @schema type: integer ; minimum: 1 ; maximum: 65535
+      # -- WireGuard client start port. Keep in sync with gerbil.ports.wg2.
+      clients_start_port: 21820 # @schema type: integer ; minimum: 1 ; maximum: 65535
+      # -- Public endpoint (hostname or IP) where Gerbil is reachable by sites.
+      # Set this to your real public endpoint for production.
+      base_endpoint: "pangolin.example.com" # @schema type: string
+      # -- Use subdomain-based resource endpoints.
+      use_subdomain: false # @schema type: boolean
+      # -- Supernet for WireGuard address allocation.
+      subnet_group: "100.89.137.0/20" # @schema type: string
+      # -- CIDR prefix length per cluster / site group.
+      block_size: 24 # @schema type: integer ; minimum: 16 ; maximum: 30
+      # -- CIDR prefix length per individual site.
+      site_block_size: 30 # @schema type: integer ; minimum: 16 ; maximum: 30
+
+    # ---------- flags section ----------
+    flags:
+      # -- Require email verification for new sign-ups. Keep false unless you
+      # have configured the email section (smtp_host etc.); enabling it without
+      # a working SMTP setup will prevent new users from completing registration.
+      require_email_verification: false # @schema type: boolean
+      # -- Disable sign-ups that were not invited. Set to true (the chart and
+      # upstream quick-install default) to lock down open registration in
+      # production. Set to false only during initial onboarding.
+      disable_signup_without_invite: true # @schema type: boolean
+      # -- Prevent regular users from creating new organizations. Set to true
+      # in production to keep org management in admin hands. Upstream default
+      # is false; the chart keeps upstream default for onboarding flexibility.
+      disable_user_create_org: false # @schema type: boolean
+      # -- Allow unmanaged (raw) resource types.
+      # Installer parity: the upstream quick installer enables this by default.
+      allow_raw_resources: true # @schema type: boolean
+      # -- Enable the Pangolin integration / machine-to-machine API.
+      enable_integration_api: false # @schema type: boolean
+      # -- Disable local (same-host) site type.
+      disable_local_sites: false # @schema type: boolean
+      # -- Disable plain WireGuard sites (without Newt agent).
+      disable_basic_wireguard_sites: false # @schema type: boolean
+      # -- Disable config-file managed domains; domains are then managed only via the DB/UI.
+      disable_config_managed_domains: false # @schema type: boolean
+      # -- Disable product help banners in the Pangolin UI.
+      disable_product_help_banners: false # @schema type: boolean
+      # -- Disable Enterprise-licensed features even when a valid license is present.
+      disable_enterprise_features: false # @schema type: boolean
+
+    # ---------- traefik section ----------
+    traefik:
+      # -- Include Pangolin's traefik section in the rendered config.yml.
+      # This configures the Traefik output Pangolin generates; it does NOT
+      # install Traefik. Entrypoint and cert resolver names must match the real
+      # Traefik deployment (external controller, bundled dependency, or
+      # standalone Traefik workload).
+      enabled: true # @schema type: boolean
+      # -- HTTP entrypoint name in Traefik.
+      http_entrypoint: web # @schema type: string
+      # -- HTTPS entrypoint name in Traefik.
+      https_entrypoint: websecure # @schema type: string
+      # -- ACME cert resolver name.
+      cert_resolver: letsencrypt # @schema type: string
+      # -- Request wildcard certificates instead of per-domain certificates.
+      prefer_wildcard_cert: false # @schema type: boolean
+      # -- Extra Traefik middleware names applied to all Pangolin routes.
+      additional_middlewares: [] # @schema type: array ; item: string
+
+    # ---------- rate_limits section (optional) ----------
+    rate_limits:
+      # -- Include the rate_limits section in the rendered config.yml.
+      # Enabled by default for a security-hardened baseline. Upstream does not
+      # enable rate limits by default; the chart enables them to protect against
+      # brute-force and denial-of-service attacks.
+      enabled: true # @schema type: boolean
+      global:
+        # -- Window size in minutes for the global rate limit bucket.
+        window_minutes: 1 # @schema type: integer ; minimum: 1
+        # -- Maximum requests per window per client for the global bucket.
+        # 500 req/min is a permissive ceiling suitable for most API consumers;
+        # tighten if you observe abuse patterns.
+        max_requests: 500 # @schema type: integer ; minimum: 1
+      auth:
+        # -- Window size in minutes for the authentication rate limit bucket.
+        window_minutes: 1 # @schema type: integer ; minimum: 1
+        # -- Maximum auth requests per window per client. Set to 10 to mitigate
+        # brute-force login attacks. Upstream default is 500; the chart uses a
+        # stricter value for auth endpoints. Adjust upward only if legitimate
+        # automation requires more auth requests per window.
+        max_requests: 10 # @schema type: integer ; minimum: 1
+
+    # ---------- email section (optional) ----------
+    # smtp_pass is never stored in the ConfigMap; set EMAIL_SMTP_PASS env var instead.
+    email:
+      # -- Include the email section in the rendered config.yml.
+      enabled: false # @schema type: boolean
+      # -- SMTP server hostname.
+      smtp_host: "" # @schema type: string
+      # -- SMTP server port.
+      smtp_port: 587 # @schema type: integer ; minimum: 1 ; maximum: 65535
+      # -- SMTP username (or set EMAIL_SMTP_USER env var).
+      smtp_user: "" # @schema type: string
+      # -- Use TLS for the SMTP connection.
+      smtp_secure: false # @schema type: boolean
+      # -- Reject unauthorized TLS certificates.
+      smtp_tls_reject_unauthorized: true # @schema type: boolean
+      # -- Sender address used for system emails.
+      no_reply: "" # @schema type: string
+
+    # ---------- postgres pool section (optional) ----------
+    # postgres.connection_string is injected via the POSTGRES_CONNECTION_STRING env var
+    # and must NOT appear in the ConfigMap.
+    postgres:
+      # -- Include postgres pool settings in the rendered config.yml.
+      enabled: false # @schema type: boolean
+      pool:
+        # -- Maximum number of primary PostgreSQL connections in the pool.
+        max_connections: 20 # @schema type: integer ; minimum: 1
+        # -- Maximum number of read-replica connections in the pool.
+        max_replica_connections: 10 # @schema type: integer ; minimum: 1
+        # -- Idle connection timeout in milliseconds.
+        idle_timeout_ms: 30000 # @schema type: integer ; minimum: 0
+        # -- Connection establishment timeout in milliseconds.
+        connection_timeout_ms: 5000 # @schema type: integer ; minimum: 0
+
+    # ---------- orgs section (optional) ----------
+    orgs:
+      # -- Include the orgs section in the rendered config.yml.
+      enabled: false # @schema type: boolean
+      # -- CIDR prefix length per organization.
+      block_size: 24 # @schema type: integer ; minimum: 16 ; maximum: 30
+      # -- Supernet for organization WireGuard address allocation.
+      subnet_group: "100.90.128.0/20" # @schema type: string
+      # -- Supernet for organization utility address allocation.
+      utility_subnet_group: "100.96.128.0/20" # @schema type: string
+
+    # -- Extra raw YAML appended verbatim at the end of the generated config.yml.
+    extraConfig: "" # @schema type: string
+
+  # ---------- Blueprints ----------
+  # Blueprints are YAML files that define Pangolin resources (public-resources,
+  # private-resources, sites) applied via Newt using --blueprint-file or
+  # --provisioning-blueprint-file. Blueprints are NOT consumed directly by the
+  # Pangolin server. Enabling this feature stores blueprint definitions as
+  # Kubernetes ConfigMaps/Secrets within this Helm release so they can be
+  # managed declaratively alongside the rest of the chart.
+  #
+  # Blueprint YAML supports environment variable templating using
+  # {{env.VARIABLE_NAME}} syntax. Sensitive templating values (e.g. per-site
+  # serial numbers, customer IDs) must be stored in a Secret, not a ConfigMap.
+  #
+  # See https://docs.pangolin.net/manage/blueprints for the blueprint schema.
+  blueprints:
+    # -- Enable chart-managed blueprint resources.
+    # When false (default) no Blueprint ConfigMap or Secret is rendered.
+    # Set to true and configure configMap or existingConfigMap to manage
+    # blueprint YAML files as Kubernetes resources in this release namespace.
+    enabled: false # @schema type: boolean
+    configMap:
+      # -- Create a chart-managed ConfigMap containing blueprint YAML file(s).
+      # Each key in `files` becomes a ConfigMap data entry.
+      # Mutually exclusive with `existingConfigMap`; setting both will cause validation to fail.
+      create: false # @schema type: boolean
+      # -- Name override for the generated ConfigMap.
+      # Defaults to "<fullname>-blueprints" when empty.
+      name: "" # @schema type: string
+    # -- Reference an existing ConfigMap that already contains blueprint YAML files.
+    # When set, the chart does not create a managed ConfigMap.
+    existingConfigMap: "" # @schema type: string
+    # -- Blueprint YAML file(s) keyed by filename (e.g. `site.yaml`).
+    # Each entry is rendered as a data key in the chart-managed ConfigMap.
+    # Non-sensitive blueprint definitions belong here.
+    # Example:
+    #   files:
+    #     site.yaml: |
+    #       sites:
+    #         my-site:
+    #           name: My Site
+    #           docker-socket-enabled: true
+    files: {} # @schema type: object ; additionalProperties: { type: string }
+    environmentSecret:
+      # -- Create a chart-managed Secret for environment templating values.
+      # Values here map to {{env.VARIABLE_NAME}} placeholders in blueprint YAML.
+      # Sensitive per-site or per-device identifiers belong here, never in a ConfigMap.
+      # Mutually exclusive with `existingEnvironmentSecret`; setting both will cause validation to fail.
+      create: false # @schema type: boolean
+      # -- Name override for the generated Secret.
+      # Defaults to "<fullname>-blueprints-env" when empty.
+      name: "" # @schema type: string
+    # -- Reference an existing Secret containing environment templating values.
+    # When set, the chart does not create a managed environmentSecret.
+    existingEnvironmentSecret: "" # @schema type: string
+    # -- Environment templating key/value pairs rendered into the managed Secret.
+    # Keys correspond to {{env.KEY}} placeholders in blueprint YAML.
+    # Sensitive values should be supplied through `existingEnvironmentSecret` instead.
+    environment: {} # @schema type: object ; additionalProperties: { type: string }
+
+  # ---------- Enterprise private config ----------
+  privateConfig:
+    # -- Enable mounting a privateConfig.yml for Pangolin Enterprise features.
+    # Disabled by default; OSS installations do not require this.
+    enabled: false # @schema type: boolean
+    # -- Existing Secret name that contains the privateConfig.yml content.
+    # When set, the chart mounts this Secret without creating a new one.
+    existingSecretName: "" # @schema type: string
+    # -- Key inside the existing Secret that holds the privateConfig.yml content.
+    existingSecretKey: "privateConfig.yml" # @schema type: string
+    generatedSecret:
+      # -- Create a chart-managed Secret containing the privateConfig.yml content.
+      create: false # @schema type: boolean
+      # -- Name of the generated Secret. Defaults to "<fullname>-private-config" when empty.
+      name: "" # @schema type: string
+      # -- Key inside the generated Secret.
+      key: "privateConfig.yml" # @schema type: string
+      # -- Raw YAML content for the privateConfig.yml file.
+      data: "" # @schema type: string
+
+  extraEnv: {} # @schema type: object ; additionalProperties: { type: string }
+  extraVolumes: [] # @schema type: array ; item: object
+  extraVolumeMounts: [] # @schema type: array ; item: object
+
+  # -- Database readiness initContainer configuration.
+  # When enabled and database.mode is not sqlite, an initContainer waits for
+  # PostgreSQL readiness using the same POSTGRES_CONNECTION_STRING Secret/key as
+  # the main Pangolin container, and requires a stable success window.
+  databaseWait:
+    # -- Enable the database-wait initContainer.
+    # Automatically skipped when database.mode=sqlite.
+    enabled: true # @schema type: boolean
+    # -- Total time in seconds to wait for the database before giving up.
+    timeoutSeconds: 600 # @schema type: integer ; minimum: 1
+    # -- Interval in seconds between readiness checks.
+    intervalSeconds: 5 # @schema type: integer ; minimum: 1
+    # -- Consecutive ready seconds required before Pangolin starts.
+    stableSeconds: 30 # @schema type: integer ; minimum: 1
+    # -- Image used by the database-wait initContainer.
+    # Must provide `pg_isready`.
+    image:
+      registry: docker.io # @schema type: string
+      repository: postgres # @schema type: string
+      tag: "17" # @schema type: string
+      pullPolicy: IfNotPresent # @schema type: string ; enum: [Always, IfNotPresent, Never]
+    # -- Security context for the database-wait initContainer.
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 65534
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop:
+          - ALL
+
+  configFile:
+    # -- Render and mount /app/config/config.yml for Pangolin.
+    enabled: true # @schema type: boolean
+
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+      ephemeral-storage: 32Mi # rendered only when resourcesPolicy.ephemeralStorage.enabled=true
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+      ephemeral-storage: 256Mi # rendered only when resourcesPolicy.ephemeralStorage.enabled=true
+
+  securityContext:
+    runAsNonRoot: false
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false
+    capabilities:
+      drop:
+        - ALL
+
+  probes:
+    startup:
+      httpGet:
+        path: /api/v1/traefik-config
+        port: internal-api
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 60
+    liveness:
+      httpGet:
+        path: /api/v1/traefik-config
+        port: internal-api
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+    readiness:
+      httpGet:
+        path: /api/v1/traefik-config
+        port: internal-api
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+
+# -----------------------------------------------------------------------------
+# Pangolin kube controller
+# -----------------------------------------------------------------------------
+
+## @section Pangolin kube controller
+controller:
+  # -- Labels added to all controller resources rendered by this chart.
+  commonLabels: {} # @schema type: object ; additionalProperties: { type: string }
+  # -- Annotations added to all controller resources rendered by this chart.
+  commonAnnotations: {} # @schema type: object ; additionalProperties: { type: string }
+  # -- Enable Pangolin kube controller.
+  # Default should be true because the preferred chart mode is controller + multi.
+  enabled: true # @schema type: boolean
+  # -- Number of controller replicas.
+  replicaCount: 1 # @schema type: integer ; minimum: 1
+  # -- Controller workload type.
+  workloadType: Deployment # @schema type: string ; enum: [Deployment, StatefulSet]
+  deployment:
+    labels: {} # @schema type: object ; additionalProperties: { type: string }
+    annotations: {} # @schema type: object ; additionalProperties: { type: string }
+    podLabels: {} # @schema type: object ; additionalProperties: { type: string }
+    podAnnotations: {} # @schema type: object ; additionalProperties: { type: string }
+  config:
+    # -- Metrics / health listen address.
+    metricsAddr: ":9090" # @schema type: string
+    # -- Pangolin config API endpoint consumed by the controller.
+    # Defaults to in-cluster HTTP (`http://<pangolin-service>:3001/...`).
+    # Set an HTTPS endpoint when using TLS/mTLS for controller->Pangolin traffic.
+    configEndpoint: "" # @schema type: string
+    # -- Namespace where Traefik CRDs/resources live.
+    # Defaults to `deployment.traefikNamespace` or release namespace when empty.
+    targetNamespace: "" # @schema type: string
+    # -- Enable lease-based leader election.
+    enableLeaderElection: false # @schema type: boolean
+    # -- Namespace used for the leader election Lease.
+    # Defaults to targetNamespace when empty.
+    leaseLockNamespace: "" # @schema type: string
+    # -- Run controller in read-only mode and disable mutating operations.
+    readOnly: false # @schema type: boolean
+    # -- DEBUG ONLY. Log full rendered Traefik configuration.
+    logTraefikConfig: false # @schema type: boolean
+    # -- Skip TLS verification when fetching Pangolin config.
+    configTlsSkipVerify: false # @schema type: boolean
+    # -- Allow plaintext HTTP for the controller config endpoint.
+    # Set to `null` (default) to auto-derive from `configEndpoint` (`http://` => true, `https://` => false).
+    # INSECURE: plaintext HTTP is only acceptable for same-namespace in-cluster traffic protected by NetworkPolicy.
+    # For production, prefer HTTPS/mTLS (set an HTTPS configEndpoint and enable controller.tls).
+    allowInsecureHttp: null # @schema type: [boolean, "null"]
+  waitForPangolin:
+    # -- Wait for Pangolin CONFIG_ENDPOINT before starting controller.
+    enabled: true # @schema type: boolean
+    timeoutSeconds: 600 # @schema type: integer ; minimum: 1
+    intervalSeconds: 5 # @schema type: integer ; minimum: 1
+    stableSeconds: 30 # @schema type: integer ; minimum: 1
+    image:
+      registry: docker.io # @schema type: string
+      repository: curlimages/curl # @schema type: string
+      tag: "8.8.0" # @schema type: string
+      pullPolicy: IfNotPresent # @schema type: string ; enum: [Always, IfNotPresent, Never]
+
+  tls:
+    # -- Mount a TLS Secret at /etc/pangolin/tls for the controller.
+    # Keep disabled for the default same-namespace HTTP setup.
+    # Enable only when controller.config.configEndpoint uses HTTPS and the controller needs client TLS material.
+    # When enabled and no existing Secret is provided, the chart generates a self-signed certificate.
+    enabled: false # @schema type: boolean
+    # -- Existing Secret name to use for controller TLS material.
+    # When set, the chart does not generate a Secret.
+    existingSecretName: "" # @schema type: string
+
+  service:
+    # -- Create a metrics / health Service for the controller.
+    enabled: true # @schema type: boolean
+    type: ClusterIP # @schema type: string ; enum: [ClusterIP, NodePort, LoadBalancer]
+    port: 9090 # @schema type: integer ; minimum: 1 ; maximum: 65535
+    portName: metrics # @schema type: string
+    annotations: {} # @schema type: object ; additionalProperties: { type: string }
+    labels: {} # @schema type: object ; additionalProperties: { type: string }
+  serviceAccount:
+    labels: {} # @schema type: object ; additionalProperties: { type: string }
+    annotations: {} # @schema type: object ; additionalProperties: { type: string }
+  rbac:
+    labels: {} # @schema type: object ; additionalProperties: { type: string }
+    annotations: {} # @schema type: object ; additionalProperties: { type: string }
+
+  extraEnv: {} # @schema type: object ; additionalProperties: { type: string }
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+      ephemeral-storage: 16Mi # rendered only when resourcesPolicy.ephemeralStorage.enabled=true
+    limits:
+      cpu: 500m
+      memory: 512Mi
+      ephemeral-storage: 128Mi # rendered only when resourcesPolicy.ephemeralStorage.enabled=true
+
+  securityContext:
+    runAsNonRoot: false
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+
+  probes:
+    startup:
+      httpGet:
+        path: /livez
+        port: metrics
+      initialDelaySeconds: 5
+      periodSeconds: 5
+      timeoutSeconds: 3
+      failureThreshold: 24
+
+    liveness:
+      httpGet:
+        path: /livez
+        port: metrics
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+
+    readiness:
+      httpGet:
+        path: /readyz
+        port: metrics
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+
+  monitoring:
+    # -- Enable ServiceMonitor for Prometheus Operator.
+    serviceMonitor:
+      enabled: false # @schema type: boolean
+      apiVersion: monitoring.coreos.com/v1 # @schema type: string
+      namespace: "" # @schema type: string
+      labels: {} # @schema type: object ; additionalProperties: { type: string }
+      annotations: {} # @schema type: object ; additionalProperties: { type: string }
+      interval: 30s # @schema type: string
+      scrapeTimeout: 10s # @schema type: string
+      honorLabels: true # @schema type: boolean
+      path: /metrics # @schema type: string
+      scheme: http # @schema type: string
+      relabelings: [] # @schema type: array ; item: object
+      metricRelabelings: [] # @schema type: array ; item: object
+      sampleLimit: 0 # @schema type: integer ; minimum: 0
+      targetLabels: [] # @schema type: array ; item: string
+
+    # -- Enable PodMonitor for Prometheus Operator.
+    podMonitor:
+      enabled: false # @schema type: boolean
+      apiVersion: monitoring.coreos.com/v1 # @schema type: string
+      namespace: "" # @schema type: string
+      labels: {} # @schema type: object ; additionalProperties: { type: string }
+      annotations: {} # @schema type: object ; additionalProperties: { type: string }
+      portName: metrics # @schema type: string
+      path: /metrics # @schema type: string
+      scheme: http # @schema type: string
+      interval: 30s # @schema type: string
+      scrapeTimeout: 10s # @schema type: string
+      relabelings: [] # @schema type: array ; item: object
+      metricRelabelings: [] # @schema type: array ; item: object
+
+    # -- Create PrometheusRule resources for the controller.
+    prometheusRule:
+      enabled: false # @schema type: boolean
+      apiVersion: monitoring.coreos.com/v1 # @schema type: string
+      namespace: "" # @schema type: string
+      labels: {} # @schema type: object ; additionalProperties: { type: string }
+      rules: [] # @schema type: array ; item: object
+
+# -----------------------------------------------------------------------------
+# Standalone Traefik mode
+# -----------------------------------------------------------------------------
+
+## @section Standalone Traefik mode
+traefik:
+  # -- Labels added to all standalone Traefik resources rendered by this chart.
+  commonLabels: {} # @schema type: object ; additionalProperties: { type: string }
+  # -- Annotations added to all standalone Traefik resources rendered by this chart.
+  commonAnnotations: {} # @schema type: object ; additionalProperties: { type: string }
+  # -- Enable built-in Traefik workload.
+  # Used mainly when `deployment.type=standalone`.
+  enabled: false # @schema type: boolean
+  # -- Number of standalone Traefik replicas in multi mode.
+  replicaCount: 1 # @schema type: integer ; minimum: 1
+  deployment:
+    labels: {} # @schema type: object ; additionalProperties: { type: string }
+    annotations: {} # @schema type: object ; additionalProperties: { type: string }
+    podLabels: {} # @schema type: object ; additionalProperties: { type: string }
+    podAnnotations: {} # @schema type: object ; additionalProperties: { type: string }
+  service:
+    # -- Create the public Traefik Service.
+    enabled: true # @schema type: boolean
+    type: LoadBalancer # @schema type: string ; enum: [ClusterIP, NodePort, LoadBalancer]
+    annotations: {} # @schema type: object ; additionalProperties: { type: string }
+    labels: {} # @schema type: object ; additionalProperties: { type: string }
+    externalTrafficPolicy: "" # @schema type: string ; enum: ["", Cluster, Local]
+    loadBalancerSourceRanges: [] # @schema type: array ; item: string
+  config:
+    # -- Skip TLS verification for upstream serversTransport.
+    insecureSkipVerify: false # @schema type: boolean
+    # -- Enable Traefik dashboard.
+    dashboard: false # @schema type: boolean
+    # -- Admin/dashboard/ping port inside the Traefik Pod.
+    adminPort: 8085 # @schema type: integer ; minimum: 1 ; maximum: 65535
+    # -- Expose dashboard port as a declared container port in single mode.
+    dashboardDeclareContainerPort: false # @schema type: boolean
+    # -- Traefik log level.
+    logLevel: INFO # @schema type: string ; enum: [TRACE, DEBUG, INFO, WARN, ERROR, FATAL, PANIC]
+    # -- HTTP entrypoint name.
+    httpEntrypoint: web # @schema type: string
+    # -- HTTPS entrypoint name.
+    httpsEntrypoint: websecure # @schema type: string
+    # -- ACME resolver name.
+    certResolver: letsencrypt # @schema type: string
+    # -- Delay before ACME validation checks.
+    acmeDelayBeforeCheck: 0 # @schema type: integer ; minimum: 0
+    # -- ACME account email.
+    # Required when traefik.enabled=true (the chart fails fast if empty).
+    letsencryptEmail: "" # @schema type: string
+    # -- ACME CA directory URL.
+    acmeCaServer: "https://acme-v02.api.letsencrypt.org/directory" # @schema type: string
+    dynamicRouters:
+      # -- Example/default host used by generated dynamic router config.
+      host: example.com # @schema type: string
+
+  cloudflare:
+    # -- Existing Secret name with Cloudflare credentials.
+    existingSecretName: "" # @schema type: string
+    keys:
+      # -- Key inside the existing Secret containing Cloudflare email.
+      email: email # @schema type: string
+      # -- Key inside the existing Secret containing DNS API token.
+      dnsApiToken: dnsApiToken # @schema type: string
+      # -- Key inside the existing Secret containing zone API token.
+      zoneApiToken: zoneApiToken # @schema type: string
+
+    generatedSecret:
+      # -- Create a chart-managed Cloudflare Secret.
+      create: false # @schema type: boolean
+      # -- Name of the generated Secret. Defaults to "<fullname>-traefik-cloudflare" when empty.
+      name: "" # @schema type: string
+      # -- Cloudflare email to place into the generated Secret.
+      email: "" # @schema type: string
+      # -- One token reused for both DNS and zone scopes when the app supports it.
+      apiToken: "" # @schema type: string
+      # -- DNS token override.
+      dnsApiToken: "" # @schema type: string
+      # -- Zone token override.
+      zoneApiToken: "" # @schema type: string
+
+  persistence:
+    # -- Persist Traefik ACME state on a PVC.
+    # Strongly recommended when using ACME; required when enabling the dashboard (traefik.config.dashboard=true).
+    enabled: false # @schema type: boolean
+    existingClaim: "" # @schema type: string
+    size: 1Gi # @schema type: string
+    storageClass: "" # @schema type: [string, "null"]
+    accessModes:
+      - ReadWriteOnce
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+      ephemeral-storage: 16Mi # rendered only when resourcesPolicy.ephemeralStorage.enabled=true
+    limits:
+      cpu: 500m
+      memory: 512Mi
+      ephemeral-storage: 128Mi # rendered only when resourcesPolicy.ephemeralStorage.enabled=true
+
+  securityContext:
+    runAsNonRoot: false
+    allowPrivilegeEscalation: true
+    readOnlyRootFilesystem: false
+
+  probes:
+    startup:
+      httpGet:
+        path: /ping
+        port: 8085
+      initialDelaySeconds: 5
+      periodSeconds: 5
+      timeoutSeconds: 3
+      failureThreshold: 20
+
+    liveness:
+      httpGet:
+        path: /ping
+        port: 8085
+      initialDelaySeconds: 10
+      periodSeconds: 30
+      timeoutSeconds: 5
+      failureThreshold: 3
+
+    readiness:
+      httpGet:
+        path: /ping
+        port: 8085
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      timeoutSeconds: 3
+      failureThreshold: 3
+
+# -----------------------------------------------------------------------------
+# Traefik controller subchart overrides
+# -----------------------------------------------------------------------------
+
+## @section Traefik controller subchart overrides
+# -- Values passed to the Traefik dependency chart (only used when `deployment.installTraefikController=true`).
+traefikController: {} # @schema type: object
+
+# -----------------------------------------------------------------------------
+# Gerbil
+# -----------------------------------------------------------------------------
+
+## @section Gerbil
+
+gerbil:
+  # -- Labels added to all Gerbil resources rendered by this chart.
+  commonLabels: {} # @schema type: object ; additionalProperties: { type: string }
+  # -- Annotations added to all Gerbil resources rendered by this chart.
+  commonAnnotations: {} # @schema type: object ; additionalProperties: { type: string }
+  # -- Enable Gerbil component.
+  enabled: true # @schema type: boolean
+  # -- Gerbil first-run startup behavior.
+  # `normal`: render and start Gerbil immediately.
+  # `delayed`: render Gerbil resources but keep the multi-mode Gerbil Deployment at replicas=0.
+  # `disabledUntilSetup`: do not render Gerbil resources until switched back to `normal` (or `delayed`).
+  startupMode: normal # @schema type: string ; enum: [normal, delayed, disabledUntilSetup]
+  waitForPangolin:
+    # -- Wait for Pangolin internal API before starting Gerbil.
+    enabled: true # @schema type: boolean
+    timeoutSeconds: 600 # @schema type: integer ; minimum: 1
+    intervalSeconds: 5 # @schema type: integer ; minimum: 1
+    stableSeconds: 30 # @schema type: integer ; minimum: 1
+    image:
+      registry: docker.io # @schema type: string
+      repository: curlimages/curl # @schema type: string
+      tag: "8.8.0" # @schema type: string
+      pullPolicy: IfNotPresent # @schema type: string ; enum: [Always, IfNotPresent, Never]
+    # -- Override endpoint checked by the wait initContainer.
+    # Defaults to http://<pangolin-service>:<internal-api-port>/api/v1/
+    endpoint: "" # @schema type: string
+  # -- Number of Gerbil replicas in multi mode.
+  replicaCount: 1 # @schema type: integer ; minimum: 1
+  deployment:
+    labels: {} # @schema type: object ; additionalProperties: { type: string }
+    annotations: {} # @schema type: object ; additionalProperties: { type: string }
+    podLabels: {} # @schema type: object ; additionalProperties: { type: string }
+    podAnnotations: {} # @schema type: object ; additionalProperties: { type: string }
+  ports:
+    # -- First WireGuard UDP port exposed by Gerbil.
+    wg1: 51820 # @schema type: integer ; minimum: 1 ; maximum: 65535
+    # -- Second WireGuard UDP port exposed by Gerbil.
+    wg2: 21820 # @schema type: integer ; minimum: 1 ; maximum: 65535
+    # -- Internal Gerbil API/listener TCP port.
+    internalApi: 3004 # @schema type: integer ; minimum: 1 ; maximum: 65535
+
+  service:
+    # -- Create a Service for Gerbil UDP traffic.
+    # Enabled by default so a standard installation can receive WireGuard traffic without hostNetwork/hostPort overrides.
+    enabled: true # @schema type: boolean
+    type: ClusterIP # @schema type: string ; enum: [ClusterIP, NodePort, LoadBalancer]
+    annotations: {} # @schema type: object ; additionalProperties: { type: string }
+    labels: {} # @schema type: object ; additionalProperties: { type: string }
+    externalTrafficPolicy: "" # @schema type: string ; enum: ["", Cluster, Local]
+    # -- Fixed IP to request from the cloud provider when type=LoadBalancer.
+    # Leave empty to let the provider assign an IP automatically.
+    loadBalancerIP: "" # @schema type: string
+    loadBalancerSourceRanges: [] # @schema type: array ; item: string
+    ports:
+      - name: wg1
+        port: 51820
+        targetPort: wg1
+        protocol: UDP
+      - name: wg2
+        port: 21820
+        targetPort: wg2
+        protocol: UDP
+      - name: internal-api
+        port: 3004
+        targetPort: internal-api
+        protocol: TCP
+  serviceAccount:
+    labels: {} # @schema type: object ; additionalProperties: { type: string }
+    annotations: {} # @schema type: object ; additionalProperties: { type: string }
+  pvc:
+    labels: {} # @schema type: object ; additionalProperties: { type: string }
+    annotations: {} # @schema type: object ; additionalProperties: { type: string }
+
+  persistence:
+    # -- Persist Gerbil key/config data on a PVC.
+    # Enabled by default (production-recommended): Gerbil saves its WireGuard private key to
+    # /var/config/key. Without persistence the key regenerates on every restart, which
+    # forces all WireGuard peers to re-handshake and breaks connectivity until peers
+    # reconnect. Disable only for ephemeral dev/CI environments where key rotation is acceptable.
+    enabled: true # @schema type: boolean
+    # -- Existing PVC name to use for Gerbil config/key data.
+    # When set, skips PVC creation and mounts the referenced claim directly.
+    existingClaim: "" # @schema type: string
+    # -- PVC size for Gerbil config/key data.
+    size: 1Gi # @schema type: string
+    # -- StorageClass for the Gerbil PVC.
+    # Falls back to `global.storageClass` when empty.
+    # When both are empty, the cluster default StorageClass is used.
+    storageClass: "" # @schema type: [string, "null"]
+    # -- Access modes for the Gerbil PVC.
+    accessModes: # @schema type: array ; item: string
+      - ReadWriteOnce
+    # -- Additional annotations for the Gerbil PVC.
+    annotations: {} # @schema type: object ; additionalProperties: { type: string }
+
+  # -- Override the Gerbil container entrypoint (command).
+  # When empty the container image's default entrypoint is used.
+  command: [] # @schema type: array ; item: string
+
+  # -- Override the Gerbil container args.
+  # When empty the chart computes the following default args:
+  #   --reachableAt=http://<gerbil-svc>:<internalApi-port>
+  #   --generateAndSaveKeyTo=/var/config/key
+  #   --remoteConfig=http://<pangolin-svc>:<internalApi-port>/api/v1/
+  # Set this list explicitly to pass custom args to Gerbil.
+  args: [] # @schema type: array ; item: string
+
+  extraEnv: {} # @schema type: object ; additionalProperties: { type: string }
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+      ephemeral-storage: 16Mi # rendered only when resourcesPolicy.ephemeralStorage.enabled=true
+    limits:
+      cpu: 500m
+      memory: 512Mi
+      ephemeral-storage: 128Mi # rendered only when resourcesPolicy.ephemeralStorage.enabled=true
+
+  # -- Gerbil container security context.
+  # WARNING: NET_ADMIN is required for WireGuard interface management and MUST NOT be removed.
+  # Without NET_ADMIN, Gerbil cannot create or manage WireGuard network interfaces.
+  # If your cluster enforces Pod Security Admission (baseline/restricted), you must
+  # label the deployment namespace to allow this capability:
+  #   kubectl label ns <namespace> pod-security.kubernetes.io/enforce=privileged --overwrite
+  # Or set namespace.create=true and namespace.podSecurity.enforce=privileged in values.
+  # SYS_MODULE is NOT added by default; add it explicitly only if your node kernel
+  # requires module loading from inside the container (uncommon on managed clusters).
+  securityContext:
+    runAsNonRoot: false
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false
+    capabilities:
+      add:
+        - NET_ADMIN
+      drop:
+        - ALL
+
+  # -- Gerbil health probes.
+  # Disabled by default because the previously shipped probe path was not mounted by the chart.
+  # Configure probes explicitly if your Gerbil image exposes a reliable health check.
+  probes: {} # @schema type: object
+
+# -----------------------------------------------------------------------------
+# Database
+# -----------------------------------------------------------------------------
+## @section Database
+database:
+  # -- Database backend mode used by Pangolin.
+  # `cloudnativepg` = preferred production mode using the CloudNativePG operator and cluster chart
+  # `external`      = use an already existing external PostgreSQL database
+  # `embedded`      = use a simple chart-managed PostgreSQL instance
+  # `sqlite`        = use SQLite (development / test only; NOT recommended for production)
+  mode: cloudnativepg # @schema type: string ; enum: [cloudnativepg, external, embedded, sqlite]
+  # -- Logical database name used by Pangolin.
+  name: pangolin # @schema type: string ; minLength: 1
+  # -- Database username used by Pangolin.
+  username: pangolin # @schema type: string ; minLength: 1
+  # -- Unified application-facing database connection secret configuration.
+  # Pangolin should always consume one consistent Secret/key pair regardless of the selected backend mode.
+  connection:
+    # -- Existing Secret name containing the final Pangolin PostgreSQL connection string.
+    # If set, this takes precedence over chart-generated connection secrets.
+    existingSecretName: "" # @schema type: string
+    # -- Key inside the existing Secret containing the final Pangolin PostgreSQL connection string.
+    existingSecretKey: connectionString # @schema type: string ; minLength: 1
+    generatedSecret:
+      # -- Create a chart-managed Secret containing the Pangolin PostgreSQL connection string.
+      # Used for `embedded` mode (chart-builds the connection string from embedded PostgreSQL credentials).
+      # For `cloudnativepg` mode, the chart auto-derives the CNPG-generated app Secret (`<cluster-name>-app`)
+      # and this flag has no effect. For `external` mode, use `database.external.generatedSecret.create` instead.
+      create: true # @schema type: boolean
+      # -- Name of the generated connection Secret.
+      # Defaults to "<fullname>-db-connection" when empty.
+      name: "" # @schema type: string
+      # -- Key used inside the generated Secret for the final connection string.
+      key: connectionString # @schema type: string ; minLength: 1
+      # -- SSL mode appended to generated PostgreSQL connection strings where applicable.
+      # Default `disable` is intended for simple in-cluster chart-managed database paths.
+      # For external/production PostgreSQL, prefer `require`, `verify-ca`, or `verify-full` with proper CA handling.
+      sslMode: disable # @schema type: string ; enum: [disable, allow, prefer, require, verify-ca, verify-full]
+
+  # -- Simple embedded PostgreSQL configuration managed directly by this chart.
+  # This mode is mainly intended for lightweight/lab/test scenarios.
+  embedded:
+    # -- Labels added to all embedded PostgreSQL resources rendered by this chart.
+    commonLabels: {} # @schema type: object ; additionalProperties: { type: string }
+    # -- Annotations added to all embedded PostgreSQL resources rendered by this chart.
+    commonAnnotations: {} # @schema type: object ; additionalProperties: { type: string }
+    enabled: false # @schema type: boolean
+    deployment:
+      labels: {} # @schema type: object ; additionalProperties: { type: string }
+      annotations: {} # @schema type: object ; additionalProperties: { type: string }
+      podLabels: {} # @schema type: object ; additionalProperties: { type: string }
+      podAnnotations: {} # @schema type: object ; additionalProperties: { type: string }
+    podSecurityContext:
+      # -- Extra podSecurityContext merged into the embedded Postgres workload.
+      # Set fsGroup explicitly only if your Postgres image/storage permissions require it.
+      fsGroup: null # @schema type: [integer, "null"]
+    workloadType:
+      # -- Workload type for the embedded PostgreSQL instance.
+      kind: StatefulSet # @schema type: string ; enum: [Deployment, StatefulSet]
+      # -- Number of embedded PostgreSQL replicas.
+      # Keep this at 1 unless you explicitly know what you are doing.
+      replicaCount: 1 # @schema type: integer ; minimum: 1
+    service:
+      # -- Create a Service for embedded PostgreSQL.
+      enabled: true # @schema type: boolean
+      # -- Service type for embedded PostgreSQL.
+      type: ClusterIP # @schema type: string ; enum: [ClusterIP, NodePort, LoadBalancer]
+      # -- Service port for embedded PostgreSQL.
+      port: 5432 # @schema type: integer ; minimum: 1 ; maximum: 65535
+      # -- Additional annotations for the embedded PostgreSQL Service.
+      annotations: {} # @schema type: object ; additionalProperties: { type: string }
+      # -- Additional labels for the embedded PostgreSQL Service.
+      labels: {} # @schema type: object ; additionalProperties: { type: string }
+    auth:
+      # -- Existing Secret name containing embedded PostgreSQL credentials.
+      existingSecretName: "" # @schema type: string
+      # -- Key in the existing Secret containing the database name.
+      databaseKey: database # @schema type: string
+      # -- Key in the existing Secret containing the username.
+      usernameKey: username # @schema type: string
+      # -- Key in the existing Secret containing the password.
+      passwordKey: password # @schema type: string
+      generatedSecret:
+        # -- Create a Secret for embedded PostgreSQL credentials when no existing Secret is used.
+        create: true # @schema type: boolean
+        # -- Name of the generated auth Secret.
+        # Defaults to "<fullname>-embedded-postgres-auth" when empty.
+        name: "" # @schema type: string
+        # -- Key used for the database name in the generated Secret.
+        databaseKey: database # @schema type: string
+        # -- Key used for the username in the generated Secret.
+        usernameKey: username # @schema type: string
+        # -- Key used for the password in the generated Secret.
+        passwordKey: password # @schema type: string
+        # -- Password value for embedded PostgreSQL.
+        # Leave empty to have the chart generate a strong random password (recommended).
+        # Prefer using an existing Secret in production.
+        password: "" # @schema type: string
+    persistence:
+      # -- Persist embedded PostgreSQL data on a PersistentVolumeClaim.
+      enabled: false # @schema type: boolean
+      # -- Existing PVC name to use for embedded PostgreSQL data.
+      existingClaim: "" # @schema type: string
+      # -- PVC size for embedded PostgreSQL.
+      size: 8Gi # @schema type: string ; minLength: 1
+      # -- StorageClass for the embedded PostgreSQL PVC.
+      # Falls back to `global.storageClass` when empty.
+      storageClass: "" # @schema type: [string, "null"]
+      # -- Access modes for the embedded PostgreSQL PVC.
+      accessModes:
+        - ReadWriteOnce
+      # -- Additional annotations for the embedded PostgreSQL PVC.
+      annotations: {} # @schema type: object ; additionalProperties: { type: string }
+    resources:
+      # -- Resource requests/limits for the embedded PostgreSQL workload.
+      requests:
+        cpu: 100m
+        memory: 128Mi
+        ephemeral-storage: 16Mi # rendered only when resourcesPolicy.ephemeralStorage.enabled=true
+      limits:
+        cpu: 300m
+        memory: 256Mi
+        ephemeral-storage: 128Mi # rendered only when resourcesPolicy.ephemeralStorage.enabled=true
+    extraEnv: {} # @schema type: object ; additionalProperties: { type: string }
+
+  # -- Existing external PostgreSQL database configuration.
+  external:
+    enabled: false # @schema type: boolean
+    # -- Existing Secret name containing a PostgreSQL connection string for Pangolin.
+    # External-mode compatibility key. Prefer using database.connection.existingSecretName when possible so Pangolin always
+    # consumes one consistent Secret/key regardless of database mode.
+    existingSecretName: "" # @schema type: string
+    # -- Key in the external Secret containing the connection string.
+    existingSecretKey: connectionString # @schema type: string ; minLength: 1
+    generatedSecret:
+      # -- Create a chart-managed Secret containing the external PostgreSQL connection string.
+      create: false # @schema type: boolean
+      # -- Name of the generated external connection Secret.
+      # Defaults to "<fullname>-db-connection" when empty.
+      name: "" # @schema type: string
+      # -- Key used inside the generated external connection Secret.
+      key: connectionString # @schema type: string ; minLength: 1
+      # -- Full PostgreSQL connection string for Pangolin.
+      # When set, this value is used directly and the individual connection parameters below are ignored.
+      connectionString: "" # @schema type: string
+      # -- PostgreSQL hostname. Used when connectionString is empty.
+      host: "" # @schema type: string
+      # -- PostgreSQL port. Used when connectionString is empty.
+      port: 5432 # @schema type: integer ; minimum: 1 ; maximum: 65535
+      # -- Database name. Defaults to database.name when empty. Used when connectionString is empty.
+      database: "" # @schema type: string
+      # -- Database username. Defaults to database.username when empty. Used when connectionString is empty.
+      username: "" # @schema type: string
+      # -- Database password. Used when connectionString is empty.
+      # Special characters (e.g. @ : / ?) are automatically percent-encoded in the connection string.
+      password: "" # @schema type: string
+      # -- SSL mode. Used when connectionString is empty.
+      # Default `disable` is intended for simple in-cluster usage.
+      # For external/production PostgreSQL, prefer `require`, `verify-ca`, or `verify-full` with proper CA handling.
+      sslMode: disable # @schema type: string ; enum: [disable, allow, prefer, require, verify-ca, verify-full]
+
+  # -- SQLite backend configuration.
+  # Recommended only for development or very small test deployments.
+  sqlite:
+    enabled: false # @schema type: boolean
+    # -- SQLite database file path used by Pangolin.
+    path: /app/data/pangolin.db # @schema type: string ; minLength: 1
+    persistence:
+      # -- Persist the SQLite database file on a PersistentVolumeClaim.
+      enabled: false # @schema type: boolean
+      # -- Existing PVC name to use for SQLite.
+      existingClaim: "" # @schema type: string
+      # -- PVC size for SQLite data.
+      size: 1Gi # @schema type: string ; minLength: 1
+      # -- StorageClass for the SQLite PVC.
+      # Falls back to `global.storageClass` when empty.
+      storageClass: "" # @schema type: [string, "null"]
+      # -- Access modes for the SQLite PVC.
+      accessModes:
+        - ReadWriteOnce
+      # -- Additional annotations for the SQLite PVC.
+      annotations: {} # @schema type: object ; additionalProperties: { type: string }
+
+  # -- CloudNativePG-backed database configuration.
+  # This is the recommended production backend model for Pangolin on Kubernetes.
+  cloudnativepg:
+    cluster:
+      # -- CloudNativePG cluster name used for Pangolin.
+      # When `cnpg-cluster.enabled=true` and `cnpg-cluster.fullnameOverride` is set,
+      # templates prefer `cnpg-cluster.fullnameOverride` for CNPG Secret/service derivation.
+      # If both are set to different values, chart validation fails.
+      name: pangolin-db # @schema type: string ; minLength: 1
+      # -- Read-write service hostname override for Pangolin connection generation.
+      # When empty, templates can derive it from the CNPG cluster naming convention.
+      rwServiceName: "" # @schema type: string
+      # -- PostgreSQL port exposed by the CNPG cluster service.
+      port: 5432 # @schema type: integer ; minimum: 1 ; maximum: 65535
+
+    auth:
+      # -- Existing Secret name containing the application user password for Pangolin.
+      # This password is used to generate the final application-facing connection string.
+      existingSecretName: "" # @schema type: string
+      # -- Key in the existing Secret containing the Pangolin database password.
+      passwordKey: password # @schema type: string ; minLength: 1
+      generatedSecret:
+        # -- Create a Secret containing the Pangolin database password for use with CNPG connection generation.
+        create: false # @schema type: boolean
+        # -- Name of the generated CNPG auth Secret.
+        # Defaults to "<fullname>-cnpg-app-auth" when empty.
+        name: "" # @schema type: string
+        # -- Key inside the generated CNPG auth Secret containing the password.
+        passwordKey: password # @schema type: string ; minLength: 1
+        # -- Pangolin database password.
+        password: "" # @schema type: string
+
+    connection:
+      # -- Override the hostname used when generating the final Pangolin connection string.
+      # Usually left empty so templates derive it from the CNPG cluster/service.
+      host: "" # @schema type: string
+      # -- Override the port used when generating the final Pangolin connection string.
+      port: 5432 # @schema type: integer ; minimum: 1 ; maximum: 65535
+      # -- Database name used in the generated Pangolin connection string.
+      database: pangolin # @schema type: string ; minLength: 1
+      # -- Username used in the generated Pangolin connection string.
+      username: pangolin # @schema type: string ; minLength: 1
+      # -- SSL mode used in the generated Pangolin connection string.
+      # Default `disable` is intended for chart-managed in-cluster CNPG connectivity unless TLS/CA is explicitly configured.
+      sslMode: disable # @schema type: string ; enum: [disable, allow, prefer, require, verify-ca, verify-full]
+      # -- Existing Secret containing a fully assembled Pangolin connection string for CNPG.
+      # If set, this takes precedence over chart-generated CNPG connection strings.
+      existingSecretName: "" # @schema type: string
+      # -- Key inside the existing Secret containing the final Pangolin CNPG connection string.
+      existingSecretKey: connectionString # @schema type: string ; minLength: 1
+      generatedSecret:
+        # -- Create a chart-managed Secret containing the final Pangolin CNPG connection string.
+        # Requires a password to be available via database.cloudnativepg.auth.generatedSecret.password
+        # or database.cloudnativepg.auth.existingSecretName (the chart looks up the Secret at render time).
+        # If you are using the CloudNativePG-generated app Secret (typically <cluster>-app with key `uri`),
+        # leave create=false and reference it via database.connection.existingSecretName instead.
+        create: false # @schema type: boolean
+        # -- Name of the generated CNPG connection Secret.
+        # Defaults to "<fullname>-cnpg-db-connection" when empty.
+        name: "" # @schema type: string
+        # -- Key used in the generated CNPG connection Secret.
+        key: connectionString # @schema type: string ; minLength: 1
+
+# -----------------------------------------------------------------------------
+# CloudNativePG Operator subchart
+# -----------------------------------------------------------------------------
+## @section CloudNativePG Operator subchart
+cnpg-operator:
+  # -- Enable the official CloudNativePG operator Helm chart as a dependency/subchart.
+  enabled: false # @schema type: boolean
+  # -- Target namespace for the CloudNativePG operator release.
+  # Leave empty to let the Helm release/subchart behavior decide the namespace.
+  namespace: "" # @schema type: string
+  # -- Number of CloudNativePG operator replicas.
+  replicaCount: 1
+  # -- Additional labels applied by the CloudNativePG operator chart where supported.
+  additionalLabels: {}
+  crds:
+    # -- Create/upgrade CloudNativePG CRDs through the operator chart.
+    create: true
+  config:
+    # -- Operator configuration values passed to the upstream chart when needed.
+    data: {}
+  monitoring:
+    # -- Create ServiceMonitor resources for the operator if supported by the upstream chart.
+    podMonitorEnabled: false
+    grafanaDashboard:
+      create: false
+
+# -----------------------------------------------------------------------------
+# CloudNativePG Cluster subchart
+# -----------------------------------------------------------------------------
+## @section CloudNativePG Cluster subchart
+cnpg-cluster:
+  # -- Enable the official CloudNativePG `cluster` Helm chart as a dependency/subchart.
+  enabled: false # @schema type: boolean
+  # -- Target namespace for the CNPG cluster release / cluster CR.
+  # Leave empty to use the Pangolin release namespace unless your chart logic/templates override it.
+  namespace: "" # @schema type: string
+  # -- Override the CNPG cluster resource name to keep it stable and RFC1123-safe.
+  # Set this to match `database.cloudnativepg.cluster.name`.
+  fullnameOverride: pangolin-db # @schema type: string ; pattern: ^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+  # -- CNPG workload type passed to the official `cluster` chart.
+  type: postgresql
+  # -- CNPG deployment mode passed to the official `cluster` chart.
+  mode: standalone
+  cluster:
+    # -- Number of PostgreSQL instances in the CNPG cluster.
+    instances: 1
+    # -- Storage configuration for the CNPG cluster.
+    storage:
+      size: 8Gi
+      # -- StorageClass for CNPG PVCs. When empty, the cluster uses the Kubernetes default StorageClass.
+      # If your cluster has no default StorageClass, set this explicitly.
+      storageClass: ""
+    # -- Optional superuser access configuration.
+    # superuserSecret: ""
+    # -- Optional PostgreSQL parameters and bootstrap configuration.
+    postgresql:
+      parameters: {}
+    # -- Optional monitoring configuration for the CNPG cluster.
+    monitoring:
+      enabled: false
+  # -- Managed application database/user bootstrap configuration for the CNPG cluster.
+  managed:
+    roles: []
+    services:
+      disabledDefaultServices: []
+    backup: {}
+    monitoring:
+      enabled: false
+
+# -----------------------------------------------------------------------------
+# Metrics and monitoring
+# -----------------------------------------------------------------------------
+## @section Metrics and monitoring
+monitoring:
+  # -- Enable generic chart-level metrics Service / scrape integration for Pangolin app.
+  enabled: false # @schema type: boolean
+  service:
+    # -- Create a metrics Service for Pangolin.
+    enabled: false # @schema type: boolean
+    type: ClusterIP # @schema type: string ; enum: [ClusterIP, NodePort, LoadBalancer]
+    port: 9090 # @schema type: integer ; minimum: 1 ; maximum: 65535
+    portName: metrics # @schema type: string
+    annotations:
+      prometheus.io/scrape: "true"
+      prometheus.io/port: "9090"
+      prometheus.io/path: "/metrics"
+    labels: {} # @schema type: object ; additionalProperties: { type: string }
+  metrics:
+    # -- Metrics endpoint port name.
+    targetPortName: metrics # @schema type: string
+    # -- Metrics endpoint numeric port.
+    targetPort: 9090 # @schema type: integer ; minimum: 1 ; maximum: 65535
+    # -- Default metrics path.
+    path: /metrics # @schema type: string
+    # -- Expose internal metrics where supported.
+    addInternals: false # @schema type: boolean
+    endpoints:
+      health: /health/metrics
+      performance: /perf/metrics
+      application: /app/metrics
+    customLabels:
+      service: pangolin
+
+  serviceMonitor:
+    enabled: false # @schema type: boolean
+    apiVersion: monitoring.coreos.com/v1 # @schema type: string
+    namespace: "" # @schema type: string
+    labels: {} # @schema type: object ; additionalProperties: { type: string }
+    annotations: {} # @schema type: object ; additionalProperties: { type: string }
+    interval: 30s # @schema type: string
+    scrapeTimeout: 10s # @schema type: string
+    selector:
+      matchLabels:
+        app.kubernetes.io/name: pangolin
+    honorLabels: true # @schema type: boolean
+    scheme: http # @schema type: string
+    path: /metrics # @schema type: string
+    relabelings: [] # @schema type: array ; item: object
+    metricRelabelings: [] # @schema type: array ; item: object
+    targetLabels: [] # @schema type: array ; item: string
+    sampleLimit: 0 # @schema type: integer ; minimum: 0
+
+  podMonitor:
+    enabled: false # @schema type: boolean
+    apiVersion: monitoring.coreos.com/v1 # @schema type: string
+    namespace: "" # @schema type: string
+    labels: {} # @schema type: object ; additionalProperties: { type: string }
+    annotations: {} # @schema type: object ; additionalProperties: { type: string }
+    portName: internalApi # @schema type: string
+    scheme: http # @schema type: string
+    path: /metrics # @schema type: string
+    interval: 30s # @schema type: string
+    scrapeTimeout: 10s # @schema type: string
+    relabelings: [] # @schema type: array ; item: object
+    metricRelabelings: [] # @schema type: array ; item: object
+
+  prometheusRule:
+    enabled: false # @schema type: boolean
+    namespace: "" # @schema type: string
+    additionalLabels: {} # @schema type: object ; additionalProperties: { type: string }
+    rules: [] # @schema type: array ; item: object

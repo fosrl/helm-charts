@@ -1,0 +1,65 @@
+suite: e2e values rendering
+templates:
+  - templates/deployment-gerbil.yaml
+  - templates/deployment-pangolin.yaml
+  - templates/deployment-controller.yaml
+  - templates/configmap-controller.yaml
+  - templates/rbac.yaml
+values:
+  - ../examples/values-e2e-kind.yaml
+tests:
+  - it: renders Gerbil in delayed startup mode for e2e smoke tests
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: spec.replicas
+          value: 0
+
+  - it: renders wait-for-db initContainer in e2e profile (CNPG path)
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: wait-for-db
+      - equal:
+          path: spec.template.spec.initContainers[0].image
+          value: "docker.io/postgres:17"
+      - matchRegex:
+          path: spec.template.spec.initContainers[0].command[2]
+          pattern: 'STABLE_SECONDS=30'
+
+  - it: controller ConfigMap has CONFIG_ALLOW_INSECURE_HTTP=true in e2e profile
+    template: templates/configmap-controller.yaml
+    asserts:
+      - equal:
+          path: data.CONFIG_ALLOW_INSECURE_HTTP
+          value: "true"
+
+  - it: renders controller wait-for-pangolin initContainer in e2e profile
+    template: templates/deployment-controller.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: wait-for-pangolin-config
+
+  - it: renders gerbil wait-for-pangolin initContainer in e2e profile
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: wait-for-pangolin-api
+
+  - it: RBAC includes customresourcedefinitions rule in e2e profile
+    template: templates/rbac.yaml
+    documentSelector:
+      path: kind
+      value: ClusterRole
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["apiextensions.k8s.io"]
+            resources: ["customresourcedefinitions"]
+            verbs: ["get", "list", "watch"]

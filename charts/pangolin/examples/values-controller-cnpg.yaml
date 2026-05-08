@@ -1,0 +1,176 @@
+# Example: Controller mode with CloudNativePG (recommended production setup)
+#
+# Topology: deployment.type=controller + deployment.mode=multi (default)
+# Database:  database.mode=cloudnativepg
+#
+# This is the recommended production configuration. Pangolin, Gerbil and
+# the pangolin-kube-controller each run as separate Pods. CloudNativePG
+# manages the PostgreSQL cluster lifecycle.
+#
+# The chart uses the official CloudNativePG Helm charts from
+# https://cloudnative-pg.github.io/charts for both the operator and cluster.
+#
+# --- CloudNativePG subchart options ---
+#
+# Option 1: External CNPG operator + external CNPG cluster (bring your own)
+#   - cnpg-operator.enabled: false  (operator already in cluster)
+#   - cnpg-cluster.enabled: false   (cluster already exists)
+#   - Set database.connection.existingSecretName to the CNPG-generated app Secret
+#     (named "<cluster-name>-app", key "uri")
+#
+# Option 2: This chart installs the operator, user brings their own cluster
+#   - cnpg-operator.enabled: true
+#   - cnpg-cluster.enabled: false
+#
+# Option 3: This chart installs BOTH operator and cluster (all-in-one)
+#   - cnpg-operator.enabled: true
+#   - cnpg-cluster.enabled: true
+#   - Connect via the CNPG-generated app Secret: <cluster-name>-app / uri
+#
+# Option 4: This chart installs only the cluster (operator already present)
+#   - cnpg-operator.enabled: false
+#   - cnpg-cluster.enabled: true
+#   - Connect via the CNPG-generated app Secret: <cluster-name>-app / uri
+#
+# --- CNPG app Secret ---
+#
+# CloudNativePG automatically creates a Secret named "<cluster-name>-app" in the
+# same namespace as the cluster. It contains:
+#   - key "uri":              postgresql://user:password@host:port/dbname?sslmode=verify-full
+#   - key "host":             cluster hostname
+#   - key "username":         application user
+#   - key "password":         application user password
+#   - key "connectionString": postgresql://... (same as uri)
+#
+# Recommended: reference this Secret directly so Pangolin always gets a valid
+# credential even after password rotations managed by CNPG:
+#   database.connection.existingSecretName: pangolin-db-app
+#   database.connection.existingSecretKey: uri
+#
+# Prerequisites:
+#   1. CloudNativePG operator installed in the cluster
+#      (cnpg-operator.enabled=true or separately via its own Helm release)
+#   2. Traefik installed in the cluster with CRDs (separate release or
+#      deployment.installTraefikController=true)
+#   3. A domain with DNS pointing to the Gerbil LoadBalancer IP for WireGuard
+#
+# Usage:
+#   helm install pangolin charts/pangolin \
+#     -f examples/values-controller-cnpg.yaml \
+#     --namespace pangolin
+
+deployment:
+  type: controller
+  mode: multi
+
+namespace:
+  create: true
+  name: pangolin
+  podSecurity:
+    enforce: privileged
+    warn: baseline
+    audit: baseline
+
+# ---------------------------------------------------------------------------
+# Database – CloudNativePG (managed PostgreSQL cluster)
+# ---------------------------------------------------------------------------
+database:
+  mode: cloudnativepg
+  cloudnativepg:
+    cluster:
+      # Name must match cnpg-cluster.fullnameOverride below.
+      name: pangolin-db
+
+  # ---------------------------------------------------------------------------
+  # CNPG connection – DEFAULT behavior (no extra configuration needed):
+  #
+  # The chart automatically references the CNPG-generated app Secret:
+  #   Secret name: <cluster-name>-app  (e.g. "pangolin-db-app")
+  #   Secret key:  uri
+  #
+  # This Secret is created automatically by the CloudNativePG operator when
+  # the cluster starts. No explicit database.connection values are needed.
+  #
+# To override (e.g. use a different key), set:
+#   connection:
+#     existingSecretName: pangolin-db-app   # CNPG-managed; created automatically
+#     existingSecretKey: uri
+#
+# If you choose chart-generated CNPG connection strings instead, the chart default is:
+#   database.cloudnativepg.connection.sslMode: disable
+# Configure `require`, `verify-ca`, or `verify-full` explicitly only when TLS/CA trust is configured.
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# CloudNativePG subcharts
+# ---------------------------------------------------------------------------
+# Install the CloudNativePG operator as a subchart.
+# Set enabled: false if the operator is already installed cluster-wide.
+cnpg-operator:
+  enabled: false  # set true to install the operator via this chart
+  crds:
+    create: true  # install/upgrade CRDs with the operator
+
+# Install the CloudNativePG cluster (PostgreSQL) as a subchart.
+# Set enabled: false if your cluster is managed externally.
+cnpg-cluster:
+  enabled: false  # set true to install the CNPG cluster via this chart
+  fullnameOverride: pangolin-db # must match database.cloudnativepg.cluster.name above
+  type: postgresql
+  mode: standalone
+  cluster:
+    instances: 1           # increase for HA (requires storage and anti-affinity)
+    storage:
+      size: 8Gi
+      # storageClass: ""   # set explicitly if your cluster has no default StorageClass
+
+# ---------------------------------------------------------------------------
+# Pangolin application settings
+# ---------------------------------------------------------------------------
+pangolin:
+  replicaCount: 1
+  config:
+    app:
+      # REPLACE: set to the actual public URL of your Pangolin dashboard.
+      dashboard_url: "https://pangolin.yourdomain.example"
+      log_level: info
+    gerbil:
+      # REPLACE: set to the hostname/IP where external WireGuard peers reach Gerbil.
+      base_endpoint: "vpn.yourdomain.example"
+    traefik:
+      # This configures the Traefik output Pangolin generates for the
+      # pangolin-kube-controller; it does NOT install Traefik.
+      # REPLACE if your cluster Traefik uses different names.
+      enabled: true
+      http_entrypoint: web
+      https_entrypoint: websecure
+      cert_resolver: letsencrypt
+
+# ---------------------------------------------------------------------------
+# Controller
+# ---------------------------------------------------------------------------
+controller:
+  enabled: true
+  replicaCount: 1
+
+# ---------------------------------------------------------------------------
+# Gerbil – WireGuard gateway
+# Recommend enabling persistence so the WireGuard key survives Pod restarts.
+# ---------------------------------------------------------------------------
+gerbil:
+  enabled: true
+  persistence:
+    enabled: true
+    size: 1Gi
+  service:
+    type: ClusterIP  # change to LoadBalancer for external WireGuard access
+
+# ---------------------------------------------------------------------------
+# NetworkPolicy (recommended: keep enabled with controller egress policy)
+# ---------------------------------------------------------------------------
+networkPolicy:
+  enabled: true
+  # controller:
+  #   egress:
+  #     kubernetesApi:
+  #       cidr: 10.96.0.1/32   # replace with your cluster API server CIDR

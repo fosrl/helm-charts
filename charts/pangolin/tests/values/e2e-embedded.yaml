@@ -1,0 +1,14 @@
+deployment:
+  type: standalone
+  mode: multi
+
+gerbil:
+  enabled: false
+
+# Use embedded Postgres for a DB-backed scenario
+database:
+  mode: embedded
+  embedded:
+    enabled: true
+    workloadType:
+      kind: Deployment

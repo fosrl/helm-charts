@@ -1,0 +1,133 @@
+{{- if .Values.pangolin.configFile.enabled }}
+{{- $root := . -}}
+{{- $cfg := .Values.pangolin.config -}}
+{{- $app := $cfg.app | default dict -}}
+{{- $server := $cfg.server | default dict -}}
+{{- $gerbil := $cfg.gerbil | default dict -}}
+{{- $flags := $cfg.flags | default dict -}}
+{{- $metaAnns := mergeOverwrite (dict) (include "pangolin.global.commonAnnotations" $root | fromYaml) (include "pangolin.component.commonAnnotations" (dict "root" $root "component" "pangolin") | fromYaml) (.Values.pangolin.configMap.annotations | default dict) -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "pangolin.fullname" . }}-config
+  namespace: {{ include "pangolin.namespace" . }}
+  labels:
+    {{- include "pangolin.labels" . | nindent 4 }}
+    {{- include "pangolin.component.commonLabels" (dict "root" . "component" "pangolin") | nindent 4 }}
+    {{- include "pangolin.renderNonSelectorLabels" (dict "labels" (.Values.pangolin.configMap.labels | default dict)) | nindent 4 }}
+    app.kubernetes.io/component: pangolin
+  {{- if gt (len $metaAnns) 0 }}
+  annotations:
+    {{- toYaml $metaAnns | nindent 4 }}
+  {{- end }}
+data:
+  config.yml: |
+    app:
+      dashboard_url: {{ $app.dashboard_url | default "" | quote }}
+      log_level: {{ $app.log_level | default "info" | quote }}
+      save_logs: {{ $app.save_logs | default false }}
+      log_failed_attempts: {{ if hasKey $app "log_failed_attempts" }}{{ get $app "log_failed_attempts" }}{{ else }}true{{ end }}
+      telemetry:
+        anonymous_usage: {{ (($app.telemetry) | default dict).anonymous_usage | default true }}
+      notifications:
+        product_updates: {{ (($app.notifications) | default dict).product_updates | default true }}
+        new_releases: {{ (($app.notifications) | default dict).new_releases | default true }}
+    domains:
+      {{- toYaml ($cfg.domains | default dict) | nindent 6 }}
+    server:
+      internal_hostname: {{ $server.internal_hostname | default "pangolin" | quote }}
+      session_cookie_name: {{ $server.session_cookie_name | default "p_session_token" | quote }}
+      resource_access_token_param: {{ $server.resource_access_token_param | default "p_token" | quote }}
+      resource_access_token_headers:
+        id: {{ (($server.resource_access_token_headers) | default dict).id | default "P-Access-Token-Id" | quote }}
+        token: {{ (($server.resource_access_token_headers) | default dict).token | default "P-Access-Token" | quote }}
+      resource_session_request_param: {{ $server.resource_session_request_param | default "p_session_request" | quote }}
+      dashboard_session_length_hours: {{ $server.dashboard_session_length_hours | default 720 }}
+      resource_session_length_hours: {{ $server.resource_session_length_hours | default 720 }}
+      cors:
+        {{- $cors := $server.cors | default dict }}
+        origins: {{ $cors.origins | default list | toJson }}
+        methods: {{ $cors.methods | default list | toJson }}
+        allowed_headers: {{ $cors.allowed_headers | default list | toJson }}
+        credentials: {{ $cors.credentials | default false }}
+      trust_proxy: {{ $server.trust_proxy | default 1 }}
+    gerbil:
+      start_port: {{ $gerbil.start_port | default 51820 }}
+      clients_start_port: {{ $gerbil.clients_start_port | default 21820 }}
+      base_endpoint: {{ $gerbil.base_endpoint | default "" | quote }}
+      use_subdomain: {{ $gerbil.use_subdomain | default false }}
+      subnet_group: {{ $gerbil.subnet_group | default "100.89.137.0/20" | quote }}
+      block_size: {{ $gerbil.block_size | default 24 }}
+      site_block_size: {{ $gerbil.site_block_size | default 30 }}
+    flags:
+      require_email_verification: {{ $flags.require_email_verification | default false }}
+      disable_signup_without_invite: {{ if hasKey $flags "disable_signup_without_invite" }}{{ get $flags "disable_signup_without_invite" }}{{ else }}true{{ end }}
+      disable_user_create_org: {{ $flags.disable_user_create_org | default false }}
+      allow_raw_resources: {{ if hasKey $flags "allow_raw_resources" }}{{ get $flags "allow_raw_resources" }}{{ else }}true{{ end }}
+      enable_integration_api: {{ $flags.enable_integration_api | default false }}
+      {{- if $flags.disable_local_sites }}
+      disable_local_sites: {{ $flags.disable_local_sites }}
+      {{- end }}
+      {{- if $flags.disable_basic_wireguard_sites }}
+      disable_basic_wireguard_sites: {{ $flags.disable_basic_wireguard_sites }}
+      {{- end }}
+      {{- if $flags.disable_config_managed_domains }}
+      disable_config_managed_domains: {{ $flags.disable_config_managed_domains }}
+      {{- end }}
+      {{- if $flags.disable_product_help_banners }}
+      disable_product_help_banners: {{ $flags.disable_product_help_banners }}
+      {{- end }}
+      {{- if $flags.disable_enterprise_features }}
+      disable_enterprise_features: {{ $flags.disable_enterprise_features }}
+      {{- end }}
+    {{- if and $cfg.traefik $cfg.traefik.enabled }}
+    {{- $traefik := $cfg.traefik }}
+    traefik:
+      http_entrypoint: {{ $traefik.http_entrypoint | default "web" | quote }}
+      https_entrypoint: {{ $traefik.https_entrypoint | default "websecure" | quote }}
+      cert_resolver: {{ $traefik.cert_resolver | default "letsencrypt" | quote }}
+      prefer_wildcard_cert: {{ $traefik.prefer_wildcard_cert | default false }}
+      additional_middlewares: {{ $traefik.additional_middlewares | default list | toJson }}
+    {{- end }}
+    {{- if and $cfg.rate_limits $cfg.rate_limits.enabled }}
+    {{- $rl := $cfg.rate_limits }}
+    rate_limits:
+      global:
+        window_minutes: {{ (($rl.global) | default dict).window_minutes | default 1 }}
+        max_requests: {{ (($rl.global) | default dict).max_requests | default 500 }}
+      auth:
+        window_minutes: {{ (($rl.auth) | default dict).window_minutes | default 1 }}
+        max_requests: {{ (($rl.auth) | default dict).max_requests | default 10 }}
+    {{- end }}
+    {{- if and $cfg.email $cfg.email.enabled }}
+    {{- $email := $cfg.email }}
+    email:
+      smtp_host: {{ $email.smtp_host | default "" | quote }}
+      smtp_port: {{ $email.smtp_port | default 587 }}
+      smtp_user: {{ $email.smtp_user | default "" | quote }}
+      smtp_secure: {{ $email.smtp_secure | default false }}
+      smtp_tls_reject_unauthorized: {{ $email.smtp_tls_reject_unauthorized | default true }}
+      {{- if $email.no_reply }}
+      no_reply: {{ $email.no_reply | quote }}
+      {{- end }}
+    {{- end }}
+    {{- if and $cfg.postgres $cfg.postgres.enabled }}
+    {{- $pg := $cfg.postgres }}
+    postgres:
+      pool:
+        max_connections: {{ (($pg.pool) | default dict).max_connections | default 20 }}
+        max_replica_connections: {{ (($pg.pool) | default dict).max_replica_connections | default 10 }}
+        idle_timeout_ms: {{ (($pg.pool) | default dict).idle_timeout_ms | default 30000 }}
+        connection_timeout_ms: {{ (($pg.pool) | default dict).connection_timeout_ms | default 5000 }}
+    {{- end }}
+    {{- if and $cfg.orgs $cfg.orgs.enabled }}
+    {{- $orgs := $cfg.orgs }}
+    orgs:
+      block_size: {{ $orgs.block_size | default 24 }}
+      subnet_group: {{ $orgs.subnet_group | default "100.90.128.0/20" | quote }}
+      utility_subnet_group: {{ $orgs.utility_subnet_group | default "100.96.128.0/20" | quote }}
+    {{- end }}
+    {{- if $cfg.extraConfig }}
+{{ $cfg.extraConfig | nindent 4 }}
+    {{- end }}
+{{- end }}

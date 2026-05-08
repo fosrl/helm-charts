@@ -1,0 +1,39 @@
+{{- if and .Values.controller.enabled .Values.controller.monitoring.podMonitor.enabled }}
+{{- $root := . -}}
+{{- $pm := .Values.controller.monitoring.podMonitor -}}
+{{- $pmAnns := mergeOverwrite (dict) (include "pangolin.global.commonAnnotations" $root | fromYaml) (include "pangolin.component.commonAnnotations" (dict "root" $root "component" "controller") | fromYaml) ($pm.annotations | default dict) -}}
+apiVersion: {{ $pm.apiVersion | default "monitoring.coreos.com/v1" }}
+kind: PodMonitor
+metadata:
+  name: {{ include "pangolin.fullname" . }}-controller
+  namespace: {{ $pm.namespace | default (include "pangolin.namespace" $root) }}
+  labels:
+    {{- include "pangolin.labels" $root | nindent 4 }}
+    {{- include "pangolin.component.commonLabels" (dict "root" $root "component" "controller") | nindent 4 }}
+    {{- range $k, $v := $pm.labels }}
+    {{ $k }}: {{ $v | quote }}
+    {{- end }}
+  {{- if gt (len $pmAnns) 0 }}
+  annotations:
+    {{- toYaml $pmAnns | nindent 4 }}
+  {{- end }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ $root.Release.Name }}
+      app.kubernetes.io/component: controller
+  podMetricsEndpoints:
+    - port: {{ $pm.portName | default "metrics" }}
+      path: {{ $pm.path | default "/metrics" }}
+      scheme: {{ $pm.scheme | default "http" }}
+      interval: {{ $pm.interval | default "30s" }}
+      scrapeTimeout: {{ $pm.scrapeTimeout | default "10s" }}
+      {{- with $pm.relabelings }}
+      relabelings:
+        {{- toYaml . | nindent 6 }}
+      {{- end }}
+      {{- with $pm.metricRelabelings }}
+      metricRelabelings:
+        {{- toYaml . | nindent 6 }}
+      {{- end }}
+{{- end }}

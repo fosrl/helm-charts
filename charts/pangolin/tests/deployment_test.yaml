@@ -1,0 +1,211 @@
+suite: Controller deployment rendering
+templates:
+  - templates/deployment-controller.yaml
+tests:
+  - it: renders a controller Deployment when controller mode enabled
+    set:
+      deployment.type: controller
+      controller.enabled: true
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: metadata.labels["app.kubernetes.io/instance"]
+          value: RELEASE-NAME
+      - equal:
+          path: spec.selector.matchLabels["app.kubernetes.io/component"]
+          value: controller
+      - equal:
+          path: spec.template.metadata.labels["app.kubernetes.io/component"]
+          value: controller
+
+  - it: renders controller with correct image
+    set:
+      deployment.type: controller
+      controller.enabled: true
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/fosrl/pangolin-kube-controller:0.1.0-alpha.1
+
+  - it: renders wait-for-pangolin-config initContainer before controller container
+    set:
+      deployment.type: controller
+      controller.enabled: true
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: wait-for-pangolin-config
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: controller
+      - matchRegex:
+          path: spec.template.spec.initContainers[0].command[2]
+          pattern: 'ENDPOINT="http://RELEASE-NAME-pangolin:3001/api/v1/traefik-config"'
+
+  - it: controller wait initContainer uses effective overridden config endpoint
+    set:
+      deployment.type: controller
+      controller.enabled: true
+      controller.config.configEndpoint: https://custom.example/api/v1/traefik-config
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.initContainers[0].command[2]
+          pattern: 'ENDPOINT="https://custom.example/api/v1/traefik-config"'
+
+  - it: can disable controller wait initContainer explicitly
+    set:
+      deployment.type: controller
+      controller.enabled: true
+      controller.waitForPangolin.enabled: false
+    asserts:
+      - isNull:
+          path: spec.template.spec.initContainers
+
+  - it: renders controller image digest when provided
+    set:
+      deployment.type: controller
+      controller.enabled: true
+      images.controller.digest: sha256:1111111111111111111111111111111111111111111111111111111111111111
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/fosrl/pangolin-kube-controller@sha256:1111111111111111111111111111111111111111111111111111111111111111
+
+  - it: controller TLS volume is required when controller.tls.enabled=true
+    set:
+      deployment.type: controller
+      controller.enabled: true
+      controller.tls.enabled: true
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes[0].secret.optional
+          value: false
+      - exists:
+          path: spec.template.spec.volumes[0].secret.secretName
+
+  - it: renders controller default probes with livez for startup and liveness
+    set:
+      deployment.type: controller
+      controller.enabled: true
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.httpGet.path
+          value: /livez
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.httpGet.port
+          value: metrics
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.initialDelaySeconds
+          value: 5
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.periodSeconds
+          value: 5
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.timeoutSeconds
+          value: 3
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.failureThreshold
+          value: 24
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /livez
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.port
+          value: metrics
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.initialDelaySeconds
+          value: 10
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.periodSeconds
+          value: 10
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.timeoutSeconds
+          value: 5
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.failureThreshold
+          value: 3
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /readyz
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.port
+          value: metrics
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.initialDelaySeconds
+          value: 5
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.periodSeconds
+          value: 10
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.timeoutSeconds
+          value: 5
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.failureThreshold
+          value: 3
+
+  - it: renders controller probe overrides from values
+    set:
+      deployment.type: controller
+      controller.enabled: true
+      controller.probes.startup.httpGet.path: /custom-start
+      controller.probes.startup.initialDelaySeconds: 7
+      controller.probes.startup.periodSeconds: 8
+      controller.probes.startup.timeoutSeconds: 4
+      controller.probes.startup.failureThreshold: 9
+      controller.probes.liveness.httpGet.path: /custom-live
+      controller.probes.liveness.initialDelaySeconds: 11
+      controller.probes.liveness.periodSeconds: 12
+      controller.probes.liveness.timeoutSeconds: 6
+      controller.probes.liveness.failureThreshold: 7
+      controller.probes.readiness.httpGet.path: /custom-ready
+      controller.probes.readiness.initialDelaySeconds: 13
+      controller.probes.readiness.periodSeconds: 14
+      controller.probes.readiness.timeoutSeconds: 8
+      controller.probes.readiness.failureThreshold: 10
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.httpGet.path
+          value: /custom-start
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.initialDelaySeconds
+          value: 7
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.periodSeconds
+          value: 8
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.timeoutSeconds
+          value: 4
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.failureThreshold
+          value: 9
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /custom-live
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.initialDelaySeconds
+          value: 11
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.periodSeconds
+          value: 12
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.timeoutSeconds
+          value: 6
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.failureThreshold
+          value: 7
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /custom-ready
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.initialDelaySeconds
+          value: 13
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.periodSeconds
+          value: 14
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.timeoutSeconds
+          value: 8
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.failureThreshold
+          value: 10

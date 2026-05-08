@@ -1,0 +1,113 @@
+# Example: Gerbil service exposed via LoadBalancer
+#
+# Topology: deployment.type=controller + deployment.mode=multi
+# Database:  database.mode=cloudnativepg (default)
+#
+# This example shows how to expose the Gerbil WireGuard gateway externally
+# using a LoadBalancer Service. This is the recommended approach for clouds
+# that support L4 load balancers (AWS NLB, GCP Network LB, Azure LB, etc.).
+#
+# With gerbil.service.type=LoadBalancer, external WireGuard clients can reach
+# Gerbil on UDP ports 51820 and 21820 via the assigned external IP.
+#
+# Network flow: external clients → LoadBalancer IP (UDP) → Gerbil Pod
+#
+# IMPORTANT: Set gerbil.persistence.enabled=true so the WireGuard private key
+# survives Pod restarts. Without persistence, all peer connections break when
+# the Gerbil Pod is rescheduled.
+#
+# Usage:
+#   helm install pangolin charts/pangolin \
+#     -f examples/values-gerbil-loadbalancer.yaml \
+#     --namespace pangolin
+
+deployment:
+  type: controller
+  mode: multi
+
+namespace:
+  create: true
+  name: pangolin
+  podSecurity:
+    enforce: privileged
+    warn: baseline
+    audit: baseline
+
+# ---------------------------------------------------------------------------
+# Database – CloudNativePG (default; adjust to your environment)
+# ---------------------------------------------------------------------------
+database:
+  mode: cloudnativepg
+  cloudnativepg:
+    cluster:
+      name: pangolin-db
+
+cnpg-operator:
+  enabled: false
+cnpg-cluster:
+  enabled: true
+
+# ---------------------------------------------------------------------------
+# Pangolin application settings
+# ---------------------------------------------------------------------------
+pangolin:
+  replicaCount: 1
+  config:
+    app:
+      # REPLACE: set to the actual public URL of your Pangolin dashboard.
+      dashboard_url: "https://pangolin.yourdomain.example"
+      log_level: info
+    gerbil:
+      # REPLACE: set to the external hostname/IP of the Gerbil LoadBalancer.
+      base_endpoint: "vpn.yourdomain.example"
+
+controller:
+  enabled: true
+
+# ---------------------------------------------------------------------------
+# Gerbil – exposed via LoadBalancer for external WireGuard access
+# ---------------------------------------------------------------------------
+gerbil:
+  enabled: true
+
+  # Persist the WireGuard private key – strongly recommended when using
+  # a LoadBalancer so peers do not need to re-handshake after restarts.
+  persistence:
+    enabled: true
+    size: 1Gi
+
+  service:
+    type: LoadBalancer
+    # Optional: restrict source IPs allowed to reach WireGuard ports.
+    # loadBalancerSourceRanges:
+    #   - 0.0.0.0/0
+
+    # Optional: preserve the client source IP in cloud LBs that support it.
+    # externalTrafficPolicy: Local
+
+    annotations: {}
+    # Cloud-specific annotation examples:
+    # Hetzner:
+    #   load-balancer.hetzner.cloud/name: "pangolin-gerbil"
+    #   load-balancer.hetzner.cloud/location: "fsn1"
+    #   load-balancer.hetzner.cloud/uses-proxyprotocol: "false"
+    # AWS NLB:
+    #   service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+    #   service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
+    # MetalLB:
+    #   metallb.universe.tf/address-pool: "public"
+
+  ports:
+    wg1: 51820
+    wg2: 21820
+    internalApi: 3004
+
+# ---------------------------------------------------------------------------
+# NetworkPolicy – allow WireGuard UDP egress for Gerbil
+# ---------------------------------------------------------------------------
+networkPolicy:
+  enabled: true
+  gerbil:
+    allowWireguardUdpEgress: true
+    wireguardUdpCIDRs:
+      - 0.0.0.0/0

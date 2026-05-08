@@ -1,0 +1,265 @@
+suite: blueprints tests
+templates:
+  - templates/configmap-pangolin-blueprints.yaml
+  - templates/secret-pangolin-blueprints-env.yaml
+  - templates/validate.yaml
+
+tests:
+  # -----------------------------------------------------------------------
+  # Default: no blueprint resources rendered
+  # -----------------------------------------------------------------------
+  - it: does not render blueprint ConfigMap by default
+    template: templates/configmap-pangolin-blueprints.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: does not render blueprint environment Secret by default
+    template: templates/secret-pangolin-blueprints-env.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # -----------------------------------------------------------------------
+  # Chart-managed ConfigMap
+  # -----------------------------------------------------------------------
+  - it: renders blueprint ConfigMap when enabled with configMap.create=true
+    set:
+      pangolin.blueprints.enabled: true
+      pangolin.blueprints.configMap.create: true
+      pangolin.blueprints.files:
+        site.yaml: "sites:\n  my-site:\n    name: My Site\n"
+    template: templates/configmap-pangolin-blueprints.yaml
+    asserts:
+      - isKind:
+          of: ConfigMap
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin-blueprints
+      - exists:
+          path: data["site.yaml"]
+
+  - it: uses custom configMap name when name override is set
+    set:
+      pangolin.blueprints.enabled: true
+      pangolin.blueprints.configMap.create: true
+      pangolin.blueprints.configMap.name: my-custom-blueprints
+      pangolin.blueprints.files:
+        site.yaml: "sites:\n  s:\n    name: S\n"
+    template: templates/configmap-pangolin-blueprints.yaml
+    asserts:
+      - equal:
+          path: metadata.name
+          value: my-custom-blueprints
+
+  - it: does not render chart ConfigMap when existingConfigMap is set
+    set:
+      pangolin.blueprints.enabled: true
+      pangolin.blueprints.existingConfigMap: my-existing-cm
+    template: templates/configmap-pangolin-blueprints.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: does not render blueprint ConfigMap when enabled but configMap.create=false
+    set:
+      pangolin.blueprints.enabled: true
+      pangolin.blueprints.existingConfigMap: external-cm
+    template: templates/configmap-pangolin-blueprints.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # -----------------------------------------------------------------------
+  # Chart-managed environment Secret
+  # -----------------------------------------------------------------------
+  - it: renders blueprint environment Secret when create=true
+    set:
+      pangolin.blueprints.enabled: true
+      pangolin.blueprints.existingConfigMap: external-cm
+      pangolin.blueprints.environmentSecret.create: true
+      pangolin.blueprints.environment:
+        BASE_DOMAIN: example.com
+    template: templates/secret-pangolin-blueprints-env.yaml
+    asserts:
+      - isKind:
+          of: Secret
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin-blueprints-env
+      - equal:
+          path: type
+          value: Opaque
+      - equal:
+          path: stringData.BASE_DOMAIN
+          value: example.com
+
+  - it: uses custom environmentSecret name when name override is set
+    set:
+      pangolin.blueprints.enabled: true
+      pangolin.blueprints.existingConfigMap: external-cm
+      pangolin.blueprints.environmentSecret.create: true
+      pangolin.blueprints.environmentSecret.name: my-env-secret
+      pangolin.blueprints.environment:
+        FOO: bar
+    template: templates/secret-pangolin-blueprints-env.yaml
+    asserts:
+      - equal:
+          path: metadata.name
+          value: my-env-secret
+
+  - it: does not render chart env Secret when existingEnvironmentSecret is set
+    set:
+      pangolin.blueprints.enabled: true
+      pangolin.blueprints.existingConfigMap: external-cm
+      pangolin.blueprints.existingEnvironmentSecret: my-existing-secret
+    template: templates/secret-pangolin-blueprints-env.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: sensitive environment values are in Secret not ConfigMap
+    set:
+      pangolin.blueprints.enabled: true
+      pangolin.blueprints.configMap.create: true
+      pangolin.blueprints.files:
+        site.yaml: "sites:\n  s:\n    name: S\n"
+      pangolin.blueprints.environmentSecret.create: true
+      pangolin.blueprints.environment:
+        SERIAL_NUMBER: "device-001"
+    template: templates/secret-pangolin-blueprints-env.yaml
+    asserts:
+      - isKind:
+          of: Secret
+      - exists:
+          path: stringData.SERIAL_NUMBER
+
+  - it: environment Secret stringData does not appear in blueprint ConfigMap
+    set:
+      pangolin.blueprints.enabled: true
+      pangolin.blueprints.configMap.create: true
+      pangolin.blueprints.files:
+        site.yaml: "sites:\n  s:\n    name: S\n"
+      pangolin.blueprints.environmentSecret.create: true
+      pangolin.blueprints.environment:
+        SERIAL_NUMBER: "device-001"
+    template: templates/configmap-pangolin-blueprints.yaml
+    asserts:
+      - notExists:
+          path: data.SERIAL_NUMBER
+
+  # -----------------------------------------------------------------------
+  # Validation failures
+  # -----------------------------------------------------------------------
+  - it: fails when blueprints enabled but no source configured
+    set:
+      pangolin.blueprints.enabled: true
+    template: templates/validate.yaml
+    asserts:
+      - failedTemplate:
+          errorMessage: "PANGOLIN-050: pangolin.blueprints.enabled=true but no blueprint source is configured. Set configMap.create=true (with files) or existingConfigMap to provide blueprint YAML definitions."
+
+  - it: fails when blueprints enabled with only environmentSecret (no ConfigMap source)
+    set:
+      pangolin.blueprints.enabled: true
+      pangolin.blueprints.environmentSecret.create: true
+      pangolin.blueprints.environment:
+        FOO: bar
+    template: templates/validate.yaml
+    asserts:
+      - failedTemplate:
+          errorMessage: "PANGOLIN-050: pangolin.blueprints.enabled=true but no blueprint source is configured. Set configMap.create=true (with files) or existingConfigMap to provide blueprint YAML definitions."
+
+  - it: fails when configMap.create and existingConfigMap are both set
+    set:
+      pangolin.blueprints.enabled: true
+      pangolin.blueprints.configMap.create: true
+      pangolin.blueprints.existingConfigMap: some-cm
+      pangolin.blueprints.files:
+        site.yaml: "sites:\n  s:\n    name: S\n"
+    template: templates/validate.yaml
+    asserts:
+      - failedTemplate:
+          errorMessage: "PANGOLIN-051: pangolin.blueprints.configMap.create=true and pangolin.blueprints.existingConfigMap are mutually exclusive. Use one or the other."
+
+  - it: fails when configMap.create=true but files is empty
+    set:
+      pangolin.blueprints.enabled: true
+      pangolin.blueprints.configMap.create: true
+    template: templates/validate.yaml
+    asserts:
+      - failedTemplate:
+          errorMessage: "PANGOLIN-052: pangolin.blueprints.configMap.create=true but pangolin.blueprints.files is empty. Provide at least one blueprint file."
+
+  - it: fails when environmentSecret.create and existingEnvironmentSecret are both set
+    set:
+      pangolin.blueprints.enabled: true
+      pangolin.blueprints.existingConfigMap: some-cm
+      pangolin.blueprints.environmentSecret.create: true
+      pangolin.blueprints.existingEnvironmentSecret: some-secret
+      pangolin.blueprints.environment:
+        FOO: bar
+    template: templates/validate.yaml
+    asserts:
+      - failedTemplate:
+          errorMessage: "PANGOLIN-053: pangolin.blueprints.environmentSecret.create=true and pangolin.blueprints.existingEnvironmentSecret are mutually exclusive. Use one or the other."
+
+  - it: fails when environmentSecret.create=true but environment is empty
+    set:
+      pangolin.blueprints.enabled: true
+      pangolin.blueprints.existingConfigMap: some-cm
+      pangolin.blueprints.environmentSecret.create: true
+    template: templates/validate.yaml
+    asserts:
+      - failedTemplate:
+          errorMessage: "PANGOLIN-054: pangolin.blueprints.environmentSecret.create=true but pangolin.blueprints.environment is empty. Provide at least one environment variable."
+
+  # -----------------------------------------------------------------------
+  # Existing resources mode (no chart-managed resources rendered)
+  # -----------------------------------------------------------------------
+  - it: passes validation using existingConfigMap only
+    set:
+      pangolin.blueprints.enabled: true
+      pangolin.blueprints.existingConfigMap: existing-blueprints
+    template: templates/validate.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: passes validation using existingConfigMap and existingEnvironmentSecret
+    set:
+      pangolin.blueprints.enabled: true
+      pangolin.blueprints.existingConfigMap: existing-blueprints
+      pangolin.blueprints.existingEnvironmentSecret: existing-env-secret
+    template: templates/validate.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # -----------------------------------------------------------------------
+  # Labels on generated resources
+  # -----------------------------------------------------------------------
+  - it: blueprint ConfigMap has correct component label
+    set:
+      pangolin.blueprints.enabled: true
+      pangolin.blueprints.configMap.create: true
+      pangolin.blueprints.files:
+        site.yaml: "sites:\n  s:\n    name: S\n"
+    template: templates/configmap-pangolin-blueprints.yaml
+    asserts:
+      - equal:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: pangolin
+
+  - it: blueprint env Secret has correct component label
+    set:
+      pangolin.blueprints.enabled: true
+      pangolin.blueprints.existingConfigMap: external-cm
+      pangolin.blueprints.environmentSecret.create: true
+      pangolin.blueprints.environment:
+        KEY: value
+    template: templates/secret-pangolin-blueprints-env.yaml
+    asserts:
+      - equal:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: pangolin

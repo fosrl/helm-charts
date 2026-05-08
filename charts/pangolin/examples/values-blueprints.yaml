@@ -1,0 +1,85 @@
+# Example: Blueprints support
+#
+# Topology: deployment.type=controller + deployment.mode=multi (default)
+# Database:  database.mode=cloudnativepg (default)
+#
+# Blueprints let you define Pangolin resources (public-resources,
+# private-resources, sites) as YAML files and apply them to Pangolin via
+# Newt agents using --blueprint-file or --provisioning-blueprint-file.
+# See https://docs.pangolin.net/manage/blueprints
+#
+# The Pangolin server does NOT read blueprint files directly. Blueprints are
+# pushed to the Pangolin API by Newt clients. This Helm chart provides a
+# convenient way to store blueprint definitions as Kubernetes ConfigMaps and
+# Secrets so they can be managed declaratively alongside your Pangolin release.
+#
+# TWO MODES:
+# 1. Chart-managed ConfigMap (configMap.create=true + files)
+#    Non-sensitive blueprint YAML definitions stored in a ConfigMap.
+# 2. Existing ConfigMap (existingConfigMap=<name>)
+#    Reference a ConfigMap you manage externally (e.g. via another chart).
+#
+# ENVIRONMENT TEMPLATING:
+# Blueprint YAML supports {{env.VARIABLE_NAME}} placeholders. At apply time
+# Newt resolves them from its process environment. Sensitive values such as
+# serial numbers or customer IDs should be stored in a Secret, not a ConfigMap.
+# Use environmentSecret.create=true + environment, or existingEnvironmentSecret.
+#
+# Usage:
+#   helm install pangolin charts/pangolin \
+#     -f examples/values-blueprints.yaml \
+#     --namespace pangolin --create-namespace
+
+pangolin:
+  blueprints:
+    # Enable chart-managed blueprint resources.
+    enabled: true
+
+    configMap:
+      # Create a ConfigMap containing the blueprint YAML file(s) below.
+      create: true
+
+    # Blueprint YAML files keyed by filename.
+    # Non-sensitive resource definitions belong here.
+    files:
+      # Example: declare a site and a public HTTP resource.
+      site-blueprint.yaml: |
+        sites:
+          my-site:
+            name: My Site
+            docker-socket-enabled: true
+
+        public-resources:
+          web-app:
+            name: Web Application
+            protocol: http
+            full-domain: "app.{{env.BASE_DOMAIN}}"
+            auth:
+              sso-enabled: true
+            targets:
+              - site: my-site
+                hostname: app
+                port: 8080
+                method: http
+
+    environmentSecret:
+      # Create a Secret with environment templating values.
+      # These map to {{env.VARIABLE_NAME}} placeholders in the blueprint YAML.
+      create: true
+
+    # Non-sensitive environment values for blueprint templating.
+    # For sensitive values (API tokens, passwords, serial numbers) prefer
+    # existingEnvironmentSecret to avoid storing secrets in Helm values.
+    environment:
+      BASE_DOMAIN: "example.com"
+
+# ---------------------------------------------------------------------------
+# Example: Using existing external resources instead of chart-managed ones
+# ---------------------------------------------------------------------------
+# Uncomment to reference externally managed ConfigMap / Secret:
+#
+# pangolin:
+#   blueprints:
+#     enabled: true
+#     existingConfigMap: my-blueprint-configmap
+#     existingEnvironmentSecret: my-blueprint-env-secret

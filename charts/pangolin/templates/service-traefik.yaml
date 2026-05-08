@@ -1,0 +1,47 @@
+{{- if and .Values.traefik.enabled .Values.traefik.service.enabled (eq .Values.deployment.type "standalone") }}
+{{- $root := . -}}
+{{- $tf := .Values.traefik -}}
+{{- $svcType := $tf.service.type | default "LoadBalancer" -}}
+{{- $svcAnns := mergeOverwrite (dict) (include "pangolin.global.commonAnnotations" $root | fromYaml) .Values.global.additionalServiceAnnotations (include "pangolin.component.commonAnnotations" (dict "root" $root "component" "traefik") | fromYaml) (mergeOverwrite (dict) $tf.service.annotations) -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ printf "%s-traefik" (include "pangolin.fullname" .) }}
+  namespace: {{ include "pangolin.namespace" . }}
+  labels:
+    {{- include "pangolin.labels" $root | nindent 4 }}
+    {{- include "pangolin.component.commonLabels" (dict "root" $root "component" "traefik") | nindent 4 }}
+    {{- include "pangolin.renderNonSelectorLabels" (dict "labels" ($root.Values.global.additionalServiceLabels | default dict)) | nindent 4 }}
+    {{- include "pangolin.renderNonSelectorLabels" (dict "labels" ($tf.service.labels | default dict)) | nindent 4 }}
+    app.kubernetes.io/component: traefik-standalone
+  {{- if gt (len $svcAnns) 0 }}
+  annotations:
+    {{- toYaml $svcAnns | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ $svcType }}
+  {{- with $tf.service.externalTrafficPolicy }}
+  externalTrafficPolicy: {{ . }}
+  {{- end }}
+  {{- if eq $svcType "LoadBalancer" }}
+  {{- with $tf.service.loadBalancerSourceRanges }}
+  loadBalancerSourceRanges:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- end }}
+  selector:
+    {{- if eq .Values.deployment.mode "single" }}
+    {{- include "pangolin.single.selectorLabels" $root | nindent 4 }}
+    {{- else }}
+    {{- include "pangolin.traefik.standalone.selectorLabels" $root | nindent 4 }}
+    {{- end }}
+  ports:
+    - name: web
+      port: 80
+      targetPort: 8000
+      protocol: TCP
+    - name: websecure
+      port: 443
+      targetPort: 8443
+      protocol: TCP
+{{- end }}

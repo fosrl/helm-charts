@@ -1,0 +1,455 @@
+# Pangolin Helm Chart
+
+{{ template "chart.badgesSection" . }}
+
+{{ template "chart.description" . }}
+
+## Features
+
+- All-in-one (single) or multi-deployment composition
+- Standalone Traefik integration (in-pod) or Kube Controller mode
+- Embedded PostgreSQL or external/CloudNativePG database support
+- Let's Encrypt ACME certificate management via Traefik
+- Gerbil WireGuard tunnel management
+- Prometheus monitoring (ServiceMonitor, PodMonitor, PrometheusRule)
+- Kubernetes RBAC for controller mode (supports targeting a separate Traefik namespace)
+- NetworkPolicy support
+- Optional Blueprint support (store blueprint YAML as chart-managed ConfigMaps/Secrets)
+
+## Prerequisites
+
+- Kubernetes >= 1.30.14
+- Helm 3.x
+
+## Architecture overview
+
+This chart can deploy a Pangolin control-plane plus optional components:
+
+- **Pangolin app**: the main API/UI workloads and Services.
+- **pangolin-kube-controller** (controller mode): reconciles Traefik CRDs and reads Pangolin config from the Pangolin API endpoint.
+- **Traefik**:
+	- **Controller mode**: you run a Traefik Ingress Controller (optionally installed via the bundled dependency, aliased as `traefikController`).
+	- **Standalone mode**: the chart runs an in-cluster Traefik Deployment managed directly by this chart.
+- **Database**: one of `cloudnativepg`, `external`, `embedded`, or `sqlite` (see below).
+
+## Deployment modes
+
+- `deployment.type=controller` (recommended)
+	- Runs Pangolin + `pangolin-kube-controller`.
+	- Requires Traefik CRDs and a Traefik controller (either installed separately or via `deployment.installTraefikController=true`).
+- `deployment.type=standalone`
+	- Runs Pangolin plus an internal Traefik workload managed by this chart.
+	- Best for labs/dev; for production, controller mode is recommended unless you specifically need a self-contained deployment.
+
+`deployment.mode` controls how workloads are split:
+
+- `multi`: separate workloads for Pangolin / Gerbil / Traefik.
+- `single`: one shared Pod. In `deployment.type=controller`, it runs Pangolin + optional Gerbil + controller. In `deployment.type=standalone`, it runs Pangolin + optional Gerbil + optional standalone Traefik. `deployment.mode=multi` remains the recommended production topology.
+
+## Example install profiles
+
+Scenario-based example values files are in [`charts/pangolin/examples/`](./examples/).
+Use the examples guide for profile selection, prerequisites, and install/cleanup commands:
+[`charts/pangolin/examples/README.md`](./examples/README.md).
+
+## Database mode selection
+
+The default `database.mode` is **`cloudnativepg`** — the recommended production path. Pangolin automatically uses the PostgreSQL-capable image (`fosrl/pangolin:postgresql-<appVersion>`) for any non-SQLite mode.
+
+| Mode | Use case | Pangolin image |
+|------|----------|---------------|
+| `cloudnativepg` | **Recommended production** – CloudNativePG operator manages PostgreSQL | `fosrl/pangolin:postgresql-<appVersion>` |
+| `external` | Production with externally managed PostgreSQL (RDS, Cloud SQL, etc.) | `fosrl/pangolin:postgresql-<appVersion>` |
+| `embedded` | Labs/test – chart-managed PostgreSQL StatefulSet | `fosrl/pangolin:postgresql-<appVersion>` |
+| `sqlite` | **Dev/CI only – NOT for production** | `fosrl/pangolin:<appVersion>` |
+
+## CloudNativePG setup (recommended production database)
+
+CloudNativePG (CNPG) is the preferred production database backend. The chart uses the official
+[cloudnative-pg operator chart](https://cloudnative-pg.github.io/charts) and the official
+[cluster chart](https://cloudnative-pg.github.io/charts) from the same repository.
+
+The operator and cluster are controlled only by top-level subchart values and support four modes:
+
+1. **External operator + external cluster**: `cnpg-operator.enabled=false`, `cnpg-cluster.enabled=false`
+2. **Chart installs operator only**: `cnpg-operator.enabled=true`, `cnpg-cluster.enabled=false`
+3. **Chart installs cluster only**: `cnpg-operator.enabled=false`, `cnpg-cluster.enabled=true`
+4. **Chart installs both operator and cluster**: `cnpg-operator.enabled=true`, `cnpg-cluster.enabled=true`
+
+When `database.mode=cloudnativepg` and `cnpg-cluster.enabled=true`, Pangolin resolves the cluster
+name in this order:
+
+1. `cnpg-cluster.fullnameOverride` (when non-empty)
+2. `database.cloudnativepg.cluster.name`
+
+If both are set to different values, chart rendering fails with:
+`PANGOLIN-CNPG: cnpg-cluster.fullnameOverride and database.cloudnativepg.cluster.name must match when cnpg-cluster.enabled=true`.
+
+### Connecting Pangolin to a CNPG cluster
+
+CloudNativePG automatically creates an application Secret when a cluster boots.
+For a cluster named `pangolin-db` (the default `cnpg-cluster.fullnameOverride`),
+the Secret is named **`pangolin-db-app`** and contains the key **`uri`** with the full PostgreSQL
+connection string (format: `postgresql://user:password@host:port/dbname?sslmode=...`).
+
+**Default behavior — auto-derived CNPG app Secret (no extra configuration needed):**
+
+The chart automatically references the CNPG-generated app Secret (`<cluster-name>-app`, key `uri`)
+when no explicit `database.connection.existingSecretName` is set. With the default cluster name
+`pangolin-db`, the Deployment uses:
+
+```
+secretName: pangolin-db-app
+key:        uri
+```
+
+This means a basic CNPG setup requires **no `database.connection` overrides at all**.
+
+**Optional: explicitly reference the CNPG-generated app Secret:**
+
+```yaml
+database:
+  mode: cloudnativepg
+  # cloudnativepg.cluster.name is optional when cnpg-cluster.fullnameOverride is set
+  connection:
+    existingSecretName: pangolin-db-app   # created automatically by CNPG
+    existingSecretKey: uri
+
+cnpg-cluster:
+  enabled: true
+  fullnameOverride: pangolin-db
+```
+
+**Alternative — let the chart build a connection string from a password Secret:**
+
+```yaml
+database:
+  mode: cloudnativepg
+  cloudnativepg:
+    auth:
+      existingSecretName: my-db-password-secret   # Secret with the password
+      passwordKey: password
+    connection:
+      generatedSecret:
+        create: true
+```
+
+> **Note:** The chart never silently generates a passwordless PostgreSQL connection string. If you
+> enable `database.cloudnativepg.connection.generatedSecret.create=true` without providing a
+> password source, the chart will fail at render time with a clear error message.
+
+See `examples/values-controller-cnpg.yaml` for a complete working example.
+
+## External PostgreSQL database
+
+For production deployments using an externally managed PostgreSQL server (RDS, Cloud SQL,
+self-managed, etc.), set `database.mode=external` and configure one of these options:
+
+### Option A — User-managed Secret (recommended for production)
+
+Create the Secret yourself and reference it. The chart will fail with a clear error (PANGOLIN-061)
+if no Secret source is configured.
+
+```bash
+kubectl create secret generic pangolin-ext-db \
+  --from-literal=connectionString="postgresql://pangolin:s3cr3t@db.example.com:5432/pangolin?sslmode=require"
+```
+
+```yaml
+database:
+  mode: external
+  connection:
+    existingSecretName: pangolin-ext-db    # pre-existing Secret
+    existingSecretKey: connectionString
+```
+
+### Option B — Chart-managed Secret from a full connection string
+
+```yaml
+database:
+  mode: external
+  external:
+    generatedSecret:
+      create: true
+      connectionString: "postgresql://pangolin:s3cr3t@db.example.com:5432/pangolin?sslmode=require"
+```
+
+### Option C — Chart-managed Secret from individual connection parameters
+
+```yaml
+database:
+  mode: external
+  external:
+    generatedSecret:
+      create: true
+      host: db.example.com
+      port: 5432
+      database: pangolin
+      username: pangolin
+      password: s3cr3t
+      sslMode: require
+```
+
+> **Note:** Setting `database.mode=external` without any Secret source configuration will cause Helm
+> to fail at render time with a clear `PANGOLIN-061` error. This prevents Pangolin from starting with
+> a missing database Secret.
+
+See `examples/values-controller-external-db.yaml` for a complete working example.
+
+## Ingress and Traefik guidance
+
+- In controller mode you typically expose Pangolin via Traefik CRDs/IngressRoute resources.
+- `pangolin.config.traefik` configures the Traefik output Pangolin generates in `config.yml`; it does **not** install Traefik.
+- The chart renders `pangolin.config.traefik` by default so entrypoint and cert resolver names are explicit. Review `pangolin.config.traefik.http_entrypoint`, `https_entrypoint`, and `cert_resolver` so they match your real Traefik deployment.
+- If you enable the bundled Traefik dependency, put Traefik chart overrides under the **`traefikController:`** key (the dependency is aliased).
+- In standalone mode, Traefik dashboard is **disabled by default** and the Service does **not** expose the admin port.
+
+### Chart-managed dashboard IngressRoute (controller mode)
+
+By default (`pangolin.ingressRoute.dashboard.enabled=true`) the chart renders a Traefik `IngressRoute`
+for the Pangolin dashboard/API when `deployment.type=controller`.
+
+- Host defaults to `pangolin.config.app.dashboard_url` (hostname extracted from URL), or set `pangolin.ingressRoute.dashboard.host`.
+- API route: `Host(<host>) && PathPrefix(/api/v1)` -> `pangolin.service.ports.external` (default `3000`), priority `100`.
+- Dashboard route: `Host(<host>)` -> `pangolin.service.ports.next` (default `3002`), priority `10`.
+- `tls.certResolver` and `tls.secretName` are mutually exclusive when TLS is enabled.
+- `tls.secretName` references a Secret in the same namespace as the `IngressRoute` (Traefik CRD cross-namespace Secret usage is provider-dependent and not configured by this chart).
+- To target one Traefik instance in multi-controller setups, add `pangolin.ingressRoute.dashboard.traefikSelectorLabels` (metadata labels matched by the provider `labelSelector`).
+- `ingressClassName` is mapped to `metadata.annotations["kubernetes.io/ingress.class"]` for CRD-provider ingress-class filtering.
+
+#### Example: certResolver mode
+
+```yaml
+pangolin:
+  config:
+    app:
+      dashboard_url: "https://pangolin-e2e.example.com"
+  ingressRoute:
+    dashboard:
+      enabled: true
+      tls:
+        certResolver: letsencrypt
+```
+
+#### Example: existing TLS Secret mode
+
+```yaml
+pangolin:
+  ingressRoute:
+    dashboard:
+      enabled: true
+      tls:
+        certResolver: ""
+        secretName: pangolin-dashboard-tls
+```
+
+#### Example: multi-Traefik labelSelector mode
+
+```yaml
+pangolin:
+  ingressRoute:
+    dashboard:
+      enabled: true
+      traefikSelectorLabels:
+        traefik-instance: public
+```
+
+## Security and permissions
+
+- **Gerbil/WireGuard:** Gerbil typically needs to run as root and requires Linux capabilities like `NET_ADMIN`/`SYS_MODULE` for WireGuard tunnel management. Do not “blindly harden” Gerbil without validating WireGuard functionality in your environment.
+- **NetworkPolicy:** By default, the chart does **not** allow broad HTTPS egress to the internet. If your deployment needs outbound TCP/443, explicitly enable it (or, preferably, add a scoped allow-list via `networkPolicy.extraEgress`).
+- **ServiceAccount token automount (least-privilege):**
+  - **Controller** (`serviceAccount.controller.automountServiceAccountToken=true`, default): the pangolin-kube-controller must call the Kubernetes API to reconcile Traefik CRDs, manage EndpointSlices, and (optionally) perform leader election. It therefore requires a mounted ServiceAccount token. The matching RBAC Role/ClusterRole is only bound to the controller ServiceAccount.
+  - **Pangolin** (`serviceAccount.pangolin.automountServiceAccountToken=false`, default): the main Pangolin application server does not require Kubernetes API access. Keeping automount disabled follows the least-privilege principle and prevents accidental in-cluster API calls.
+  - **Gerbil** (`serviceAccount.gerbil.automountServiceAccountToken=false`, default): Gerbil manages WireGuard tunnels and does not require Kubernetes API access. Token automount is disabled by default.
+  - All three settings are configurable via `serviceAccount.<component>.automountServiceAccountToken`.
+- **Single mode ServiceAccount trade-off:** Kubernetes ServiceAccount selection is Pod-level. In `deployment.mode=single` + `deployment.type=controller`, the shared Pod uses the controller ServiceAccount/token so Pangolin and Gerbil share that Pod-level token behavior.
+- **hostNetwork:** `runtime.hostNetwork=true` reduces network isolation. Enable it only when you understand why it’s required (some WireGuard / UDP exposure setups may need it).
+- **Container security context:** `global.containerSecurityContext` is intentionally empty by default so you can choose a baseline that matches your cluster policy. Workloads merge this with their own `*.securityContext`.
+
+## Production checklist
+
+- Use `deployment.type=controller` unless you have a reason not to.
+- Use `cloudnativepg` or `external` for the database; avoid `sqlite` in production.
+- For CloudNativePG (recommended):
+	- The chart **automatically** references the CNPG-generated app Secret (`<cluster-name>-app`, key `uri`).
+	  No extra `database.connection` configuration is needed for the default setup.
+	- Or explicitly reference it via `database.connection.existingSecretName: <cluster-name>-app` / `existingSecretKey: uri`
+	- Or provide a password and set `database.cloudnativepg.connection.generatedSecret.create=true`
+- Provide externally managed Secrets where appropriate:
+	- `pangolin.secret.existingSecretName` (Pangolin app server secret)
+	- database connection Secret (`database.connection.existingSecretName`)
+- Review `pangolin.config.traefik.*` so Pangolin emits routes for the same Traefik entrypoints and certificate resolver names your cluster actually uses.
+- For external PostgreSQL:
+	- User-managed Secret: set `database.connection.existingSecretName` — Helm fails with PANGOLIN-061 if omitted
+	- Chart-managed Secret: set `database.external.generatedSecret.create=true` with a `connectionString` or individual params
+- If you use standalone Traefik + ACME:
+	- set `traefik.config.letsencryptEmail`
+	- enable persistence when dashboard/ACME state must survive restarts
+- Review NetworkPolicy egress needs and avoid broad 0.0.0.0/0 allows when possible.
+- Validate Gerbil/WireGuard requirements against your cluster security policies.
+
+## Release smoke-test and readiness checklist
+
+Use this checklist before tagging alpha/RC/stable releases. This runtime validation is intentionally separate from the automated E2E workflow.
+
+### Before alpha
+
+- [ ] `helm dependency build charts/pangolin`
+- [ ] `helm lint charts/pangolin`
+- [ ] Render templates:
+  - [ ] `helm template demo charts/pangolin --namespace pangolin > /tmp/pangolin-default.yaml`
+  - [ ] `for values in charts/pangolin/examples/*.yaml; do helm template demo charts/pangolin --namespace pangolin -f "$values" > "/tmp/pangolin-$(basename "$values" .yaml).yaml"; done`
+- [ ] `helm unittest charts/pangolin`
+- [ ] `yamllint -d '{extends: relaxed, rules: {line-length: {max: 200}, indentation: {spaces: consistent, indent-sequences: whatever}, trailing-spaces: disable}}' /tmp/pangolin-*.yaml`
+- [ ] `for f in /tmp/pangolin-*.yaml; do kubeconform -strict -summary -ignore-missing-schemas "$f"; done`
+- [ ] Validate image/app versions and ArtifactHub image annotations in `charts/pangolin/Chart.yaml` and `charts/pangolin/values.yaml` are consistent.
+- [ ] Bump chart version from `0.1.0-alpha.0` to the next alpha in `charts/pangolin/Chart.yaml`.
+- [ ] Do **not** change `kubeVersion`; current value is intentional.
+
+### Before RC
+
+- [ ] Install in a real cluster (or Talos GitHub Actions cluster) and wait for readiness:
+  - [ ] `kubectl wait --for=condition=Available deploy/<release>-pangolin -n <ns> --timeout=10m`
+  - [ ] `kubectl wait --for=condition=Available deploy/<release>-pangolin-kube-controller -n <ns> --timeout=10m`
+- [ ] Default controller + CloudNativePG path reaches readiness (`deployment.type=controller`, `database.mode=cloudnativepg`).
+- [ ] Pangolin is running with PostgreSQL image:
+  - [ ] `kubectl get deploy/<release>-pangolin -n <ns> -o jsonpath='{.spec.template.spec.containers[0].image}'` contains `:postgresql-`.
+- [ ] Gerbil registration + persistence works:
+  - [ ] Confirm startup logs show registration success.
+  - [ ] Confirm `/var/config/key` persists across restart (`kubectl exec ... -- ls -l /var/config/key`, then restart and re-check).
+- [ ] Controller probes and API access work:
+  - [ ] `kubectl port-forward -n <ns> svc/<release>-pangolin-kube-controller 9090:9090` then `curl -fsS http://127.0.0.1:9090/livez` and `curl -fsS http://127.0.0.1:9090/readyz`.
+  - [ ] Controller logs confirm Kubernetes API connectivity (no repeated in-cluster auth/permission errors).
+- [ ] Traefik CRDs are present and reconciled where applicable (`IngressRoute`, `Middleware`, `TLSOption`).
+- [ ] Default NetworkPolicy does not block startup (Pangolin, Gerbil, controller, and DB all become ready).
+
+### Before stable
+
+- [ ] Runtime test matrix:
+  - [ ] Controller / multi mode (`deployment.type=controller`, `deployment.mode=multi`) — required.
+  - [ ] Controller / single mode after single mode is implemented.
+  - [ ] Standalone / multi mode.
+  - [ ] Standalone / single mode if implemented.
+  - [ ] External DB mode.
+  - [ ] Strict NetworkPolicy mode (`examples/values-networkpolicy-strict.yaml`).
+- [ ] Production guidance is still accurate:
+  - [ ] `deployment.mode=multi` remains recommended for production.
+  - [ ] Standalone Traefik remains less recommended than controller mode unless self-contained deployment is required.
+- [ ] Renovate dry-run confirms image/action/dependency update detection.
+- [ ] ArtifactHub metadata verified (links, maintainers, image annotations).
+- [ ] Blueprint + Newt workflow tested/documented:
+  - [ ] Blueprint files are stored by this chart (ConfigMap/Secret).
+  - [ ] Blueprints are applied via Newt (`--blueprint-file` / `--provisioning-blueprint-file`), not by Pangolin server directly.
+
+## Troubleshooting basics
+
+- Check rendered resources: `helm template <release> charts/pangolin -n <ns> | less`
+- Check pods: `kubectl get pods -n <ns> -l app.kubernetes.io/instance=<release>`
+- Check events: `kubectl get events -n <ns> --sort-by=.lastTimestamp | tail -n 50`
+- Controller logs: `kubectl logs -n <ns> deploy/<release>-pangolin --since=10m` (adjust name if overridden)
+
+## Gerbil networking model
+
+- Gerbil always opens UDP ports on the Pod.
+- `gerbil.service.enabled=false` means the chart does not create a Service for those UDP ports (useful for hostNetwork/hostPort patterns or when you publish UDP another way).
+- If you need Kubernetes Service-based exposure for Gerbil UDP, set `gerbil.service.enabled=true` and pick an appropriate Service `type`.
+
+## Gerbil first-run bootstrap behavior
+
+- Upstream Pangolin returns `404 {"message":"Exit node not found"}` from `/gerbil/get-all-relays` until an exit node exists.
+- Upstream Gerbil exits on startup when that endpoint returns non-200 (`Failed to fetch initial mappings`), so waiting for Gerbil readiness can fail on fresh installs before UI/bootstrap is completed.
+- Use `gerbil.startupMode=delayed` for first installs or smoke tests. This keeps Gerbil resources rendered but starts the Deployment with `replicas: 0` so `helm install --wait` can succeed while you complete initial Pangolin setup.
+- After setup, switch to normal startup with:
+
+```bash
+helm upgrade <release> <chart> -n <namespace> --reuse-values --set gerbil.startupMode=normal
+```
+
+## Secrets
+
+- **Pangolin app secret:** If you do not provide `pangolin.secret.existingSecretName`, the chart generates a strong random secret and reuses it across upgrades.
+- **Controller TLS:** In controller mode, the chart can generate a self-signed `kubernetes.io/tls` Secret (or you can provide an existing one via `controller.tls.existingSecretName`).
+
+## Standalone Traefik notes
+
+- `pangolin.config.traefik` configures Pangolin's generated Traefik output only; Traefik installation is controlled separately by top-level `traefik.enabled`.
+- `traefik.enabled=true` requires `traefik.config.letsencryptEmail` to be set.
+- If you enable the Traefik dashboard (`traefik.config.dashboard=true`), enable `traefik.persistence.enabled` so ACME state survives restarts.
+
+## Storage
+
+- If your cluster has no default StorageClass, explicitly set `global.storageClass` and/or per-PVC `*.persistence.storageClass` values.
+
+## Upgrades and rollbacks
+
+- Secrets generated by the chart (like the Pangolin app secret) are designed to be stable across upgrades.
+- For embedded database mode, data lives on a PVC; rolling back a chart does not revert database data.
+- Use standard Helm workflows: `helm upgrade` to update, `helm rollback` to revert.
+
+## Blueprints
+
+Pangolin [Blueprints](https://docs.pangolin.net/manage/blueprints) let you define resources (public-resources, private-resources, sites) as YAML and apply them to Pangolin via Newt agents using `--blueprint-file` or `--provisioning-blueprint-file`. The Pangolin server does **not** read blueprint files directly — Newt pushes blueprints through the Pangolin API.
+
+This chart provides optional storage of blueprint YAML files as Kubernetes ConfigMaps and Secrets so they can be managed declaratively alongside your Pangolin release.
+
+### Enabling blueprints
+
+```yaml
+pangolin:
+  blueprints:
+    enabled: true
+    configMap:
+      create: true
+    files:
+      site-blueprint.yaml: |
+        sites:
+          my-site:
+            name: My Site
+            docker-socket-enabled: true
+        public-resources:
+          web-app:
+            name: Web Application
+            protocol: http
+            full-domain: "app.example.com"
+            targets:
+              - site: my-site
+                hostname: app
+                port: 8080
+                method: http
+```
+
+### Environment templating
+
+Blueprint YAML supports `{{"{{"}}env.VARIABLE_NAME{{"}}"}}` placeholders. At apply time, Newt resolves them from its process environment. Store sensitive per-site or per-device values (serial numbers, customer slugs) in a Secret:
+
+```yaml
+pangolin:
+  blueprints:
+    enabled: true
+    existingConfigMap: my-blueprint-configmap    # ConfigMap you manage externally
+    environmentSecret:
+      create: true
+    environment:
+      BASE_DOMAIN: "example.com"
+      # Sensitive values should come from an existingEnvironmentSecret instead:
+      # SERIAL_NUMBER: "device-001"
+```
+
+> **Security note:** Do **not** put sensitive provisioning values (API tokens, passwords, device serials) into the chart-managed blueprint `environment` map. Pass them to the chart via `existingEnvironmentSecret` pointing at a Secret you manage outside this chart, or inject them directly into your Newt process environment.
+
+### Using existing resources
+
+```yaml
+pangolin:
+  blueprints:
+    enabled: true
+    existingConfigMap: my-blueprint-configmap         # pre-existing ConfigMap
+    existingEnvironmentSecret: my-blueprint-env       # pre-existing Secret
+```
+
+See `examples/values-blueprints.yaml` for a complete working example.
+
+{{ template "chart.valuesSection" . }}
+
+{{ template "chart.maintainersSection" . }}

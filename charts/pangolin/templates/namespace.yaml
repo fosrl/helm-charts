@@ -1,0 +1,36 @@
+{{- /*
+  Namespace template.
+  Renders a Namespace resource when namespace.create=true.
+  Applies Pod Security Admission labels from namespace.podSecurity.
+  Required for Gerbil: namespace must be labelled pod-security.kubernetes.io/enforce=privileged
+  to allow the NET_ADMIN capability needed for WireGuard interface management.
+*/ -}}
+{{- if .Values.namespace.create -}}
+{{- $nsName := .Values.namespace.name | default .Release.Namespace -}}
+{{- $globalAnns := include "pangolin.global.commonAnnotations" . | fromYaml -}}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $nsName }}
+  labels:
+    {{- include "pangolin.renderNonSelectorLabels" (dict "labels" (mergeOverwrite (dict) (.Values.global.additionalLabels | default dict) (.Values.global.commonLabels | default dict))) | nindent 4 }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    {{- with .Values.namespace.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- with .Values.namespace.podSecurity }}
+    {{- if .enforce }}
+    pod-security.kubernetes.io/enforce: {{ .enforce | quote }}
+    {{- end }}
+    {{- if .warn }}
+    pod-security.kubernetes.io/warn: {{ .warn | quote }}
+    {{- end }}
+    {{- if .audit }}
+    pod-security.kubernetes.io/audit: {{ .audit | quote }}
+    {{- end }}
+    {{- end }}
+  {{- if gt (len $globalAnns) 0 }}
+  annotations:
+    {{- toYaml $globalAnns | nindent 4 }}
+  {{- end }}
+{{- end }}

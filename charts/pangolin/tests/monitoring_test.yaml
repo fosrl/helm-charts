@@ -1,0 +1,48 @@
+suite: monitoring rendering
+templates:
+  - templates/servicemonitor.yaml
+  - templates/podmonitor.yaml
+  - templates/prometheusrule.yaml
+  - templates/deployment-controller.yaml
+tests:
+  - it: does not render ServiceMonitor by default
+    template: templates/servicemonitor.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: does not render PodMonitor by default
+    template: templates/podmonitor.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: does not render PrometheusRule by default
+    template: templates/prometheusrule.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders ServiceMonitor when enabled
+    set:
+      controller.monitoring.serviceMonitor.enabled: true
+    template: templates/servicemonitor.yaml
+    asserts:
+      - isKind:
+          of: ServiceMonitor
+
+  - it: renders PodMonitor when enabled
+    set:
+      controller.monitoring.podMonitor.enabled: true
+    template: templates/podmonitor.yaml
+    asserts:
+      - isKind:
+          of: PodMonitor
+
+  - it: renders PrometheusRule when enabled
+    set:
+      controller.monitoring.prometheusRule.enabled: true
+    template: templates/prometheusrule.yaml
+    asserts:
+      - isKind:
+          of: PrometheusRule

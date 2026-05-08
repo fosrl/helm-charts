@@ -1,0 +1,291 @@
+suite: single mode rendering
+templates:
+  - templates/validate.yaml
+  - templates/deployment-single.yaml
+  - templates/deployment-pangolin.yaml
+  - templates/deployment-gerbil.yaml
+  - templates/deployment-controller.yaml
+  - templates/deployment-traefik.yaml
+  - templates/pvc-gerbil.yaml
+  - templates/service-pangolin.yaml
+  - templates/service-gerbil.yaml
+  - templates/service-controller.yaml
+  - templates/service-traefik.yaml
+  - templates/networkpolicy.yaml
+tests:
+  - it: renders single controller workload with pangolin + gerbil + controller
+    set:
+      deployment.mode: single
+      deployment.type: controller
+      controller.enabled: true
+    template: templates/deployment-single.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: Deployment
+      - equal:
+          path: spec.selector.matchLabels["app.kubernetes.io/component"]
+          value: single
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: pangolin
+      - equal:
+          path: spec.template.spec.containers[1].name
+          value: gerbil
+      - equal:
+          path: spec.template.spec.containers[1].args[0]
+          value: "--reachableAt=http://127.0.0.1:3004"
+      - equal:
+          path: spec.template.spec.containers[1].args[2]
+          value: "--remoteConfig=http://127.0.0.1:3001/api/v1/"
+      - equal:
+          path: spec.template.spec.containers[2].name
+          value: controller
+      - lengthEqual:
+          path: spec.template.spec.containers
+          count: 3
+
+  - it: single controller mode uses component securityContext defaults
+    set:
+      deployment.mode: single
+      deployment.type: controller
+      controller.enabled: true
+    template: templates/deployment-single.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsNonRoot
+          value: false
+      - equal:
+          path: spec.template.spec.containers[1].securityContext.runAsNonRoot
+          value: false
+      - equal:
+          path: spec.template.spec.containers[1].securityContext.capabilities.add[0]
+          value: NET_ADMIN
+      - equal:
+          path: spec.template.spec.containers[1].securityContext.capabilities.drop[0]
+          value: ALL
+      - equal:
+          path: spec.template.spec.containers[2].securityContext.runAsNonRoot
+          value: false
+
+  - it: renders single standalone workload with pangolin + gerbil + traefik
+    set:
+      deployment.mode: single
+      deployment.type: standalone
+      traefik.enabled: true
+      traefik.config.letsencryptEmail: ops@example.com
+      traefik.config.dynamicRouters.host: pangolin.local
+    template: templates/deployment-single.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: pangolin
+      - equal:
+          path: spec.template.spec.containers[1].name
+          value: gerbil
+      - equal:
+          path: spec.template.spec.containers[2].name
+          value: traefik
+      - lengthEqual:
+          path: spec.template.spec.containers
+          count: 3
+
+  - it: single standalone mode uses component securityContext defaults
+    set:
+      deployment.mode: single
+      deployment.type: standalone
+      traefik.enabled: true
+      traefik.config.letsencryptEmail: ops@example.com
+      traefik.config.dynamicRouters.host: pangolin.local
+    template: templates/deployment-single.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsNonRoot
+          value: false
+      - equal:
+          path: spec.template.spec.containers[1].securityContext.runAsNonRoot
+          value: false
+      - equal:
+          path: spec.template.spec.containers[1].securityContext.capabilities.add[0]
+          value: NET_ADMIN
+      - equal:
+          path: spec.template.spec.containers[1].securityContext.capabilities.drop[0]
+          value: ALL
+
+  - it: single mode does not render separate multi-mode workloads
+    set:
+      deployment.mode: single
+      deployment.type: controller
+      controller.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
+    template: templates/deployment-pangolin.yaml
+
+  - it: single mode does not render separate gerbil workload
+    set:
+      deployment.mode: single
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: single mode does not render separate controller workload
+    set:
+      deployment.mode: single
+      deployment.type: controller
+      controller.enabled: true
+    template: templates/deployment-controller.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: single mode does not render separate standalone traefik workload
+    set:
+      deployment.mode: single
+      deployment.type: standalone
+      traefik.enabled: true
+      traefik.config.letsencryptEmail: ops@example.com
+      traefik.config.dynamicRouters.host: pangolin.local
+    template: templates/deployment-traefik.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: single mode services select the single pod
+    set:
+      deployment.mode: single
+      deployment.type: controller
+      controller.enabled: true
+    template: templates/service-pangolin.yaml
+    asserts:
+      - equal:
+          path: spec.selector["app.kubernetes.io/component"]
+          value: single
+
+  - it: single mode gerbil service selects the single pod
+    set:
+      deployment.mode: single
+      gerbil.enabled: true
+      gerbil.service.enabled: true
+    template: templates/service-gerbil.yaml
+    asserts:
+      - equal:
+          path: spec.selector["app.kubernetes.io/component"]
+          value: single
+
+  - it: single mode controller service selects the single pod
+    set:
+      deployment.mode: single
+      deployment.type: controller
+      controller.enabled: true
+    template: templates/service-controller.yaml
+    asserts:
+      - equal:
+          path: spec.selector["app.kubernetes.io/component"]
+          value: single
+
+  - it: single mode standalone traefik service selects the single pod
+    set:
+      deployment.mode: single
+      deployment.type: standalone
+      traefik.enabled: true
+      traefik.config.letsencryptEmail: ops@example.com
+      traefik.config.dynamicRouters.host: pangolin.local
+    template: templates/service-traefik.yaml
+    asserts:
+      - equal:
+          path: spec.selector["app.kubernetes.io/component"]
+          value: single
+
+  - it: single mode gerbil persistence mounts pvc by default
+    set:
+      deployment.mode: single
+    template: templates/deployment-single.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes[1].persistentVolumeClaim.claimName
+          value: RELEASE-NAME-pangolin-gerbil-config
+
+  - it: single mode with gerbil disabled omits gerbil container and service
+    set:
+      deployment.mode: single
+      gerbil.enabled: false
+    template: templates/deployment-single.yaml
+    asserts:
+      - lengthEqual:
+          path: spec.template.spec.containers
+          count: 2
+      - notContains:
+          path: spec.template.spec.containers
+          content:
+            name: gerbil
+
+  - it: single mode with gerbil disabled omits gerbil service
+    set:
+      deployment.mode: single
+      gerbil.enabled: false
+      gerbil.service.enabled: true
+    template: templates/service-gerbil.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: single controller mode fails clearly when controller disabled
+    set:
+      deployment.mode: single
+      deployment.type: controller
+      controller.enabled: false
+    template: templates/validate.yaml
+    asserts:
+      - failedTemplate:
+          errorMessage: "PANGOLIN-016: deployment.mode=single with deployment.type=controller requires controller.enabled=true."
+
+  - it: network policy renders in single mode
+    set:
+      deployment.mode: single
+      deployment.type: controller
+      controller.enabled: true
+      networkPolicy.enabled: true
+    template: templates/networkpolicy.yaml
+    asserts:
+      - hasDocuments:
+          count: 6
+
+  - it: single controller mode uses automountServiceAccountToken true
+    set:
+      deployment.mode: single
+      deployment.type: controller
+      controller.enabled: true
+    template: templates/deployment-single.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: true
+
+  - it: single controller mode uses controller ServiceAccount
+    set:
+      deployment.mode: single
+      deployment.type: controller
+      controller.enabled: true
+    template: templates/deployment-single.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: RELEASE-NAME-pangolin-controller-sa
+
+  - it: single standalone mode uses automountServiceAccountToken false
+    set:
+      deployment.mode: single
+      deployment.type: standalone
+      traefik.enabled: true
+      traefik.config.letsencryptEmail: ops@example.com
+      traefik.config.dynamicRouters.host: pangolin.local
+    template: templates/deployment-single.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false

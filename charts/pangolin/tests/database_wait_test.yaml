@@ -1,0 +1,161 @@
+suite: database wait initContainer rendering
+templates:
+  - templates/deployment-pangolin.yaml
+  - templates/deployment-single.yaml
+
+tests:
+  # ---- multi mode (deployment-pangolin.yaml) ----
+
+  - it: renders wait-for-db initContainer in multi mode for cloudnativepg (default)
+    template: templates/deployment-pangolin.yaml
+    set:
+      database.mode: cloudnativepg
+      database.cloudnativepg.cluster.name: pangolin-db
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: wait-for-db
+      - equal:
+          path: spec.template.spec.initContainers[0].image
+          value: "docker.io/postgres:17"
+      - matchRegex:
+          path: spec.template.spec.initContainers[0].command[2]
+          pattern: "pg_isready -d"
+      - matchRegex:
+          path: spec.template.spec.initContainers[0].command[2]
+          pattern: "STABLE_SECONDS=30"
+      - matchSnapshot:
+          path: spec.template.spec.initContainers[0].securityContext
+
+  - it: wait-for-db initContainer uses same Secret/key as Pangolin container env
+    template: templates/deployment-pangolin.yaml
+    set:
+      database.mode: cloudnativepg
+      database.cloudnativepg.cluster.name: my-cluster
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].env[0].valueFrom.secretKeyRef.name
+          value: my-cluster-app
+      - equal:
+          path: spec.template.spec.initContainers[0].env[0].valueFrom.secretKeyRef.key
+          value: uri
+      - equal:
+          path: spec.template.spec.containers[0].env[1].valueFrom.secretKeyRef.name
+          value: my-cluster-app
+      - equal:
+          path: spec.template.spec.containers[0].env[1].valueFrom.secretKeyRef.key
+          value: uri
+
+  - it: wait-for-db initContainer respects custom timeout, interval, and stable window in multi mode
+    template: templates/deployment-pangolin.yaml
+    set:
+      database.mode: cloudnativepg
+      database.cloudnativepg.cluster.name: pangolin-db
+      pangolin.databaseWait.timeoutSeconds: 120
+      pangolin.databaseWait.intervalSeconds: 10
+      pangolin.databaseWait.stableSeconds: 40
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.initContainers[0].command[2]
+          pattern: 'TIMEOUT_SECONDS=120'
+      - matchRegex:
+          path: spec.template.spec.initContainers[0].command[2]
+          pattern: 'INTERVAL_SECONDS=10'
+      - matchRegex:
+          path: spec.template.spec.initContainers[0].command[2]
+          pattern: 'STABLE_SECONDS=40'
+
+  - it: wait-for-db initContainer uses custom image when overridden in multi mode
+    template: templates/deployment-pangolin.yaml
+    set:
+      database.mode: cloudnativepg
+      database.cloudnativepg.cluster.name: pangolin-db
+      pangolin.databaseWait.image.repository: my-registry/netcat
+      pangolin.databaseWait.image.tag: "2.0"
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].image
+          value: "docker.io/my-registry/netcat:2.0"
+
+  - it: wait-for-db initContainer supports image registry override
+    template: templates/deployment-pangolin.yaml
+    set:
+      database.mode: cloudnativepg
+      database.cloudnativepg.cluster.name: pangolin-db
+      pangolin.databaseWait.image.registry: registry.example.com
+      pangolin.databaseWait.image.repository: test/postgres
+      pangolin.databaseWait.image.tag: "17.1"
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].image
+          value: "registry.example.com/test/postgres:17.1"
+
+  - it: does not render wait-for-db initContainer when databaseWait.enabled=false in multi mode
+    template: templates/deployment-pangolin.yaml
+    set:
+      database.mode: cloudnativepg
+      database.cloudnativepg.cluster.name: pangolin-db
+      pangolin.databaseWait.enabled: false
+    asserts:
+      - isNull:
+          path: spec.template.spec.initContainers
+
+  - it: does not render wait-for-db initContainer for sqlite in multi mode
+    template: templates/deployment-pangolin.yaml
+    set:
+      database.mode: sqlite
+    asserts:
+      - isNull:
+          path: spec.template.spec.initContainers
+
+  - it: renders wait-for-db initContainer for embedded mode in multi mode
+    template: templates/deployment-pangolin.yaml
+    set:
+      database.mode: embedded
+      database.embedded.enabled: true
+      database.embedded.auth.generatedSecret.create: true
+      database.embedded.auth.generatedSecret.password: testpass
+      database.connection.existingSecretName: ""
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: wait-for-db
+
+  # ---- single mode (deployment-single.yaml) ----
+
+  - it: renders wait-for-db initContainer in single mode for cloudnativepg
+    template: templates/deployment-single.yaml
+    set:
+      deployment.mode: single
+      deployment.type: standalone
+      database.mode: cloudnativepg
+      database.cloudnativepg.cluster.name: pangolin-db
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: wait-for-db
+      - equal:
+          path: spec.template.spec.initContainers[0].image
+          value: "docker.io/postgres:17"
+
+  - it: does not render wait-for-db initContainer when databaseWait.enabled=false in single mode
+    template: templates/deployment-single.yaml
+    set:
+      deployment.mode: single
+      deployment.type: standalone
+      database.mode: cloudnativepg
+      database.cloudnativepg.cluster.name: pangolin-db
+      pangolin.databaseWait.enabled: false
+    asserts:
+      - isNull:
+          path: spec.template.spec.initContainers
+
+  - it: does not render wait-for-db initContainer for sqlite in single mode
+    template: templates/deployment-single.yaml
+    set:
+      deployment.mode: single
+      deployment.type: standalone
+      database.mode: sqlite
+    asserts:
+      - isNull:
+          path: spec.template.spec.initContainers

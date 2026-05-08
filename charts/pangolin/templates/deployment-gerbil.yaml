@@ -1,0 +1,211 @@
+{{- $renderGerbilResources := eq (include "pangolin.gerbil.resourcesEnabled" .) "true" -}}
+{{- if and $renderGerbilResources (eq .Values.deployment.mode "multi") }}
+{{- $root := . -}}
+{{- $gerbil := .Values.gerbil -}}
+{{- $startupMode := include "pangolin.gerbil.startupMode" . -}}
+{{- $fullname := printf "%s-gerbil" (include "pangolin.fullname" .) -}}
+{{- $namespace := include "pangolin.namespace" . -}}
+{{- $saName := include "pangolin.serviceAccountName.gerbil" . -}}
+{{- $replicas := $gerbil.replicaCount | default 1 -}}
+{{- $gerbilWait := (include "pangolin.wait.config" (dict "root" $root "override" ($gerbil.waitForPangolin | default dict)) | fromYaml) | default dict -}}
+{{- $gerbilWaitUserEnabled := ternary (index $gerbilWait "enabled") true (hasKey $gerbilWait "enabled") -}}
+{{- $gerbilWaitEndpoint := default (printf "http://%s:%v/api/v1/" (include "pangolin.fullname" $root) ($root.Values.pangolin.service.ports.internalApi | default 3001)) ($gerbil.waitForPangolin.endpoint | default "") -}}
+{{- $depMetaAnns := mergeOverwrite (dict) (include "pangolin.global.commonAnnotations" $root | fromYaml) (include "pangolin.component.commonAnnotations" (dict "root" $root "component" "gerbil") | fromYaml) ($gerbil.deployment.annotations | default dict) -}}
+{{- $podMetaAnns := mergeOverwrite (dict) (include "pangolin.global.commonAnnotations" $root | fromYaml) ($root.Values.global.additionalPodAnnotations | default dict) (include "pangolin.component.commonAnnotations" (dict "root" $root "component" "gerbil") | fromYaml) ($gerbil.deployment.podAnnotations | default dict) -}}
+{{- if eq $startupMode "delayed" -}}
+{{- $replicas = 0 -}}
+{{- end -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "pangolin.labels" $root | nindent 4 }}
+    {{- include "pangolin.component.commonLabels" (dict "root" $root "component" "gerbil") | nindent 4 }}
+    {{- include "pangolin.renderNonSelectorLabels" (dict "labels" ($gerbil.deployment.labels | default dict)) | nindent 4 }}
+    app.kubernetes.io/component: gerbil
+  {{- if gt (len $depMetaAnns) 0 }}
+  annotations:
+    {{- toYaml $depMetaAnns | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: {{ $replicas }}
+  revisionHistoryLimit: {{ $root.Values.global.revisionHistoryLimit | default 10 }}
+  selector:
+    matchLabels:
+      {{- include "pangolin.gerbil.selectorLabels" $root | nindent 6 }}
+  {{- if $root.Values.runtime.minReadySeconds }}
+  minReadySeconds: {{ $root.Values.runtime.minReadySeconds }}
+  {{- end }}
+  {{- with $root.Values.runtime.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  template:
+    metadata:
+      labels:
+        {{- include "pangolin.labels" $root | nindent 8 }}
+        {{- include "pangolin.component.commonLabels" (dict "root" $root "component" "gerbil") | nindent 8 }}
+        {{- include "pangolin.renderNonSelectorLabels" (dict "labels" ($root.Values.global.additionalPodLabels | default dict)) | nindent 8 }}
+        {{- include "pangolin.renderNonSelectorLabels" (dict "labels" ($gerbil.deployment.podLabels | default dict)) | nindent 8 }}
+        app.kubernetes.io/component: gerbil
+      {{- if gt (len $podMetaAnns) 0 }}
+      annotations:
+        {{- toYaml $podMetaAnns | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ $saName }}
+      automountServiceAccountToken: {{ $root.Values.serviceAccount.gerbil.automountServiceAccountToken }}
+      terminationGracePeriodSeconds: {{ $root.Values.runtime.terminationGracePeriodSeconds | default 30 }}
+      {{- if $root.Values.global.priorityClassName }}
+      priorityClassName: {{ $root.Values.global.priorityClassName }}
+      {{- end }}
+      {{- $ips := include "pangolin.imagePullSecrets" $root }}
+      {{- if $ips }}
+      {{- $ips | nindent 6 }}
+      {{- end }}
+      {{- if $root.Values.global.affinity }}
+      affinity:
+        {{- toYaml $root.Values.global.affinity | nindent 8 }}
+      {{- end }}
+      {{- if $root.Values.global.nodeSelector }}
+      nodeSelector:
+        {{- toYaml $root.Values.global.nodeSelector | nindent 8 }}
+      {{- end }}
+      {{- if $root.Values.global.tolerations }}
+      tolerations:
+        {{- toYaml $root.Values.global.tolerations | nindent 8 }}
+      {{- end }}
+      {{- if $root.Values.global.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml $root.Values.global.topologySpreadConstraints | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml (mergeOverwrite (deepCopy $root.Values.global.podSecurityContext) (dict "runAsNonRoot" false)) | nindent 8 }}
+      {{- if $gerbilWaitUserEnabled }}
+      initContainers:
+        - name: wait-for-pangolin-api
+          image: {{ include "pangolin.wait.image" ($gerbilWait.image | default dict) | quote }}
+          imagePullPolicy: {{ $gerbilWait.image.pullPolicy | default "IfNotPresent" }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              ENDPOINT={{ $gerbilWaitEndpoint | quote }}
+              TIMEOUT_SECONDS={{ $gerbilWait.timeoutSeconds | default 300 }}
+              INTERVAL_SECONDS={{ $gerbilWait.intervalSeconds | default 5 }}
+              STABLE_SECONDS={{ $gerbilWait.stableSeconds | default 30 }}
+              elapsed=0
+              stable=0
+              while [ "${elapsed}" -lt "${TIMEOUT_SECONDS}" ]; do
+                if curl -fsS --max-time 5 "${ENDPOINT}" >/dev/null 2>&1; then
+                  stable=$((stable + INTERVAL_SECONDS))
+                  echo "Pangolin API ready for ${stable}/${STABLE_SECONDS}s"
+                  if [ "${stable}" -ge "${STABLE_SECONDS}" ]; then
+                    exit 0
+                  fi
+                else
+                  stable=0
+                  echo "Pangolin API not ready yet"
+                fi
+                sleep "${INTERVAL_SECONDS}"
+                elapsed=$((elapsed + INTERVAL_SECONDS))
+              done
+              echo "Timed out waiting for stable Pangolin API readiness"
+              exit 1
+          securityContext:
+            {{- toYaml (mergeOverwrite (dict "runAsNonRoot" true "runAsUser" 65534 "allowPrivilegeEscalation" false "readOnlyRootFilesystem" true "capabilities" (dict "drop" (list "ALL"))) ($gerbilWait.securityContext | default dict)) | nindent 12 }}
+      {{- end }}
+      containers:
+        - name: gerbil
+          image: {{ include "pangolin.gerbil.image" $root }}
+          imagePullPolicy: {{ $gerbil.pullPolicy | default (include "pangolin.imagePullPolicy" $root) }}
+          {{- if $gerbil.command }}
+          command:
+            {{- toYaml $gerbil.command | nindent 12 }}
+          {{- end }}
+          {{- if $gerbil.args }}
+          args:
+            {{- toYaml $gerbil.args | nindent 12 }}
+          {{- else if not $gerbil.command }}
+          args:
+            - {{ printf "--reachableAt=http://%s-gerbil:%v" (include "pangolin.fullname" $root) ($gerbil.ports.internalApi | default 3004) | quote }}
+            - --generateAndSaveKeyTo=/var/config/key
+            - {{ printf "--remoteConfig=http://%s:%v/api/v1/" (include "pangolin.fullname" $root) ($root.Values.pangolin.service.ports.internalApi | default 3001) | quote }}
+          {{- end }}
+          ports:
+            - name: wg1
+              containerPort: {{ $gerbil.ports.wg1 }}
+              protocol: UDP
+            - name: wg2
+              containerPort: {{ $gerbil.ports.wg2 }}
+              protocol: UDP
+            - name: internal-api
+              containerPort: {{ $gerbil.ports.internalApi | default 3004 }}
+              protocol: TCP
+          {{- $gerbilEnv := include "pangolin.gerbilEnv" $root | trim }}
+          {{- if $gerbilEnv }}
+          env:
+            {{- $gerbilEnv | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: gerbil-config
+              mountPath: /var/config
+          {{- with $gerbil.probes }}
+          {{- if .startup }}
+          startupProbe:
+            {{- if .startup.exec }}
+            exec:
+              command:
+                {{- range .startup.exec.command }}
+                - {{ . | quote }}
+                {{- end }}
+            {{- end }}
+            initialDelaySeconds: {{ .startup.initialDelaySeconds }}
+            periodSeconds: {{ .startup.periodSeconds }}
+            timeoutSeconds: {{ .startup.timeoutSeconds }}
+            failureThreshold: {{ .startup.failureThreshold }}
+          {{- end }}
+          {{- if .liveness }}
+          livenessProbe:
+            {{- if .liveness.exec }}
+            exec:
+              command:
+                {{- range .liveness.exec.command }}
+                - {{ . | quote }}
+                {{- end }}
+            {{- end }}
+            initialDelaySeconds: {{ .liveness.initialDelaySeconds }}
+            periodSeconds: {{ .liveness.periodSeconds }}
+            timeoutSeconds: {{ .liveness.timeoutSeconds }}
+            failureThreshold: {{ .liveness.failureThreshold }}
+          {{- end }}
+          {{- if .readiness }}
+          readinessProbe:
+            {{- if .readiness.exec }}
+            exec:
+              command:
+                {{- range .readiness.exec.command }}
+                - {{ . | quote }}
+                {{- end }}
+            {{- end }}
+            initialDelaySeconds: {{ .readiness.initialDelaySeconds }}
+            periodSeconds: {{ .readiness.periodSeconds }}
+            timeoutSeconds: {{ .readiness.timeoutSeconds }}
+            failureThreshold: {{ .readiness.failureThreshold }}
+          {{- end }}
+          {{- end }}
+          resources:
+            {{- include "pangolin.renderResources" (dict "resources" $gerbil.resources "root" .) | nindent 12 }}
+          securityContext:
+            {{- toYaml (mergeOverwrite (deepCopy $root.Values.global.containerSecurityContext) $gerbil.securityContext) | nindent 12 }}
+      volumes:
+        - name: gerbil-config
+          {{- if $gerbil.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ $gerbil.persistence.existingClaim | default (printf "%s-gerbil-config" (include "pangolin.fullname" $root)) }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+{{- end }}

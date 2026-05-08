@@ -1,0 +1,509 @@
+{{- if eq .Values.deployment.mode "single" }}
+{{- $root := . -}}
+{{- $pangolin := .Values.pangolin -}}
+{{- $gerbil := .Values.gerbil -}}
+{{- $ctrl := .Values.controller -}}
+{{- $tf := .Values.traefik -}}
+{{- $tls := $ctrl.tls | default dict -}}
+{{- $tlsEnabled := (default false $tls.enabled) -}}
+{{- $renderController := and (eq .Values.deployment.type "controller") .Values.controller.enabled -}}
+{{- $renderTraefik := and (eq .Values.deployment.type "standalone") .Values.traefik.enabled -}}
+{{- $renderGerbil := eq (include "pangolin.gerbil.resourcesEnabled" $root) "true" -}}
+{{- $fullname := include "pangolin.fullname" . -}}
+{{- $namespace := include "pangolin.namespace" . -}}
+{{- $saName := include "pangolin.serviceAccountName.single" . -}}
+{{- $depMetaAnns := mergeOverwrite (dict) (include "pangolin.global.commonAnnotations" $root | fromYaml) (include "pangolin.component.commonAnnotations" (dict "root" $root "component" "pangolin") | fromYaml) ($pangolin.deployment.annotations | default dict) -}}
+{{- $podMetaAnns := mergeOverwrite (dict) (include "pangolin.global.commonAnnotations" $root | fromYaml) ($root.Values.global.additionalPodAnnotations | default dict) (include "pangolin.component.commonAnnotations" (dict "root" $root "component" "pangolin") | fromYaml) ($pangolin.deployment.podAnnotations | default dict) -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "pangolin.labels" $root | nindent 4 }}
+    {{- include "pangolin.component.commonLabels" (dict "root" $root "component" "pangolin") | nindent 4 }}
+    {{- include "pangolin.renderNonSelectorLabels" (dict "labels" ($pangolin.deployment.labels | default dict)) | nindent 4 }}
+    app.kubernetes.io/component: single
+  {{- if gt (len $depMetaAnns) 0 }}
+  annotations:
+    {{- toYaml $depMetaAnns | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: {{ $pangolin.replicaCount | default 1 }}
+  revisionHistoryLimit: {{ $root.Values.global.revisionHistoryLimit | default 10 }}
+  selector:
+    matchLabels:
+      {{- include "pangolin.single.selectorLabels" $root | nindent 6 }}
+  {{- if $root.Values.runtime.minReadySeconds }}
+  minReadySeconds: {{ $root.Values.runtime.minReadySeconds }}
+  {{- end }}
+  {{- with $root.Values.runtime.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  template:
+    metadata:
+      labels:
+        {{- include "pangolin.labels" $root | nindent 8 }}
+        {{- include "pangolin.component.commonLabels" (dict "root" $root "component" "pangolin") | nindent 8 }}
+        {{- include "pangolin.renderNonSelectorLabels" (dict "labels" ($root.Values.global.additionalPodLabels | default dict)) | nindent 8 }}
+        {{- include "pangolin.renderNonSelectorLabels" (dict "labels" ($pangolin.deployment.podLabels | default dict)) | nindent 8 }}
+        app.kubernetes.io/component: single
+      {{- if gt (len $podMetaAnns) 0 }}
+      annotations:
+        {{- toYaml $podMetaAnns | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ $saName }}
+      automountServiceAccountToken: {{ ternary $root.Values.serviceAccount.controller.automountServiceAccountToken $root.Values.serviceAccount.pangolin.automountServiceAccountToken $renderController }}
+      terminationGracePeriodSeconds: {{ $root.Values.runtime.terminationGracePeriodSeconds | default 30 }}
+      {{- if $root.Values.global.priorityClassName }}
+      priorityClassName: {{ $root.Values.global.priorityClassName }}
+      {{- end }}
+      {{- $ips := include "pangolin.imagePullSecrets" $root }}
+      {{- if $ips }}
+      {{- $ips | nindent 6 }}
+      {{- end }}
+      {{- if $root.Values.global.affinity }}
+      affinity:
+        {{- toYaml $root.Values.global.affinity | nindent 8 }}
+      {{- end }}
+      {{- if $root.Values.global.nodeSelector }}
+      nodeSelector:
+        {{- toYaml $root.Values.global.nodeSelector | nindent 8 }}
+      {{- end }}
+      {{- if $root.Values.global.tolerations }}
+      tolerations:
+        {{- toYaml $root.Values.global.tolerations | nindent 8 }}
+      {{- end }}
+      {{- if $root.Values.global.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml $root.Values.global.topologySpreadConstraints | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml (deepCopy $root.Values.global.podSecurityContext) | nindent 8 }}
+      {{- $dbWait := (include "pangolin.wait.config" (dict "root" $root "override" ($pangolin.databaseWait | default dict)) | fromYaml) | default dict -}}
+      {{- $dbWaitUserEnabled := ternary (index $dbWait "enabled") true (hasKey $dbWait "enabled") -}}
+      {{- $dbWaitEnabled := and (ne (include "pangolin.db.mode" $root) "sqlite") $dbWaitUserEnabled -}}
+      {{- $dbWaitHost := include "pangolin.db.waitHost" $root | trim -}}
+      {{- if and $dbWaitEnabled $dbWaitHost }}
+      initContainers:
+        - name: wait-for-db
+          image: {{ include "pangolin.wait.image" ($dbWait.image | default dict) | quote }}
+          imagePullPolicy: {{ $dbWait.image.pullPolicy | default "IfNotPresent" }}
+          env:
+            - name: POSTGRES_CONNECTION_STRING
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pangolin.database.connectionSecretName" $root }}
+                  key: {{ include "pangolin.db.connectionSecretKey" $root }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              TIMEOUT_SECONDS={{ $dbWait.timeoutSeconds | default 300 }}
+              INTERVAL_SECONDS={{ $dbWait.intervalSeconds | default 5 }}
+              STABLE_SECONDS={{ $dbWait.stableSeconds | default 30 }}
+              elapsed=0
+              stable=0
+              while [ "${elapsed}" -lt "${TIMEOUT_SECONDS}" ]; do
+                if pg_isready -d "${POSTGRES_CONNECTION_STRING}" >/dev/null 2>&1; then
+                  stable=$((stable + INTERVAL_SECONDS))
+                  echo "PostgreSQL ready for ${stable}/${STABLE_SECONDS}s"
+                  if [ "${stable}" -ge "${STABLE_SECONDS}" ]; then
+                    exit 0
+                  fi
+                else
+                  stable=0
+                  echo "PostgreSQL not ready yet"
+                fi
+                sleep "${INTERVAL_SECONDS}"
+                elapsed=$((elapsed + INTERVAL_SECONDS))
+              done
+              echo "Timed out waiting for stable PostgreSQL readiness"
+              exit 1
+          securityContext:
+            {{- toYaml (mergeOverwrite (dict "runAsNonRoot" true "runAsUser" 65534 "allowPrivilegeEscalation" false "readOnlyRootFilesystem" true "capabilities" (dict "drop" (list "ALL"))) ($dbWait.securityContext | default dict)) | nindent 12 }}
+      {{- end }}
+      containers:
+        - name: pangolin
+          image: {{ include "pangolin.image" $root }}
+          imagePullPolicy: {{ include "pangolin.imagePullPolicy" $root }}
+          ports:
+            - name: external
+              containerPort: {{ $pangolin.service.ports.external }}
+              protocol: TCP
+            - name: internal-api
+              containerPort: {{ $pangolin.service.ports.internalApi }}
+              protocol: TCP
+            - name: next
+              containerPort: {{ $pangolin.service.ports.next }}
+              protocol: TCP
+            - name: integration
+              containerPort: {{ $pangolin.service.ports.integration }}
+              protocol: TCP
+          env:
+            - name: SERVER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pangolin.app.secretName" $root }}
+                  key: {{ $pangolin.secret.existingSecretKey | default $pangolin.secret.generated.key | default "SERVER_SECRET" }}
+            - name: POSTGRES_CONNECTION_STRING
+              {{- if eq $root.Values.database.mode "sqlite" }}
+              value: {{ printf "sqlite://%s" $root.Values.database.sqlite.path | quote }}
+              {{- else }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pangolin.database.connectionSecretName" $root }}
+                  key: {{ include "pangolin.db.connectionSecretKey" $root }}
+              {{- end }}
+          {{- if or $pangolin.configFile.enabled $pangolin.privateConfig.enabled $pangolin.extraVolumeMounts }}
+          volumeMounts:
+            {{- if $pangolin.configFile.enabled }}
+            - name: pangolin-config
+              mountPath: /app/config/config.yml
+              subPath: config.yml
+              readOnly: true
+            {{- end }}
+            {{- if $pangolin.privateConfig.enabled }}
+            {{- $pcSubPath := ternary (($pangolin.privateConfig.existingSecretKey) | default "privateConfig.yml") (($pangolin.privateConfig.generatedSecret | default dict).key | default "privateConfig.yml") (ne $pangolin.privateConfig.existingSecretName "") }}
+            - name: pangolin-private-config
+              mountPath: /app/config/privateConfig.yml
+              subPath: {{ $pcSubPath | quote }}
+              readOnly: true
+            {{- end }}
+            {{- range $pangolin.extraVolumeMounts }}
+            - {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- end }}
+          {{- with $pangolin.probes }}
+          {{- if .startup }}
+          startupProbe:
+            {{- if .startup.httpGet }}
+            httpGet:
+              path: {{ .startup.httpGet.path }}
+              port: {{ .startup.httpGet.port }}
+            {{- end }}
+            initialDelaySeconds: {{ .startup.initialDelaySeconds }}
+            periodSeconds: {{ .startup.periodSeconds }}
+            timeoutSeconds: {{ .startup.timeoutSeconds }}
+            failureThreshold: {{ .startup.failureThreshold }}
+          {{- end }}
+          {{- if .liveness }}
+          livenessProbe:
+            {{- if .liveness.httpGet }}
+            httpGet:
+              path: {{ .liveness.httpGet.path }}
+              port: {{ .liveness.httpGet.port }}
+            {{- end }}
+            initialDelaySeconds: {{ .liveness.initialDelaySeconds }}
+            periodSeconds: {{ .liveness.periodSeconds }}
+            timeoutSeconds: {{ .liveness.timeoutSeconds }}
+            failureThreshold: {{ .liveness.failureThreshold }}
+          {{- end }}
+          {{- if .readiness }}
+          readinessProbe:
+            {{- if .readiness.httpGet }}
+            httpGet:
+              path: {{ .readiness.httpGet.path }}
+              port: {{ .readiness.httpGet.port }}
+            {{- end }}
+            initialDelaySeconds: {{ .readiness.initialDelaySeconds }}
+            periodSeconds: {{ .readiness.periodSeconds }}
+            timeoutSeconds: {{ .readiness.timeoutSeconds }}
+            failureThreshold: {{ .readiness.failureThreshold }}
+          {{- end }}
+          {{- end }}
+          resources:
+            {{- include "pangolin.renderResources" (dict "resources" $pangolin.resources "root" $root) | nindent 12 }}
+          securityContext:
+            {{- toYaml (mergeOverwrite (deepCopy $root.Values.global.containerSecurityContext) $pangolin.securityContext) | nindent 12 }}
+        {{- if $renderGerbil }}
+        - name: gerbil
+          image: {{ include "pangolin.gerbil.image" $root }}
+          imagePullPolicy: {{ $gerbil.pullPolicy | default (include "pangolin.imagePullPolicy" $root) }}
+          {{- if $gerbil.command }}
+          command:
+            {{- toYaml $gerbil.command | nindent 12 }}
+          {{- end }}
+          {{- if $gerbil.args }}
+          args:
+            {{- toYaml $gerbil.args | nindent 12 }}
+          {{- else if not $gerbil.command }}
+          args:
+            - {{ printf "--reachableAt=http://127.0.0.1:%v" ($gerbil.ports.internalApi | default 3004) | quote }}
+            - --generateAndSaveKeyTo=/var/config/key
+            - {{ printf "--remoteConfig=http://127.0.0.1:%v/api/v1/" ($root.Values.pangolin.service.ports.internalApi | default 3001) | quote }}
+          {{- end }}
+          ports:
+            - name: wg1
+              containerPort: {{ $gerbil.ports.wg1 }}
+              protocol: UDP
+            - name: wg2
+              containerPort: {{ $gerbil.ports.wg2 }}
+              protocol: UDP
+            - name: internal-api
+              containerPort: {{ $gerbil.ports.internalApi | default 3004 }}
+              protocol: TCP
+          {{- $gerbilEnv := include "pangolin.gerbilEnv" $root | trim }}
+          {{- if $gerbilEnv }}
+          env:
+            {{- $gerbilEnv | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: gerbil-config
+              mountPath: /var/config
+          {{- with $gerbil.probes }}
+          {{- if .startup }}
+          startupProbe:
+            {{- if .startup.exec }}
+            exec:
+              command:
+                {{- range .startup.exec.command }}
+                - {{ . | quote }}
+                {{- end }}
+            {{- end }}
+            initialDelaySeconds: {{ .startup.initialDelaySeconds }}
+            periodSeconds: {{ .startup.periodSeconds }}
+            timeoutSeconds: {{ .startup.timeoutSeconds }}
+            failureThreshold: {{ .startup.failureThreshold }}
+          {{- end }}
+          {{- if .liveness }}
+          livenessProbe:
+            {{- if .liveness.exec }}
+            exec:
+              command:
+                {{- range .liveness.exec.command }}
+                - {{ . | quote }}
+                {{- end }}
+            {{- end }}
+            initialDelaySeconds: {{ .liveness.initialDelaySeconds }}
+            periodSeconds: {{ .liveness.periodSeconds }}
+            timeoutSeconds: {{ .liveness.timeoutSeconds }}
+            failureThreshold: {{ .liveness.failureThreshold }}
+          {{- end }}
+          {{- if .readiness }}
+          readinessProbe:
+            {{- if .readiness.exec }}
+            exec:
+              command:
+                {{- range .readiness.exec.command }}
+                - {{ . | quote }}
+                {{- end }}
+            {{- end }}
+            initialDelaySeconds: {{ .readiness.initialDelaySeconds }}
+            periodSeconds: {{ .readiness.periodSeconds }}
+            timeoutSeconds: {{ .readiness.timeoutSeconds }}
+            failureThreshold: {{ .readiness.failureThreshold }}
+          {{- end }}
+          {{- end }}
+          resources:
+            {{- include "pangolin.renderResources" (dict "resources" $gerbil.resources "root" $root) | nindent 12 }}
+          securityContext:
+            {{- toYaml (mergeOverwrite (deepCopy $root.Values.global.containerSecurityContext) $gerbil.securityContext) | nindent 12 }}
+        {{- end }}
+        {{- if $renderController }}
+        - name: controller
+          image: {{ include "pangolin.controller.image" $root }}
+          imagePullPolicy: {{ include "pangolin.controller.imagePullPolicy" $root }}
+          ports:
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "pangolin.controller.configMapName" $root }}
+          {{- if $ctrl.extraEnv }}
+          env:
+          {{- range $k, $v := $ctrl.extraEnv }}
+          - name: {{ $k }}
+            value: {{ $v | quote }}
+          {{- end }}
+          {{- end }}
+          volumeMounts:
+            {{- if $tlsEnabled }}
+            - name: tls
+              mountPath: /etc/pangolin/tls
+              readOnly: true
+            {{- end }}
+            - name: tmp
+              mountPath: /tmp
+          {{- with $ctrl.probes }}
+          {{- if .startup }}
+          startupProbe:
+            {{- if .startup.httpGet }}
+            httpGet:
+              path: {{ .startup.httpGet.path }}
+              port: {{ .startup.httpGet.port }}
+            {{- else if .startup.exec }}
+            exec:
+              command:
+                {{- range .startup.exec.command }}
+                - {{ . | quote }}
+                {{- end }}
+            {{- end }}
+            initialDelaySeconds: {{ .startup.initialDelaySeconds }}
+            periodSeconds: {{ .startup.periodSeconds }}
+            timeoutSeconds: {{ .startup.timeoutSeconds }}
+            failureThreshold: {{ .startup.failureThreshold }}
+          {{- end }}
+          {{- if .liveness }}
+          livenessProbe:
+            {{- if .liveness.httpGet }}
+            httpGet:
+              path: {{ .liveness.httpGet.path }}
+              port: {{ .liveness.httpGet.port }}
+            {{- else if .liveness.exec }}
+            exec:
+              command:
+                {{- range .liveness.exec.command }}
+                - {{ . | quote }}
+                {{- end }}
+            {{- end }}
+            initialDelaySeconds: {{ .liveness.initialDelaySeconds }}
+            periodSeconds: {{ .liveness.periodSeconds }}
+            timeoutSeconds: {{ .liveness.timeoutSeconds }}
+            failureThreshold: {{ .liveness.failureThreshold }}
+          {{- end }}
+          {{- if .readiness }}
+          readinessProbe:
+            {{- if .readiness.httpGet }}
+            httpGet:
+              path: {{ .readiness.httpGet.path }}
+              port: {{ .readiness.httpGet.port }}
+            {{- else if .readiness.exec }}
+            exec:
+              command:
+                {{- range .readiness.exec.command }}
+                - {{ . | quote }}
+                {{- end }}
+            {{- end }}
+            initialDelaySeconds: {{ .readiness.initialDelaySeconds }}
+            periodSeconds: {{ .readiness.periodSeconds }}
+            timeoutSeconds: {{ .readiness.timeoutSeconds }}
+            failureThreshold: {{ .readiness.failureThreshold }}
+          {{- end }}
+          {{- end }}
+          resources:
+            {{- include "pangolin.renderResources" (dict "resources" $ctrl.resources "root" $root) | nindent 12 }}
+          securityContext:
+            {{- toYaml (mergeOverwrite (deepCopy $root.Values.global.containerSecurityContext) ($ctrl.securityContext | default dict)) | nindent 12 }}
+        {{- end }}
+        {{- if $renderTraefik }}
+        - name: traefik
+          image: {{ include "pangolin.traefik.image" $root }}
+          imagePullPolicy: {{ $tf.pullPolicy | default (include "pangolin.imagePullPolicy" $root) }}
+          args:
+            - --api.insecure={{ if $tf.config.dashboard }}true{{ else }}false{{ end }}
+            - --ping=true
+            - --log.level={{ $tf.config.logLevel | default "INFO" }}
+            - --accesslog=true
+            - --entrypoints.web.address=:8000
+            - --entrypoints.websecure.address=:8443
+            - --providers.kubernetescrd
+            - --providers.kubernetesingress
+            {{- if $tf.config.letsencryptEmail }}
+            - --certificatesresolvers.letsencrypt.acme.email={{ $tf.config.letsencryptEmail }}
+            - --certificatesresolvers.letsencrypt.acme.storage=/data/acme.json
+            {{- if $tf.config.acmeDelayBeforeCheck }}
+            - --certificatesresolvers.letsencrypt.acme.delaybeforecheck={{ $tf.config.acmeDelayBeforeCheck }}
+            {{- end }}
+            {{- end }}
+            {{- if $tf.config.insecureSkipVerify }}
+            - --serversTransport.insecureskipverify={{ $tf.config.insecureSkipVerify }}
+            {{- end }}
+          ports:
+            - name: web
+              containerPort: 8000
+              protocol: TCP
+            - name: websecure
+              containerPort: 8443
+              protocol: TCP
+            - name: admin
+              containerPort: {{ $tf.config.adminPort | default 8085 }}
+              protocol: TCP
+          env:
+            {{- include "pangolin.traefikEnv" $root | nindent 12 }}
+          {{- if $tf.persistence.enabled }}
+          volumeMounts:
+            - name: acme
+              mountPath: /data
+          {{- end }}
+          {{- with $tf.probes }}
+          {{- if .startup }}
+          startupProbe:
+            httpGet:
+              path: {{ .startup.httpGet.path }}
+              port: {{ .startup.httpGet.port }}
+            initialDelaySeconds: {{ .startup.initialDelaySeconds }}
+            periodSeconds: {{ .startup.periodSeconds }}
+            timeoutSeconds: {{ .startup.timeoutSeconds }}
+            failureThreshold: {{ .startup.failureThreshold }}
+          {{- end }}
+          {{- if .liveness }}
+          livenessProbe:
+            httpGet:
+              path: {{ .liveness.httpGet.path }}
+              port: {{ .liveness.httpGet.port }}
+            initialDelaySeconds: {{ .liveness.initialDelaySeconds }}
+            periodSeconds: {{ .liveness.periodSeconds }}
+            timeoutSeconds: {{ .liveness.timeoutSeconds }}
+            failureThreshold: {{ .liveness.failureThreshold }}
+          {{- end }}
+          {{- if .readiness }}
+          readinessProbe:
+            httpGet:
+              path: {{ .readiness.httpGet.path }}
+              port: {{ .readiness.httpGet.port }}
+            initialDelaySeconds: {{ .readiness.initialDelaySeconds }}
+            periodSeconds: {{ .readiness.periodSeconds }}
+            timeoutSeconds: {{ .readiness.timeoutSeconds }}
+            failureThreshold: {{ .readiness.failureThreshold }}
+          {{- end }}
+          {{- end }}
+          resources:
+            {{- include "pangolin.renderResources" (dict "resources" $tf.resources "root" $root) | nindent 12 }}
+          securityContext:
+            {{- toYaml (mergeOverwrite (deepCopy $root.Values.global.containerSecurityContext) ($tf.securityContext | default dict)) | nindent 12 }}
+        {{- end }}
+      {{- if or $pangolin.configFile.enabled $pangolin.privateConfig.enabled $pangolin.extraVolumes $renderGerbil $renderController (and $renderTraefik $tf.persistence.enabled) }}
+      volumes:
+        {{- if $pangolin.configFile.enabled }}
+        - name: pangolin-config
+          configMap:
+            name: {{ include "pangolin.fullname" $root }}-config
+        {{- end }}
+        {{- if $pangolin.privateConfig.enabled }}
+        - name: pangolin-private-config
+          secret:
+            secretName: {{ include "pangolin.privateConfig.secretName" $root }}
+        {{- end }}
+        {{- if $renderGerbil }}
+        - name: gerbil-config
+          {{- if $gerbil.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ $gerbil.persistence.existingClaim | default (printf "%s-gerbil-config" (include "pangolin.fullname" $root)) }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- end }}
+        {{- if and $renderController $tlsEnabled }}
+        - name: tls
+          secret:
+            secretName: {{ include "pangolin.controller.tlsSecretName" $root }}
+            optional: false
+        {{- end }}
+        {{- if $renderController }}
+        - name: tmp
+          emptyDir: {}
+        {{- end }}
+        {{- if and $renderTraefik $tf.persistence.enabled }}
+        - name: acme
+          persistentVolumeClaim:
+            claimName: {{ $tf.persistence.existingClaim | default (printf "%s-traefik-acme" (include "pangolin.fullname" $root)) }}
+        {{- end }}
+        {{- range $pangolin.extraVolumes }}
+        - {{- toYaml . | nindent 10 }}
+        {{- end }}
+      {{- end }}
+{{- end }}

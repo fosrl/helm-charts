@@ -1,0 +1,579 @@
+suite: config model and endpoint defaults
+templates:
+  - templates/configmap-pangolin.yaml
+  - templates/deployment-pangolin.yaml
+  - templates/deployment-controller.yaml
+  - templates/configmap-controller.yaml
+  - templates/secret-pangolin-private.yaml
+tests:
+  - it: renders Pangolin config ConfigMap by default
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - isKind:
+          of: ConfigMap
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin-config
+      - exists:
+          path: data["config.yml"]
+
+  - it: mounts config.yml into Pangolin container
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[0].mountPath
+          value: /app/config/config.yml
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[0].subPath
+          value: config.yml
+      - equal:
+          path: spec.template.spec.volumes[0].configMap.name
+          value: RELEASE-NAME-pangolin-config
+
+  - it: renders modern secret env keys for Pangolin
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[0].name
+          value: SERVER_SECRET
+      - equal:
+          path: spec.template.spec.containers[0].env[1].name
+          value: POSTGRES_CONNECTION_STRING
+
+  - it: defaults controller endpoint to internal Pangolin HTTP service
+    template: templates/configmap-controller.yaml
+    asserts:
+      - equal:
+          path: data.CONFIG_ENDPOINT
+          value: http://RELEASE-NAME-pangolin:3001/api/v1/traefik-config
+
+  - it: honors explicit controller config endpoint override
+    set:
+      controller.config.configEndpoint: https://custom.example/api/v1/traefik-config
+    template: templates/configmap-controller.yaml
+    asserts:
+      - equal:
+          path: data.CONFIG_ENDPOINT
+          value: https://custom.example/api/v1/traefik-config
+
+  - it: controller wait initContainer uses same default endpoint as CONFIG_ENDPOINT
+    template: templates/deployment-controller.yaml
+    set:
+      deployment.type: controller
+      controller.enabled: true
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.initContainers[0].command[2]
+          pattern: 'ENDPOINT="http://RELEASE-NAME-pangolin:3001/api/v1/traefik-config"'
+
+  - it: controller wait initContainer uses same overridden endpoint as CONFIG_ENDPOINT
+    template: templates/deployment-controller.yaml
+    set:
+      deployment.type: controller
+      controller.enabled: true
+      controller.config.configEndpoint: https://custom.example/api/v1/traefik-config
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.initContainers[0].command[2]
+          pattern: 'ENDPOINT="https://custom.example/api/v1/traefik-config"'
+
+  - it: CONFIG_ALLOW_INSECURE_HTTP defaults to true for internal HTTP endpoint
+    template: templates/configmap-controller.yaml
+    asserts:
+      - equal:
+          path: data.CONFIG_ALLOW_INSECURE_HTTP
+          value: "true"
+
+  - it: CONFIG_ALLOW_INSECURE_HTTP renders true for explicit HTTP endpoint in auto mode
+    set:
+      controller.config.configEndpoint: http://custom.example/api/v1/traefik-config
+      controller.config.allowInsecureHttp: null
+    template: templates/configmap-controller.yaml
+    asserts:
+      - equal:
+          path: data.CONFIG_ALLOW_INSECURE_HTTP
+          value: "true"
+
+  - it: CONFIG_ALLOW_INSECURE_HTTP renders false for explicit HTTPS endpoint in auto mode
+    set:
+      controller.config.configEndpoint: https://custom.example/api/v1/traefik-config
+      controller.config.allowInsecureHttp: null
+    template: templates/configmap-controller.yaml
+    asserts:
+      - equal:
+          path: data.CONFIG_ALLOW_INSECURE_HTTP
+          value: "false"
+
+  - it: CONFIG_ALLOW_INSECURE_HTTP respects explicit false override with HTTP endpoint
+    set:
+      controller.config.configEndpoint: http://custom.example/api/v1/traefik-config
+      controller.config.allowInsecureHttp: false
+    template: templates/configmap-controller.yaml
+    asserts:
+      - equal:
+          path: data.CONFIG_ALLOW_INSECURE_HTTP
+          value: "false"
+
+  - it: CONFIG_ALLOW_INSECURE_HTTP respects explicit true override with HTTPS endpoint
+    set:
+      controller.config.configEndpoint: https://custom.example/api/v1/traefik-config
+      controller.config.allowInsecureHttp: true
+    template: templates/configmap-controller.yaml
+    asserts:
+      - equal:
+          path: data.CONFIG_ALLOW_INSECURE_HTTP
+          value: "true"
+
+  - it: CONFIG_TLS_SKIP_VERIFY defaults to false
+    template: templates/configmap-controller.yaml
+    asserts:
+      - equal:
+          path: data.CONFIG_TLS_SKIP_VERIFY
+          value: "false"
+
+  - it: CONFIG_TLS_SKIP_VERIFY renders true when explicitly enabled
+    set:
+      controller.config.configTlsSkipVerify: true
+    template: templates/configmap-controller.yaml
+    asserts:
+      - equal:
+          path: data.CONFIG_TLS_SKIP_VERIFY
+          value: "true"
+
+  - it: config.yml contains app section with snake_case keys
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "dashboard_url: \\\"https://pangolin.example.com\\\""
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "log_level:"
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "save_logs:"
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "log_failed_attempts:"
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "dashboard_url:"
+
+  - it: config.yml does not contain old CamelCase app keys
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - notMatchRegex:
+          path: data["config.yml"]
+          pattern: "logLevel:"
+      - notMatchRegex:
+          path: data["config.yml"]
+          pattern: "saveLogs:"
+      - notMatchRegex:
+          path: data["config.yml"]
+          pattern: "dashboardUrl:"
+      - notMatchRegex:
+          path: data["config.yml"]
+          pattern: "enableIntegrationApi:"
+
+  - it: config.yml contains server section with snake_case keys
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "session_cookie_name:"
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "trust_proxy:"
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "resource_access_token_param:"
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "dashboard_session_length_hours:"
+
+  - it: config.yml defaults resource_session_request_param to p_session_request
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "resource_session_request_param: \\\"p_session_request\\\""
+
+  - it: config.yml honors explicit resource_session_request_param override
+    set:
+      pangolin.config.server.resource_session_request_param: custom_session_request
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "resource_session_request_param: \\\"custom_session_request\\\""
+
+  - it: config.yml contains gerbil section
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "gerbil:"
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "start_port:"
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "clients_start_port:"
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "base_endpoint: \\\"pangolin.example.com\\\""
+
+  - it: config.yml contains flags section with snake_case keys
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "flags:"
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "enable_integration_api:"
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "require_email_verification:"
+
+  - it: allow_raw_resources is true by default (installer parity)
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "allow_raw_resources: true"
+
+  - it: explicit flags override can disable allow_raw_resources
+    set:
+      pangolin.config.flags.allow_raw_resources: false
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "allow_raw_resources: false"
+
+  - it: empty CORS arrays render as JSON empty arrays not null
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "origins: \\[\\]"
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "methods: \\[\\]"
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "allowed_headers: \\[\\]"
+
+  - it: email section is not rendered when disabled by default
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - notMatchRegex:
+          path: data["config.yml"]
+          pattern: "smtp_host:"
+
+  - it: postgres pool section is not rendered when disabled by default
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - notMatchRegex:
+          path: data["config.yml"]
+          pattern: "max_connections:"
+
+  - it: traefik section in config.yml is rendered by default
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "traefik:"
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: 'http_entrypoint: "web"'
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: 'cert_resolver: "letsencrypt"'
+
+  - it: email section renders when enabled
+    set:
+      pangolin.config.email.enabled: true
+      pangolin.config.email.smtp_host: mail.example.com
+      pangolin.config.email.smtp_port: 587
+      pangolin.config.email.smtp_user: noreply@example.com
+      pangolin.config.email.no_reply: noreply@example.com
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "smtp_host:"
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "mail.example.com"
+      - notMatchRegex:
+          path: data["config.yml"]
+          pattern: "smtp_pass:"
+
+  - it: postgres pool section renders when enabled
+    set:
+      pangolin.config.postgres.enabled: true
+      pangolin.config.postgres.pool.max_connections: 50
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "max_connections: 50"
+      - notMatchRegex:
+          path: data["config.yml"]
+          pattern: "connection_string:"
+
+  - it: rate_limits section renders by default (enabled by default)
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "rate_limits:"
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "max_requests: 10"
+
+  - it: rate_limits section renders when enabled with custom global limit
+    set:
+      pangolin.config.rate_limits.enabled: true
+      pangolin.config.rate_limits.global.max_requests: 200
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "rate_limits:"
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "max_requests: 200"
+
+  - it: orgs section renders when enabled
+    set:
+      pangolin.config.orgs.enabled: true
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "orgs:"
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "subnet_group:"
+
+  - it: traefik section in config.yml is rendered by default in controller mode
+    set:
+      deployment.type: controller
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "http_entrypoint:"
+
+  - it: traefik section in config.yml is rendered by default in standalone mode
+    set:
+      deployment.type: standalone
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "http_entrypoint:"
+
+  - it: traefik section in config.yml is not rendered when explicitly disabled
+    set:
+      pangolin.config.traefik.enabled: false
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - notMatchRegex:
+          path: data["config.yml"]
+          pattern: "http_entrypoint:"
+
+  - it: traefik config middleware list renders correctly
+    set:
+      pangolin.config.traefik.enabled: true
+      pangolin.config.traefik.additional_middlewares:
+        - chain-auth@kubernetescrd
+        - default-compress@file
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: 'additional_middlewares: \["chain-auth@kubernetescrd","default-compress@file"\]'
+
+  - it: domains map renders correctly when set
+    set:
+      pangolin.config.domains:
+        my-domain:
+          base_domain: example.com
+          cert_resolver: letsencrypt
+          prefer_wildcard_cert: false
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "base_domain:"
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "example.com"
+
+  - it: default domains map renders at least one configured domain
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "domain1:"
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "base_domain: example.com"
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "cert_resolver: letsencrypt"
+
+  - it: does not render private config secret by default
+    template: templates/secret-pangolin-private.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders chart-managed private config secret when enabled
+    set:
+      pangolin.privateConfig.enabled: true
+      pangolin.privateConfig.generatedSecret.create: true
+      pangolin.privateConfig.generatedSecret.data: "licenseKey: abc123"
+    template: templates/secret-pangolin-private.yaml
+    asserts:
+      - isKind:
+          of: Secret
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin-private-config
+
+  - it: uses existing private config secret when existingSecretName is set
+    set:
+      pangolin.privateConfig.enabled: true
+      pangolin.privateConfig.existingSecretName: my-private-secret
+    template: templates/secret-pangolin-private.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: mounts privateConfig.yml when enabled with existingSecretName
+    set:
+      pangolin.privateConfig.enabled: true
+      pangolin.privateConfig.existingSecretName: my-private-secret
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: pangolin-private-config
+            mountPath: /app/config/privateConfig.yml
+            subPath: "privateConfig.yml"
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: pangolin-private-config
+            secret:
+              secretName: my-private-secret
+
+  - it: uses generatedSecret.key as subPath when using chart-managed private config
+    set:
+      pangolin.privateConfig.enabled: true
+      pangolin.privateConfig.generatedSecret.create: true
+      pangolin.privateConfig.generatedSecret.key: "enterprise.yml"
+      pangolin.privateConfig.generatedSecret.data: "licenseKey: abc123"
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: pangolin-private-config
+            mountPath: /app/config/privateConfig.yml
+            subPath: "enterprise.yml"
+            readOnly: true
+
+  - it: log_failed_attempts is true by default (security-hardened baseline)
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "log_failed_attempts: true"
+
+  - it: empty app override keeps hardened log_failed_attempts fallback
+    set:
+      pangolin.config.app: {}
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "log_failed_attempts: true"
+
+  - it: explicit app override can disable log_failed_attempts
+    set:
+      pangolin.config.app.log_failed_attempts: false
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "log_failed_attempts: false"
+
+  - it: disable_signup_without_invite is true by default (production-safe)
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "disable_signup_without_invite: true"
+
+  - it: empty flags override keeps hardened disable_signup_without_invite fallback
+    set:
+      pangolin.config.flags: {}
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "disable_signup_without_invite: true"
+
+  - it: explicit flags override can disable signup invite enforcement
+    set:
+      pangolin.config.flags.disable_signup_without_invite: false
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "disable_signup_without_invite: false"
+
+  - it: rate_limits auth max_requests defaults to 10 (brute-force protection)
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "auth:\\n\\s+window_minutes: 1\\n\\s+max_requests: 10"
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "global:\\n\\s+window_minutes: 1\\n\\s+max_requests: 500"
+
+  - it: empty auth rate_limits override keeps hardened auth max_requests fallback
+    set:
+      pangolin.config.rate_limits.auth: {}
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "auth:\\n\\s+window_minutes: 1\\n\\s+max_requests: 10"
+
+  - it: explicit auth rate_limits override can raise max_requests
+    set:
+      pangolin.config.rate_limits.auth.max_requests: 25
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "auth:\\n\\s+window_minutes: 1\\n\\s+max_requests: 25"
+
+  - it: rate_limits section is suppressed when disabled
+    set:
+      pangolin.config.rate_limits.enabled: false
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - notMatchRegex:
+          path: data["config.yml"]
+          pattern: "rate_limits:"

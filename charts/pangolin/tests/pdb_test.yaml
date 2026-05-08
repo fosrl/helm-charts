@@ -1,0 +1,49 @@
+suite: pod disruption budgets
+templates:
+  - templates/pdb.yaml
+tests:
+  - it: does not render any PDBs by default
+    template: templates/pdb.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders PDBs when enabled (pangolin/controller/gerbil)
+    set:
+      highAvailability.podDisruptionBudget.enabled: true
+    template: templates/pdb.yaml
+    asserts:
+      - hasDocuments:
+          count: 3
+
+  - it: pangolin PDB selects pangolin pods
+    set:
+      highAvailability.podDisruptionBudget.enabled: true
+    template: templates/pdb.yaml
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: PodDisruptionBudget
+      - equal:
+          path: spec.selector.matchLabels["app.kubernetes.io/component"]
+          value: pangolin
+
+  - it: controller PDB selects controller pods
+    set:
+      highAvailability.podDisruptionBudget.enabled: true
+    template: templates/pdb.yaml
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: spec.selector.matchLabels["app.kubernetes.io/component"]
+          value: controller
+
+  - it: gerbil PDB selects gerbil pods
+    set:
+      highAvailability.podDisruptionBudget.enabled: true
+    template: templates/pdb.yaml
+    documentIndex: 2
+    asserts:
+      - equal:
+          path: spec.selector.matchLabels["app.kubernetes.io/component"]
+          value: gerbil

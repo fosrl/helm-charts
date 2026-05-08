@@ -1,0 +1,20 @@
+deployment:
+  type: controller
+  mode: multi
+  installTraefikController: true
+
+gerbil:
+  enabled: false
+
+# Minimal Traefik dependency settings for kind CI
+traefikController:
+  deployment:
+    enabled: true
+  ingressRoute:
+    dashboard:
+      enabled: false
+  ports:
+    web:
+      exposedPort: 8000
+    websecure:
+      exposedPort: 8443

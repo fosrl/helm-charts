@@ -1,0 +1,129 @@
+{{- if and (eq .Values.database.mode "embedded") .Values.database.embedded.enabled }}
+{{- $root := . -}}
+{{- $embed := .Values.database.embedded -}}
+{{- $fullname := printf "%s-embedded-postgres" (include "pangolin.fullname" .) -}}
+{{- $namespace := include "pangolin.namespace" . -}}
+{{- $saName := include "pangolin.serviceAccountName" . -}}
+{{- $workloadType := $embed.workloadType.kind | default "StatefulSet" -}}
+{{- $depMetaAnns := mergeOverwrite (dict) (include "pangolin.global.commonAnnotations" $root | fromYaml) ($embed.commonAnnotations | default dict) ($embed.deployment.annotations | default dict) -}}
+{{- $podMetaAnns := mergeOverwrite (dict) (include "pangolin.global.commonAnnotations" $root | fromYaml) ($root.Values.global.additionalPodAnnotations | default dict) ($embed.commonAnnotations | default dict) ($embed.deployment.podAnnotations | default dict) -}}
+apiVersion: apps/v1
+kind: {{ $workloadType }}
+metadata:
+  name: {{ $fullname }}
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "pangolin.labels" $root | nindent 4 }}
+    {{- include "pangolin.renderNonSelectorLabels" (dict "labels" ($embed.commonLabels | default dict)) | nindent 4 }}
+    {{- include "pangolin.renderNonSelectorLabels" (dict "labels" ($embed.deployment.labels | default dict)) | nindent 4 }}
+    app.kubernetes.io/component: embedded-postgres
+  {{- if gt (len $depMetaAnns) 0 }}
+  annotations:
+    {{- toYaml $depMetaAnns | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if eq $workloadType "StatefulSet" }}
+  serviceName: {{ $fullname }}
+  {{- end }}
+  replicas: {{ $embed.workloadType.replicaCount | default 1 }}
+  revisionHistoryLimit: {{ $root.Values.global.revisionHistoryLimit | default 10 }}
+  selector:
+    matchLabels:
+      {{- include "pangolin.embeddedPostgres.selectorLabels" $root | nindent 6 }}
+  {{- if $root.Values.runtime.minReadySeconds }}
+  minReadySeconds: {{ $root.Values.runtime.minReadySeconds }}
+  {{- end }}
+  {{- with $root.Values.runtime.updateStrategy }}
+  {{- if eq $workloadType "StatefulSet" }}
+  updateStrategy:
+    {{- toYaml . | nindent 4 }}
+  {{- else }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- end }}
+  template:
+    metadata:
+      labels:
+        {{- include "pangolin.labels" $root | nindent 8 }}
+        {{- include "pangolin.renderNonSelectorLabels" (dict "labels" ($embed.commonLabels | default dict)) | nindent 8 }}
+        {{- include "pangolin.renderNonSelectorLabels" (dict "labels" ($root.Values.global.additionalPodLabels | default dict)) | nindent 8 }}
+        {{- include "pangolin.renderNonSelectorLabels" (dict "labels" ($embed.deployment.podLabels | default dict)) | nindent 8 }}
+        app.kubernetes.io/component: embedded-postgres
+      {{- if gt (len $podMetaAnns) 0 }}
+      annotations:
+        {{- toYaml $podMetaAnns | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ $saName }}
+      automountServiceAccountToken: {{ default true $root.Values.serviceAccount.pangolin.automountServiceAccountToken }}
+      terminationGracePeriodSeconds: {{ $root.Values.runtime.terminationGracePeriodSeconds | default 30 }}
+      {{- if $root.Values.global.priorityClassName }}
+      priorityClassName: {{ $root.Values.global.priorityClassName }}
+      {{- end }}
+      {{- $ips := include "pangolin.imagePullSecrets" $root }}
+      {{- if $ips }}
+      {{- $ips | nindent 6 }}
+      {{- end }}
+      {{- if $root.Values.global.affinity }}
+      affinity:
+        {{- toYaml $root.Values.global.affinity | nindent 8 }}
+      {{- end }}
+      {{- if $root.Values.global.nodeSelector }}
+      nodeSelector:
+        {{- toYaml $root.Values.global.nodeSelector | nindent 8 }}
+      {{- end }}
+      {{- if $root.Values.global.tolerations }}
+      tolerations:
+        {{- toYaml $root.Values.global.tolerations | nindent 8 }}
+      {{- end }}
+      {{- if $root.Values.global.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml $root.Values.global.topologySpreadConstraints | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml (mergeOverwrite (deepCopy $root.Values.global.podSecurityContext) ($embed.podSecurityContext | default dict)) | nindent 8 }}
+      containers:
+        - name: postgres
+          image: {{ include "pangolin.postgres.image" $root }}
+          imagePullPolicy: {{ $embed.pullPolicy | default (include "pangolin.imagePullPolicy" $root) }}
+          ports:
+            - name: postgres
+              containerPort: {{ $embed.service.port | default 5432 }}
+              protocol: TCP
+          env:
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pangolin.database.authSecretName" $root }}
+                  key: {{ $embed.auth.generatedSecret.databaseKey | default $embed.auth.databaseKey | default "database" }}
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pangolin.database.authSecretName" $root }}
+                  key: {{ $embed.auth.generatedSecret.usernameKey | default $embed.auth.usernameKey | default "username" }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pangolin.database.authSecretName" $root }}
+                  key: {{ $embed.auth.generatedSecret.passwordKey | default $embed.auth.passwordKey | default "password" }}
+            {{- range $k, $v := ($embed.extraEnv | default dict) }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+          {{- if and $embed.persistence.enabled (eq $workloadType "StatefulSet") }}
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+          {{- end }}
+          resources:
+            {{- include "pangolin.renderResources" (dict "resources" $embed.resources "root" .) | nindent 12 }}
+          securityContext:
+            {{- toYaml (deepCopy $root.Values.global.containerSecurityContext) | nindent 12 }}
+      {{- if and $embed.persistence.enabled (eq $workloadType "StatefulSet") }}
+      volumes:
+        - name: postgres-data
+          persistentVolumeClaim:
+            claimName: {{ $embed.persistence.existingClaim | default (printf "%s-embedded-postgres-data" (include "pangolin.fullname" $root)) }}
+      {{- end }}
+{{- end }}

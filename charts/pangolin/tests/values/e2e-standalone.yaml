@@ -1,0 +1,14 @@
+deployment:
+  type: standalone
+  mode: multi
+
+gerbil:
+  enabled: false
+
+traefik:
+  enabled: true
+  config:
+    letsencryptEmail: ops@example.com
+    dashboard: false
+    dynamicRouters:
+      host: pangolin.local

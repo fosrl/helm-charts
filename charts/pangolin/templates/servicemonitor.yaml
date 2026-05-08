@@ -1,0 +1,47 @@
+{{- if and .Values.controller.enabled .Values.controller.monitoring.serviceMonitor.enabled }}
+{{- $root := . -}}
+{{- $sm := .Values.controller.monitoring.serviceMonitor -}}
+{{- $smAnns := mergeOverwrite (dict) (include "pangolin.global.commonAnnotations" $root | fromYaml) (include "pangolin.component.commonAnnotations" (dict "root" $root "component" "controller") | fromYaml) ($sm.annotations | default dict) -}}
+apiVersion: {{ $sm.apiVersion | default "monitoring.coreos.com/v1" }}
+kind: ServiceMonitor
+metadata:
+  name: {{ include "pangolin.fullname" . }}-controller
+  namespace: {{ $sm.namespace | default (include "pangolin.namespace" $root) }}
+  labels:
+    {{- include "pangolin.labels" $root | nindent 4 }}
+    {{- include "pangolin.component.commonLabels" (dict "root" $root "component" "controller") | nindent 4 }}
+    {{- range $k, $v := $sm.labels }}
+    {{ $k }}: {{ $v | quote }}
+    {{- end }}
+  {{- if gt (len $smAnns) 0 }}
+  annotations:
+    {{- toYaml $smAnns | nindent 4 }}
+  {{- end }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ $root.Release.Name }}
+      app.kubernetes.io/component: controller
+  {{- with $sm.targetLabels }}
+  targetLabels:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  endpoints:
+    - port: {{ $sm.portName | default "metrics" }}
+      path: {{ $sm.path | default "/metrics" }}
+      interval: {{ $sm.interval | default "30s" }}
+      scrapeTimeout: {{ $sm.scrapeTimeout | default "10s" }}
+      honorLabels: {{ $sm.honorLabels | default true }}
+      scheme: {{ $sm.scheme | default "http" }}
+      {{- with $sm.relabelings }}
+      relabelings:
+        {{- toYaml . | nindent 6 }}
+      {{- end }}
+      {{- with $sm.metricRelabelings }}
+      metricRelabelings:
+        {{- toYaml . | nindent 6 }}
+      {{- end }}
+      {{- if $sm.sampleLimit }}
+      sampleLimit: {{ $sm.sampleLimit }}
+      {{- end }}
+{{- end }}

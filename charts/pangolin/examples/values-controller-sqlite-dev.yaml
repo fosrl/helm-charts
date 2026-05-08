@@ -1,0 +1,107 @@
+# Example: Controller mode with SQLite (development / CI testing only)
+#
+# Topology: deployment.type=controller + deployment.mode=multi
+# Database:  database.mode=sqlite
+#
+# WARNING: SQLite is intended for development, local testing and CI pipelines
+# ONLY. It is NOT suitable for production or HA environments:
+#   - No concurrent write support
+#   - No replication or failover
+#   - Data loss on Pod restart without persistence
+#
+# This example uses ephemeral storage (no PVC) – suitable for throwaway
+# dev/CI environments only.
+#
+# Usage:
+#   helm install pangolin charts/pangolin \
+#     -f examples/values-controller-sqlite-dev.yaml \
+#     --namespace pangolin-dev
+
+deployment:
+  type: controller
+  mode: multi
+
+namespace:
+  create: true
+  name: pangolin-dev
+  podSecurity:
+    enforce: privileged
+    warn: baseline
+    audit: baseline
+
+# ---------------------------------------------------------------------------
+# Database – SQLite (dev/test only)
+# ---------------------------------------------------------------------------
+database:
+  mode: sqlite
+  sqlite:
+    enabled: false  # this field is ignored when database.mode=sqlite
+    path: /app/data/pangolin.db
+    persistence:
+      # Enable persistence to survive Pod restarts in dev environments.
+      # Leave disabled for ephemeral/CI use.
+      enabled: false
+
+# Disable CloudNativePG subcharts – not needed for SQLite.
+cnpg-operator:
+  enabled: false
+cnpg-cluster:
+  enabled: false
+
+# ---------------------------------------------------------------------------
+# Pangolin – reduced resource limits for dev environments
+# ---------------------------------------------------------------------------
+pangolin:
+  replicaCount: 1
+  config:
+    app:
+      dashboard_url: "http://localhost:3000"
+      log_level: debug
+      save_logs: false
+    gerbil:
+      base_endpoint: "localhost"
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# ---------------------------------------------------------------------------
+# Controller – reduced resources for dev
+# ---------------------------------------------------------------------------
+controller:
+  enabled: true
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+# ---------------------------------------------------------------------------
+# Gerbil – reduced resources, no persistence for dev
+# ---------------------------------------------------------------------------
+gerbil:
+  enabled: true
+  persistence:
+    enabled: true
+    size: 1Gi
+  service:
+    type: ClusterIP
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+# ---------------------------------------------------------------------------
+# NetworkPolicy – relaxed for dev/CI
+# ---------------------------------------------------------------------------
+networkPolicy:
+  enabled: false

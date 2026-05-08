@@ -1,0 +1,50 @@
+{{- if and (eq (include "pangolin.gerbil.resourcesEnabled" .) "true") .Values.gerbil.service.enabled }}
+{{- $root := . -}}
+{{- $gerbil := .Values.gerbil -}}
+{{- $svcType := $gerbil.service.type | default "ClusterIP" -}}
+{{- $svcAnns := mergeOverwrite (dict) (include "pangolin.global.commonAnnotations" $root | fromYaml) .Values.global.additionalServiceAnnotations (include "pangolin.component.commonAnnotations" (dict "root" $root "component" "gerbil") | fromYaml) (mergeOverwrite (dict) $gerbil.service.annotations) -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ printf "%s-gerbil" (include "pangolin.fullname" .) }}
+  namespace: {{ include "pangolin.namespace" . }}
+  labels:
+    {{- include "pangolin.labels" $root | nindent 4 }}
+    {{- include "pangolin.component.commonLabels" (dict "root" $root "component" "gerbil") | nindent 4 }}
+    {{- include "pangolin.renderNonSelectorLabels" (dict "labels" ($root.Values.global.additionalServiceLabels | default dict)) | nindent 4 }}
+    {{- include "pangolin.renderNonSelectorLabels" (dict "labels" ($gerbil.service.labels | default dict)) | nindent 4 }}
+    app.kubernetes.io/component: gerbil
+  {{- if gt (len $svcAnns) 0 }}
+  annotations:
+    {{- toYaml $svcAnns | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ $svcType }}
+  {{- if and (or (eq $svcType "LoadBalancer") (eq $svcType "NodePort")) $gerbil.service.externalTrafficPolicy }}
+  {{- with $gerbil.service.externalTrafficPolicy }}
+  externalTrafficPolicy: {{ . }}
+  {{- end }}
+  {{- end }}
+  {{- if eq $svcType "LoadBalancer" }}
+  {{- with $gerbil.service.loadBalancerIP }}
+  loadBalancerIP: {{ . }}
+  {{- end }}
+  {{- with $gerbil.service.loadBalancerSourceRanges }}
+  loadBalancerSourceRanges:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- end }}
+  selector:
+    {{- if eq .Values.deployment.mode "single" }}
+    {{- include "pangolin.single.selectorLabels" $root | nindent 4 }}
+    {{- else }}
+    {{- include "pangolin.gerbil.selectorLabels" $root | nindent 4 }}
+    {{- end }}
+  ports:
+    {{- range $gerbil.service.ports }}
+    - name: {{ .name }}
+      port: {{ .port }}
+      targetPort: {{ .targetPort }}
+      protocol: {{ .protocol }}
+    {{- end }}
+{{- end }}

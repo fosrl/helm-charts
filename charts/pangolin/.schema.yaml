@@ -1,0 +1,17 @@
+# .schema.yaml
+# yaml-language-server: $schema=https://github.com/losisin/helm-values-schema-json/raw/refs/heads/main/config.schema.json
+
+values:
+  - values.yaml
+
+draft: 7
+indent: 4
+output: values.schema.json
+
+useHelmDocs: true
+
+schemaRoot:
+  id: https://github.com/fosrl/helm-charts/charts/pangolin/values.schema.json
+  title: Pangolin values schema
+  description: Values schema for the Pangolin Helm chart
+  additionalProperties: false

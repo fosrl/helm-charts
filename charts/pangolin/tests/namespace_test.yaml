@@ -1,0 +1,95 @@
+suite: namespace rendering
+templates:
+  - templates/namespace.yaml
+tests:
+  - it: does not render namespace when create=false (default)
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders namespace when create=true
+    set:
+      namespace.create: true
+      namespace.name: pangolin
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: Namespace
+      - equal:
+          path: metadata.name
+          value: pangolin
+
+  - it: uses Release.Namespace when namespace.name is empty and create=true
+    set:
+      namespace.create: true
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: metadata.name
+          value: NAMESPACE
+
+  - it: renders PSA enforce label when set
+    set:
+      namespace.create: true
+      namespace.name: pangolin
+      namespace.podSecurity.enforce: privileged
+    asserts:
+      - equal:
+          path: metadata.labels["pod-security.kubernetes.io/enforce"]
+          value: privileged
+
+  - it: renders PSA audit and warn labels when set
+    set:
+      namespace.create: true
+      namespace.name: pangolin
+      namespace.podSecurity.enforce: privileged
+      namespace.podSecurity.audit: baseline
+      namespace.podSecurity.warn: baseline
+    asserts:
+      - equal:
+          path: metadata.labels["pod-security.kubernetes.io/enforce"]
+          value: privileged
+      - equal:
+          path: metadata.labels["pod-security.kubernetes.io/audit"]
+          value: baseline
+      - equal:
+          path: metadata.labels["pod-security.kubernetes.io/warn"]
+          value: baseline
+
+  - it: does not render PSA labels when podSecurity is not set
+    set:
+      namespace.create: true
+      namespace.name: pangolin
+    asserts:
+      - notExists:
+          path: metadata.labels["pod-security.kubernetes.io/enforce"]
+      - notExists:
+          path: metadata.labels["pod-security.kubernetes.io/audit"]
+      - notExists:
+          path: metadata.labels["pod-security.kubernetes.io/warn"]
+
+  - it: renders additional labels
+    set:
+      namespace.create: true
+      namespace.name: pangolin
+      namespace.labels:
+        environment: production
+        team: platform
+    asserts:
+      - equal:
+          path: metadata.labels.environment
+          value: production
+      - equal:
+          path: metadata.labels.team
+          value: platform
+
+  - it: always renders managed-by label
+    set:
+      namespace.create: true
+      namespace.name: pangolin
+    asserts:
+      - equal:
+          path: metadata.labels["app.kubernetes.io/managed-by"]
+          value: Helm

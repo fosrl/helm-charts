@@ -1,0 +1,97 @@
+suite: standalone Traefik rendering
+templates:
+  - templates/deployment-traefik.yaml
+  - templates/service-traefik.yaml
+tests:
+  - it: renders standalone Traefik deployment + service with safe defaults
+    set:
+      deployment.type: standalone
+      deployment.mode: multi
+      traefik.enabled: true
+      traefik.config.letsencryptEmail: ops@example.com
+      traefik.config.dynamicRouters.host: pangolin.local
+      traefik.config.dashboard: false
+      traefik.persistence.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 1
+    template: templates/deployment-traefik.yaml
+
+  - it: sets api.insecure=false when dashboard disabled
+    set:
+      deployment.type: standalone
+      deployment.mode: multi
+      traefik.enabled: true
+      traefik.config.letsencryptEmail: ops@example.com
+      traefik.config.dynamicRouters.host: pangolin.local
+      traefik.config.dashboard: false
+    template: templates/deployment-traefik.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].args[0]
+          value: --api.insecure=false
+
+  - it: sets api.insecure=true when dashboard enabled
+    set:
+      deployment.type: standalone
+      deployment.mode: multi
+      traefik.enabled: true
+      traefik.config.letsencryptEmail: ops@example.com
+      traefik.config.dynamicRouters.host: pangolin.local
+      traefik.config.dashboard: true
+      traefik.persistence.enabled: true
+    template: templates/deployment-traefik.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].args[0]
+          value: --api.insecure=true
+
+  - it: does not expose admin/dashboard port on Service
+    set:
+      deployment.type: standalone
+      deployment.mode: multi
+      traefik.enabled: true
+      traefik.config.letsencryptEmail: ops@example.com
+      traefik.config.dynamicRouters.host: pangolin.local
+    template: templates/service-traefik.yaml
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: spec.ports[0].port
+          value: 80
+      - equal:
+          path: spec.ports[1].port
+          value: 443
+      - notExists:
+          path: spec.ports[2]
+
+  - it: does not render serversTransport.insecureskipverify arg by default
+    set:
+      deployment.type: standalone
+      deployment.mode: multi
+      traefik.enabled: true
+      traefik.config.letsencryptEmail: ops@example.com
+      traefik.config.dynamicRouters.host: pangolin.local
+      traefik.config.insecureSkipVerify: false
+      traefik.config.acmeDelayBeforeCheck: 0
+    template: templates/deployment-traefik.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: "--serversTransport.insecureskipverify=true"
+
+  - it: renders serversTransport.insecureskipverify arg when enabled
+    set:
+      deployment.type: standalone
+      deployment.mode: multi
+      traefik.enabled: true
+      traefik.config.letsencryptEmail: ops@example.com
+      traefik.config.dynamicRouters.host: pangolin.local
+      traefik.config.insecureSkipVerify: true
+      traefik.config.acmeDelayBeforeCheck: 0
+    template: templates/deployment-traefik.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--serversTransport.insecureskipverify=true"

@@ -1,0 +1,27 @@
+{{- $bp := .Values.pangolin.blueprints | default dict -}}
+{{- $bpEnabled := default false (get $bp "enabled") -}}
+{{- $bpCm := default (dict) (get $bp "configMap") -}}
+{{- $bpCmCreate := default false (get $bpCm "create") -}}
+{{- $bpExistingCm := default "" (get $bp "existingConfigMap") -}}
+{{- if and $bpEnabled $bpCmCreate (not $bpExistingCm) }}
+{{- $metaAnns := mergeOverwrite (dict) (include "pangolin.global.commonAnnotations" . | fromYaml) (include "pangolin.component.commonAnnotations" (dict "root" . "component" "pangolin") | fromYaml) (.Values.pangolin.configMap.annotations | default dict) -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "pangolin.blueprints.configMapName" . }}
+  namespace: {{ include "pangolin.namespace" . }}
+  labels:
+    {{- include "pangolin.labels" . | nindent 4 }}
+    {{- include "pangolin.component.commonLabels" (dict "root" . "component" "pangolin") | nindent 4 }}
+    {{- include "pangolin.renderNonSelectorLabels" (dict "labels" (.Values.pangolin.configMap.labels | default dict)) | nindent 4 }}
+    app.kubernetes.io/component: pangolin
+  {{- if gt (len $metaAnns) 0 }}
+  annotations:
+    {{- toYaml $metaAnns | nindent 4 }}
+  {{- end }}
+data:
+  {{- range $filename, $content := (get $bp "files" | default dict) }}
+  {{ $filename | quote }}: |
+    {{- $content | nindent 4 }}
+  {{- end }}
+{{- end }}

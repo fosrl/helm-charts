@@ -1,0 +1,175 @@
+suite: labels and annotations rendering
+templates:
+  - templates/deployment-gerbil.yaml
+  - templates/service-gerbil.yaml
+  - templates/service-pangolin.yaml
+  - templates/configmap-pangolin.yaml
+  - templates/secrets.yaml
+  - templates/serviceaccount.yaml
+  - templates/networkpolicy.yaml
+  - templates/pvc-gerbil.yaml
+tests:
+  - it: renders global common labels and annotations on chart resources
+    set:
+      global.commonLabels:
+        team: platform
+      global.commonAnnotations:
+        owner: sre
+      pangolin.config.app.dashboard_url: https://pangolin.example.com
+    template: templates/service-pangolin.yaml
+    asserts:
+      - equal:
+          path: metadata.labels.team
+          value: platform
+      - equal:
+          path: metadata.annotations.owner
+          value: sre
+
+  - it: renders global common labels and annotations on configmaps and secrets
+    set:
+      global.commonLabels:
+        team: platform
+      global.commonAnnotations:
+        owner: sre
+      pangolin.config.app.dashboard_url: https://pangolin.example.com
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - equal:
+          path: metadata.labels.team
+          value: platform
+      - equal:
+          path: metadata.annotations.owner
+          value: sre
+
+  - it: renders global common labels and annotations on service accounts, network policies and pvcs
+    set:
+      global.commonLabels:
+        team: platform
+      global.commonAnnotations:
+        owner: sre
+    template: templates/serviceaccount.yaml
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: metadata.labels.team
+          value: platform
+      - equal:
+          path: metadata.annotations.owner
+          value: sre
+
+  - it: renders global common labels and annotations on network policies
+    set:
+      global.commonLabels:
+        team: platform
+      global.commonAnnotations:
+        owner: sre
+    template: templates/networkpolicy.yaml
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: metadata.labels.team
+          value: platform
+      - equal:
+          path: metadata.annotations.owner
+          value: sre
+
+  - it: renders global common labels and annotations on gerbil pvc
+    set:
+      global.commonLabels:
+        team: platform
+      global.commonAnnotations:
+        owner: sre
+    template: templates/pvc-gerbil.yaml
+    asserts:
+      - equal:
+          path: metadata.labels.team
+          value: platform
+      - equal:
+          path: metadata.annotations.owner
+          value: sre
+
+  - it: applies component labels/annotations only to gerbil resources
+    set:
+      gerbil.commonLabels:
+        component-scope: gerbil-only
+      gerbil.commonAnnotations:
+        component-annotation: gerbil-only
+    template: templates/service-gerbil.yaml
+    asserts:
+      - equal:
+          path: metadata.labels.component-scope
+          value: gerbil-only
+      - equal:
+          path: metadata.annotations.component-annotation
+          value: gerbil-only
+
+  - it: does not leak gerbil component labels to pangolin resources
+    set:
+      gerbil.commonLabels:
+        component-scope: gerbil-only
+    template: templates/service-pangolin.yaml
+    asserts:
+      - notExists:
+          path: metadata.labels.component-scope
+
+  - it: renders resource-specific gerbil service annotations for loadbalancer
+    set:
+      gerbil.service.type: LoadBalancer
+      gerbil.service.annotations:
+        load-balancer.hetzner.cloud/name: pangolin-gerbil
+    template: templates/service-gerbil.yaml
+    asserts:
+      - equal:
+          path: spec.type
+          value: LoadBalancer
+      - equal:
+          path: metadata.annotations["load-balancer.hetzner.cloud/name"]
+          value: pangolin-gerbil
+
+  - it: renders deployment and pod metadata labels/annotations in pod template
+    set:
+      gerbil.deployment.labels:
+        deployment-label: value
+      gerbil.deployment.annotations:
+        deployment-annotation: value
+      gerbil.deployment.podLabels:
+        pod-label: value
+      gerbil.deployment.podAnnotations:
+        pod-annotation: value
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - equal:
+          path: metadata.labels.deployment-label
+          value: value
+      - equal:
+          path: metadata.annotations.deployment-annotation
+          value: value
+      - equal:
+          path: spec.template.metadata.labels.pod-label
+          value: value
+      - equal:
+          path: spec.template.metadata.annotations.pod-annotation
+          value: value
+      - notExists:
+          path: spec.selector.matchLabels.pod-label
+
+  - it: keeps selector labels stable when user provides protected label keys
+    set:
+      global.commonLabels:
+        app.kubernetes.io/name: changed
+        app.kubernetes.io/instance: changed
+      gerbil.service.labels:
+        app.kubernetes.io/component: changed
+      gerbil.deployment.podLabels:
+        app.kubernetes.io/component: changed
+    template: templates/service-gerbil.yaml
+    asserts:
+      - equal:
+          path: metadata.labels["app.kubernetes.io/name"]
+          value: pangolin
+      - equal:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: gerbil
+      - equal:
+          path: spec.selector["app.kubernetes.io/component"]
+          value: gerbil

@@ -1,0 +1,45 @@
+# Example: Installer-like Pangolin config in standalone Traefik mode
+#
+# Closer to upstream Docker-style topology: Pangolin + Gerbil + standalone Traefik.
+
+deployment:
+  type: standalone
+  mode: multi
+
+controller:
+  enabled: false
+
+pangolin:
+  config:
+    app:
+      dashboard_url: "https://pangolin.yourdomain.example"
+      log_level: info
+      telemetry:
+        anonymous_usage: true
+    domains:
+      domain1:
+        base_domain: yourdomain.example
+        cert_resolver: letsencrypt
+    gerbil:
+      start_port: 51820
+      clients_start_port: 21820
+      base_endpoint: vpn.yourdomain.example
+    flags:
+      require_email_verification: false
+      disable_signup_without_invite: true
+      disable_user_create_org: false
+      allow_raw_resources: true
+    traefik:
+      enabled: true
+      http_entrypoint: web
+      https_entrypoint: websecure
+      cert_resolver: letsencrypt
+
+traefik:
+  enabled: true
+  config:
+    letsencryptEmail: "ops@yourdomain.example"
+    dynamicRouters:
+      host: "pangolin.yourdomain.example"
+  persistence:
+    enabled: true

@@ -1,0 +1,794 @@
+suite: network policy and networking
+templates:
+  - templates/networkpolicy.yaml
+  - templates/service-pangolin.yaml
+  - templates/service-controller.yaml
+  - templates/service-gerbil.yaml
+tests:
+  - it: renders component-scoped NetworkPolicies by default
+    set:
+      networkPolicy.enabled: true
+    template: templates/networkpolicy.yaml
+    asserts:
+      - hasDocuments:
+          count: 6
+
+  - it: renders pangolin ingress policy with expected name and type
+    set:
+      networkPolicy.enabled: true
+    template: templates/networkpolicy.yaml
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: NetworkPolicy
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin-pangolin-ingress
+      - equal:
+          path: spec.policyTypes[0]
+          value: Ingress
+
+  - it: pangolin internal api ingress is restricted to controller by default
+    set:
+      networkPolicy.enabled: true
+    template: templates/networkpolicy.yaml
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.ingress[0].from[0].podSelector.matchLabels["app.kubernetes.io/component"]
+          value: controller
+      - equal:
+          path: spec.ingress[0].ports[0].port
+          value: 3001
+
+  - it: pangolin external ingress exposes only public port by default
+    set:
+      networkPolicy.enabled: true
+    template: templates/networkpolicy.yaml
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.ingress[2].ports[0].port
+          value: 3000
+      - notExists:
+          path: spec.ingress[2].ports[1]
+
+  - it: pangolin dashboard ingress can be restricted with configured peers
+    set:
+      networkPolicy:
+        enabled: true
+        pangolin:
+          ingress:
+            dashboard:
+              from:
+                - namespaceSelector:
+                    matchLabels:
+                      kubernetes.io/metadata.name: traefik
+                  podSelector:
+                    matchLabels:
+                      app.kubernetes.io/name: traefik
+    template: templates/networkpolicy.yaml
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.ingress[2].from[0].namespaceSelector.matchLabels["kubernetes.io/metadata.name"]
+          value: traefik
+      - equal:
+          path: spec.ingress[2].from[0].podSelector.matchLabels["app.kubernetes.io/name"]
+          value: traefik
+      - equal:
+          path: spec.ingress[2].ports[0].port
+          value: 3000
+
+  - it: appends extraIngress to pangolin ingress policy
+    set:
+      networkPolicy:
+        enabled: true
+        extraIngress:
+          - ports:
+              - protocol: TCP
+                port: 9999
+    template: templates/networkpolicy.yaml
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.ingress[3].ports[0].port
+          value: 9999
+
+  - it: controller egress is rendered by default with dns and pangolin peer
+    set:
+      networkPolicy.enabled: true
+    template: templates/networkpolicy.yaml
+    documentIndex: 3
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin-controller-egress
+      - equal:
+          path: spec.egress[0].ports[0].port
+          value: 53
+      - equal:
+          path: spec.egress[1].to[0].podSelector.matchLabels["app.kubernetes.io/component"]
+          value: pangolin
+
+  - it: controller egress policy is not rendered when disabled
+    set:
+      networkPolicy:
+        enabled: true
+        controller:
+          egress:
+            enabled: false
+    template: templates/networkpolicy.yaml
+    asserts:
+      - hasDocuments:
+          count: 5
+
+  - it: controller metrics ingress renders from configured peers when enabled
+    set:
+      networkPolicy:
+        enabled: true
+        controller:
+          metrics:
+            enabled: true
+            from:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: monitoring
+    template: templates/networkpolicy.yaml
+    documentIndex: 2
+    asserts:
+      - equal:
+          path: spec.ingress[0].from[0].namespaceSelector.matchLabels["kubernetes.io/metadata.name"]
+          value: monitoring
+      - equal:
+          path: spec.ingress[0].ports[0].port
+          value: 9090
+
+  - it: controller egress includes kubernetes api when configured via controller egress settings
+    set:
+      networkPolicy:
+        enabled: true
+        controller:
+          egress:
+            kubernetesApi:
+              cidr: 10.96.0.1/32
+              port: 6443
+    template: templates/networkpolicy.yaml
+    documentIndex: 3
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin-controller-egress
+      - equal:
+          path: spec.egress[2].ports[0].port
+          value: 6443
+
+  - it: controller kubernetes api egress honors configured legacy cidrs
+    set:
+      networkPolicy:
+        enabled: true
+        kubernetesApiCIDRs:
+          - 10.96.0.1/32
+    template: templates/networkpolicy.yaml
+    documentIndex: 3
+    asserts:
+      - equal:
+          path: spec.egress[2].to[0].ipBlock.cidr
+          value: 10.96.0.1/32
+
+  - it: gerbil ingress exposes udp wireguard ports by default
+    set:
+      networkPolicy.enabled: true
+    template: templates/networkpolicy.yaml
+    documentIndex: 4
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin-gerbil-ingress
+      - equal:
+          path: spec.ingress[0].ports[0].port
+          value: 51820
+      - equal:
+          path: spec.ingress[0].ports[1].port
+          value: 21820
+
+  - it: gerbil internal api ingress is restricted to pangolin/controller pods
+    set:
+      networkPolicy.enabled: true
+    template: templates/networkpolicy.yaml
+    documentIndex: 4
+    asserts:
+      - equal:
+          path: spec.ingress[1].ports[0].port
+          value: 3004
+      - equal:
+          path: spec.ingress[1].from[0].podSelector.matchLabels["app.kubernetes.io/component"]
+          value: pangolin
+      - equal:
+          path: spec.ingress[1].from[1].podSelector.matchLabels["app.kubernetes.io/component"]
+          value: controller
+
+  - it: renders embedded postgres network policies in embedded mode
+    set:
+      networkPolicy.enabled: true
+      database.mode: embedded
+      database.embedded.enabled: true
+    template: templates/networkpolicy.yaml
+    asserts:
+      - hasDocuments:
+          count: 8
+
+  - it: renders 6 policies with kubernetesApiCIDRs configured (controller egress already always rendered)
+    set:
+      networkPolicy:
+        enabled: true
+        kubernetesApiCIDRs:
+          - 10.96.0.1/32
+    template: templates/networkpolicy.yaml
+    asserts:
+      - hasDocuments:
+          count: 6
+
+  - it: pangolin cloudnativepg egress uses cnpg pod selector by default
+    set:
+      networkPolicy.enabled: true
+      database.mode: cloudnativepg
+    template: templates/networkpolicy.yaml
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin-pangolin-egress
+      - equal:
+          path: spec.egress[1].to[0].podSelector.matchLabels["cnpg.io/cluster"]
+          value: pangolin-db
+
+  - it: pangolin cloudnativepg egress uses explicit cnpgPeers when configured
+    set:
+      networkPolicy:
+        enabled: true
+        database:
+          cnpgPeers:
+            - podSelector:
+                matchLabels:
+                  app: my-cnpg
+    template: templates/networkpolicy.yaml
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: spec.egress[1].to[0].podSelector.matchLabels["app"]
+          value: my-cnpg
+
+  - it: does not render NetworkPolicy when disabled
+    set:
+      networkPolicy.enabled: false
+    template: templates/networkpolicy.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # ---------------------------------------------------------------------------
+  # DNS configuration tests
+  # ---------------------------------------------------------------------------
+
+  - it: default dns egress renders to kube-system on pangolin egress
+    set:
+      networkPolicy.enabled: true
+    template: templates/networkpolicy.yaml
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin-pangolin-egress
+      - equal:
+          path: spec.egress[0].to[0].namespaceSelector.matchLabels["kubernetes.io/metadata.name"]
+          value: kube-system
+      - equal:
+          path: spec.egress[0].ports[0].port
+          value: 53
+      - equal:
+          path: spec.egress[0].ports[0].protocol
+          value: UDP
+      - equal:
+          path: spec.egress[0].ports[1].port
+          value: 53
+      - equal:
+          path: spec.egress[0].ports[1].protocol
+          value: TCP
+
+  - it: default dns egress renders to kube-system on gerbil egress
+    set:
+      networkPolicy.enabled: true
+    template: templates/networkpolicy.yaml
+    documentIndex: 5
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin-gerbil-egress
+      - equal:
+          path: spec.egress[0].to[0].namespaceSelector.matchLabels["kubernetes.io/metadata.name"]
+          value: kube-system
+
+  - it: custom dns peer renders correctly on pangolin egress
+    set:
+      networkPolicy:
+        enabled: true
+        dns:
+          enabled: true
+          ports:
+            - protocol: UDP
+              port: 53
+          to:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: dns-namespace
+              podSelector:
+                matchLabels:
+                  app: coredns
+    template: templates/networkpolicy.yaml
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: spec.egress[0].to[0].namespaceSelector.matchLabels["kubernetes.io/metadata.name"]
+          value: dns-namespace
+      - equal:
+          path: spec.egress[0].to[0].podSelector.matchLabels["app"]
+          value: coredns
+      - equal:
+          path: spec.egress[0].ports[0].port
+          value: 53
+
+  - it: dns egress is omitted when dns.enabled is false
+    set:
+      networkPolicy:
+        enabled: true
+        dns:
+          enabled: false
+    template: templates/networkpolicy.yaml
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin-pangolin-egress
+      - notExists:
+          path: spec.egress[0].to[0].namespaceSelector
+
+  - it: embedded postgres dns egress uses configurable dns peer
+    set:
+      networkPolicy:
+        enabled: true
+        dns:
+          enabled: true
+          to:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: custom-dns
+      database.mode: embedded
+      database.embedded.enabled: true
+    template: templates/networkpolicy.yaml
+    documentIndex: 7
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin-embedded-postgres-egress
+      - equal:
+          path: spec.egress[0].to[0].namespaceSelector.matchLabels["kubernetes.io/metadata.name"]
+          value: custom-dns
+
+  # ---------------------------------------------------------------------------
+  # Component-scoped extra rules tests
+  # ---------------------------------------------------------------------------
+
+  - it: pangolin-only extraEgress applies only to pangolin egress policy
+    set:
+      networkPolicy:
+        enabled: true
+        pangolin:
+          extraEgress:
+            - ports:
+                - protocol: TCP
+                  port: 587
+              to:
+                - ipBlock:
+                    cidr: 203.0.113.0/24
+    template: templates/networkpolicy.yaml
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin-pangolin-egress
+      - equal:
+          path: spec.egress[2].ports[0].port
+          value: 587
+
+  - it: pangolin-only extraEgress does not apply to controller egress policy
+    set:
+      networkPolicy:
+        enabled: true
+        pangolin:
+          extraEgress:
+            - ports:
+                - protocol: TCP
+                  port: 587
+    template: templates/networkpolicy.yaml
+    documentIndex: 3
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin-controller-egress
+      - notExists:
+          path: spec.egress[2]
+
+  - it: pangolin-only extraEgress does not apply to gerbil egress policy
+    set:
+      networkPolicy:
+        enabled: true
+        pangolin:
+          extraEgress:
+            - ports:
+                - protocol: TCP
+                  port: 587
+    template: templates/networkpolicy.yaml
+    documentIndex: 5
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin-gerbil-egress
+      - notExists:
+          path: spec.egress[3]
+
+  - it: controller-only extraEgress applies only to controller egress policy
+    set:
+      networkPolicy:
+        enabled: true
+        controller:
+          extraEgress:
+            - ports:
+                - protocol: TCP
+                  port: 8080
+              to:
+                - ipBlock:
+                    cidr: 192.168.1.0/24
+    template: templates/networkpolicy.yaml
+    documentIndex: 3
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin-controller-egress
+      - equal:
+          path: spec.egress[2].ports[0].port
+          value: 8080
+
+  - it: controller-only extraEgress does not apply to pangolin egress policy
+    set:
+      networkPolicy:
+        enabled: true
+        controller:
+          extraEgress:
+            - ports:
+                - protocol: TCP
+                  port: 8080
+    template: templates/networkpolicy.yaml
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin-pangolin-egress
+      - notExists:
+          path: spec.egress[2]
+
+  - it: gerbil-only extraEgress applies only to gerbil egress policy
+    set:
+      networkPolicy:
+        enabled: true
+        gerbil:
+          extraEgress:
+            - ports:
+                - protocol: TCP
+                  port: 9000
+              to:
+                - ipBlock:
+                    cidr: 10.0.0.0/8
+    template: templates/networkpolicy.yaml
+    documentIndex: 5
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin-gerbil-egress
+      - equal:
+          path: spec.egress[3].ports[0].port
+          value: 9000
+
+  - it: gerbil-only extraEgress does not apply to pangolin egress policy
+    set:
+      networkPolicy:
+        enabled: true
+        gerbil:
+          extraEgress:
+            - ports:
+                - protocol: TCP
+                  port: 9000
+    template: templates/networkpolicy.yaml
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin-pangolin-egress
+      - notExists:
+          path: spec.egress[2]
+
+  - it: global extraEgress still applies to pangolin egress policy
+    set:
+      networkPolicy:
+        enabled: true
+        extraEgress:
+          - ports:
+              - protocol: TCP
+                port: 443
+            to:
+              - ipBlock:
+                  cidr: 0.0.0.0/0
+    template: templates/networkpolicy.yaml
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin-pangolin-egress
+      - equal:
+          path: spec.egress[2].ports[0].port
+          value: 443
+
+  - it: global extraEgress also applies to controller egress policy
+    set:
+      networkPolicy:
+        enabled: true
+        extraEgress:
+          - ports:
+              - protocol: TCP
+                port: 443
+            to:
+              - ipBlock:
+                  cidr: 0.0.0.0/0
+    template: templates/networkpolicy.yaml
+    documentIndex: 3
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin-controller-egress
+      - equal:
+          path: spec.egress[2].ports[0].port
+          value: 443
+
+  - it: global extraEgress also applies to gerbil egress policy
+    set:
+      networkPolicy:
+        enabled: true
+        extraEgress:
+          - ports:
+              - protocol: TCP
+                port: 443
+            to:
+              - ipBlock:
+                  cidr: 0.0.0.0/0
+    template: templates/networkpolicy.yaml
+    documentIndex: 5
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin-gerbil-egress
+      - equal:
+          path: spec.egress[3].ports[0].port
+          value: 443
+
+  - it: pangolin-only extraIngress applies only to pangolin ingress policy
+    set:
+      networkPolicy:
+        enabled: true
+        pangolin:
+          extraIngress:
+            - ports:
+                - protocol: TCP
+                  port: 8888
+    template: templates/networkpolicy.yaml
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin-pangolin-ingress
+      - equal:
+          path: spec.ingress[3].ports[0].port
+          value: 8888
+
+  - it: controller-only extraIngress applies only to controller ingress policy
+    set:
+      networkPolicy:
+        enabled: true
+        controller:
+          extraIngress:
+            - ports:
+                - protocol: TCP
+                  port: 7777
+    template: templates/networkpolicy.yaml
+    documentIndex: 2
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin-controller-ingress
+      - equal:
+          path: spec.ingress[0].ports[0].port
+          value: 7777
+
+  - it: gerbil-only extraIngress applies only to gerbil ingress policy
+    set:
+      networkPolicy:
+        enabled: true
+        gerbil:
+          extraIngress:
+            - ports:
+                - protocol: TCP
+                  port: 6666
+    template: templates/networkpolicy.yaml
+    documentIndex: 4
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin-gerbil-ingress
+      - equal:
+          path: spec.ingress[2].ports[0].port
+          value: 6666
+
+  - it: Pangolin service has correct ports
+    template: templates/service-pangolin.yaml
+    asserts:
+      - equal:
+          path: spec.ports[0].name
+          value: external
+      - equal:
+          path: spec.ports[0].port
+          value: 3000
+      - equal:
+          path: spec.ports[1].name
+          value: internal-api
+      - equal:
+          path: spec.ports[1].port
+          value: 3001
+
+  - it: service targetPorts match container ports
+    template: templates/service-pangolin.yaml
+    asserts:
+      - equal:
+          path: spec.ports[0].targetPort
+          value: 3000
+      - equal:
+          path: spec.ports[1].targetPort
+          value: 3001
+
+  - it: gerbil service includes internal-api tcp 3004
+    set:
+      gerbil.service.enabled: true
+    template: templates/service-gerbil.yaml
+    asserts:
+      - equal:
+          path: spec.ports[2].name
+          value: internal-api
+      - equal:
+          path: spec.ports[2].port
+          value: 3004
+
+  - it: gerbil service renders LoadBalancer type when configured
+    set:
+      gerbil.service.enabled: true
+      gerbil.service.type: LoadBalancer
+    template: templates/service-gerbil.yaml
+    asserts:
+      - equal:
+          path: spec.type
+          value: LoadBalancer
+      - notExists:
+          path: spec.loadBalancerIP
+      - notExists:
+          path: spec.externalTrafficPolicy
+
+  - it: gerbil service renders externalTrafficPolicy for LoadBalancer
+    set:
+      gerbil.service.enabled: true
+      gerbil.service.type: LoadBalancer
+      gerbil.service.externalTrafficPolicy: Local
+    template: templates/service-gerbil.yaml
+    asserts:
+      - equal:
+          path: spec.type
+          value: LoadBalancer
+      - equal:
+          path: spec.externalTrafficPolicy
+          value: Local
+
+  - it: gerbil service renders loadBalancerIP when set
+    set:
+      gerbil.service.enabled: true
+      gerbil.service.type: LoadBalancer
+      gerbil.service.loadBalancerIP: "1.2.3.4"
+    template: templates/service-gerbil.yaml
+    asserts:
+      - equal:
+          path: spec.loadBalancerIP
+          value: "1.2.3.4"
+
+  - it: gerbil service does not render loadBalancerIP when empty
+    set:
+      gerbil.service.enabled: true
+      gerbil.service.type: LoadBalancer
+      gerbil.service.loadBalancerIP: ""
+    template: templates/service-gerbil.yaml
+    asserts:
+      - notExists:
+          path: spec.loadBalancerIP
+
+  - it: gerbil service renders loadBalancerSourceRanges when set
+    set:
+      gerbil.service.enabled: true
+      gerbil.service.type: LoadBalancer
+      gerbil.service.loadBalancerSourceRanges:
+        - "10.0.0.0/8"
+    template: templates/service-gerbil.yaml
+    asserts:
+      - equal:
+          path: spec.loadBalancerSourceRanges[0]
+          value: "10.0.0.0/8"
+
+  - it: gerbil service renders NodePort type when configured
+    set:
+      gerbil.service.enabled: true
+      gerbil.service.type: NodePort
+    template: templates/service-gerbil.yaml
+    asserts:
+      - equal:
+          path: spec.type
+          value: NodePort
+
+  - it: gerbil service renders externalTrafficPolicy for NodePort
+    set:
+      gerbil.service.enabled: true
+      gerbil.service.type: NodePort
+      gerbil.service.externalTrafficPolicy: Cluster
+    template: templates/service-gerbil.yaml
+    asserts:
+      - equal:
+          path: spec.type
+          value: NodePort
+      - equal:
+          path: spec.externalTrafficPolicy
+          value: Cluster
+
+  - it: gerbil service ClusterIP does not render externalTrafficPolicy
+    set:
+      gerbil.service.enabled: true
+      gerbil.service.type: ClusterIP
+      gerbil.service.externalTrafficPolicy: Local
+    template: templates/service-gerbil.yaml
+    asserts:
+      - equal:
+          path: spec.type
+          value: ClusterIP
+      - notExists:
+          path: spec.externalTrafficPolicy
+
+  - it: gerbil service is not rendered when disabled
+    set:
+      gerbil.service.enabled: false
+    template: templates/service-gerbil.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: gerbil service wg ports use UDP protocol
+    set:
+      gerbil.service.enabled: true
+    template: templates/service-gerbil.yaml
+    asserts:
+      - equal:
+          path: spec.ports[0].protocol
+          value: UDP
+      - equal:
+          path: spec.ports[1].protocol
+          value: UDP

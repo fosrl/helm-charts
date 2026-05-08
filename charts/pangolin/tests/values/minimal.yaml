@@ -1,0 +1,31 @@
+# Minimal test values for pangolin chart
+deployment:
+  type: controller
+  mode: multi
+  installTraefikController: false
+
+controller:
+  enabled: true
+  replicaCount: 1
+
+gerbil:
+  enabled: true
+
+pangolin:
+  replicaCount: 1
+
+database:
+  mode: cloudnativepg
+  cloudnativepg:
+    connection:
+      generatedSecret:
+        create: true
+    auth:
+      generatedSecret:
+        create: false
+
+cnpg-operator:
+  enabled: false
+
+cnpg-cluster:
+  enabled: false

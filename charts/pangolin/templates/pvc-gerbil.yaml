@@ -1,0 +1,31 @@
+{{- if eq (include "pangolin.gerbil.resourcesEnabled" .) "true" }}
+{{- $gerbil := .Values.gerbil -}}
+{{- if and $gerbil.persistence.enabled (not $gerbil.persistence.existingClaim) }}
+{{- $root := . -}}
+{{- $storageClass := $gerbil.persistence.storageClass | default $root.Values.global.storageClass -}}
+{{- $metaAnns := mergeOverwrite (dict) (include "pangolin.global.commonAnnotations" $root | fromYaml) (include "pangolin.component.commonAnnotations" (dict "root" $root "component" "gerbil") | fromYaml) ($gerbil.persistence.annotations | default dict) ($gerbil.pvc.annotations | default dict) -}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ printf "%s-gerbil-config" (include "pangolin.fullname" $root) }}
+  namespace: {{ include "pangolin.namespace" $root }}
+  labels:
+    {{- include "pangolin.labels" $root | nindent 4 }}
+    {{- include "pangolin.component.commonLabels" (dict "root" $root "component" "gerbil") | nindent 4 }}
+    {{- include "pangolin.renderNonSelectorLabels" (dict "labels" ($gerbil.pvc.labels | default dict)) | nindent 4 }}
+    app.kubernetes.io/component: gerbil
+  {{- if gt (len $metaAnns) 0 }}
+  annotations:
+    {{- toYaml $metaAnns | nindent 4 }}
+  {{- end }}
+spec:
+  accessModes:
+    {{- toYaml ($gerbil.persistence.accessModes | default (list "ReadWriteOnce")) | nindent 4 }}
+  {{- if $storageClass }}
+  storageClassName: {{ $storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ $gerbil.persistence.size | default "1Gi" }}
+{{- end }}
+{{- end }}

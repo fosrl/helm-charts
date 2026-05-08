@@ -1,0 +1,75 @@
+suite: Gerbil startup mode rendering
+templates:
+  - templates/deployment-gerbil.yaml
+  - templates/service-gerbil.yaml
+  - templates/pvc-gerbil.yaml
+tests:
+  - it: renders Gerbil deployment with default startup mode
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: spec.replicas
+          value: 1
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: wait-for-pangolin-api
+
+  - it: renders Gerbil deployment with replicas 0 when startupMode is delayed
+    set:
+      gerbil.startupMode: delayed
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: spec.replicas
+          value: 0
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: wait-for-pangolin-api
+
+  - it: renders Gerbil deployment normally when startupMode is explicitly normal
+    set:
+      gerbil.startupMode: normal
+      gerbil.replicaCount: 2
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: spec.replicas
+          value: 2
+
+  - it: omits Gerbil deployment when startupMode is disabledUntilSetup
+    set:
+      gerbil.startupMode: disabledUntilSetup
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: omits Gerbil Service when startupMode is disabledUntilSetup
+    set:
+      gerbil.startupMode: disabledUntilSetup
+    template: templates/service-gerbil.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: omits Gerbil PVC when startupMode is disabledUntilSetup
+    set:
+      gerbil.startupMode: disabledUntilSetup
+    template: templates/pvc-gerbil.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: can disable Gerbil wait initContainer explicitly
+    set:
+      gerbil.waitForPangolin.enabled: false
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - isNull:
+          path: spec.template.spec.initContainers

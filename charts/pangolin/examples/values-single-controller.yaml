@@ -1,0 +1,50 @@
+# Example: Single Pod controller mode (trade-off profile)
+#
+# Topology: deployment.type=controller + deployment.mode=single
+# Database:  database.mode=cloudnativepg
+#
+# This profile demonstrates single-mode behavior where Pangolin + Gerbil +
+# pangolin-kube-controller run in one Pod. This is simpler, but less resilient
+# than multi mode and is generally not the preferred production topology.
+
+deployment:
+  type: controller
+  mode: single
+
+namespace:
+  create: true
+  name: pangolin-single
+  podSecurity:
+    enforce: privileged
+    warn: baseline
+    audit: baseline
+
+database:
+  mode: cloudnativepg
+  cloudnativepg:
+    cluster:
+      name: pangolin-db
+
+cnpg-operator:
+  enabled: false
+cnpg-cluster:
+  enabled: true
+  fullnameOverride: pangolin-db
+  type: postgresql
+  mode: standalone
+  cluster:
+    instances: 1
+    storage:
+      size: 8Gi
+
+pangolin:
+  config:
+    app:
+      dashboard_url: "https://pangolin.yourdomain.example"
+    gerbil:
+      base_endpoint: "vpn.yourdomain.example"
+
+gerbil:
+  enabled: true
+  persistence:
+    enabled: true
