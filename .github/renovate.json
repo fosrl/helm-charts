@@ -1,0 +1,197 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    "docker:enableMajor"
+  ],
+  "labels": ["dependencies", "renovate"],
+  "prBodyNotes": [
+    "### ⚠️ Chart version policy\n\nAny update that affects chart behavior (image, `appVersion`, or Helm dependency changes) requires at least a **minor** chart version bump in `Chart.yaml`. Please update the `version` field manually after merging if Renovate cannot do so automatically. See [MAINTENANCE.md](./MAINTENANCE.md) for the full version bump policy.",
+    "### 📝 Generated files reminder\n\nIf `values.yaml` was changed, remember to regenerate:\n- `values.schema.json` — run `helm schema -f values.yaml -o values.schema.json`\n- `README.md` — run `helm-docs`\n\nDo **not** simplify or remove YAML comments in `values.yaml`; they feed the generated docs and schema."
+  ],
+  "customManagers": [
+    {
+      "description": "Pangolin chart appVersion — tracks fosrl/pangolin Docker image",
+      "customType": "regex",
+      "fileMatch": ["^charts/pangolin/Chart\\.yaml$"],
+      "matchStrings": ["appVersion:\\s*\"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "fosrl/pangolin",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "semver"
+    },
+    {
+      "description": "Newt chart appVersion — tracks fosrl/newt Docker image",
+      "customType": "regex",
+      "fileMatch": ["^charts/newt/Chart\\.yaml$"],
+      "matchStrings": ["appVersion:\\s*\"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "fosrl/newt",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "semver"
+    },
+    {
+      "description": "Pangolin ArtifactHub annotations — standard docker.io image lines",
+      "customType": "regex",
+      "fileMatch": ["^charts/pangolin/Chart\\.yaml$"],
+      "matchStrings": ["image: docker\\.io/(?<depName>[^:\\s]+):(?!postgresql-)(?<currentValue>\\S+)"],
+      "datasourceTemplate": "docker",
+      "registryUrlTemplate": "https://registry.hub.docker.com",
+      "versioningTemplate": "semver"
+    },
+    {
+      "description": "Pangolin ArtifactHub annotations — postgresql-* docker.io image lines",
+      "customType": "regex",
+      "fileMatch": ["^charts/pangolin/Chart\\.yaml$"],
+      "matchStrings": ["image: docker\\.io/fosrl/pangolin:postgresql-(?<currentValue>\\S+)"],
+      "depNameTemplate": "fosrl/pangolin",
+      "datasourceTemplate": "docker",
+      "registryUrlTemplate": "https://registry.hub.docker.com",
+      "versioningTemplate": "semver",
+      "autoReplaceStringTemplate": "image: docker.io/fosrl/pangolin:postgresql-{{newValue}}"
+    },
+    {
+      "description": "Pangolin ArtifactHub annotations — standard ghcr.io image lines",
+      "customType": "regex",
+      "fileMatch": ["^charts/pangolin/Chart\\.yaml$"],
+      "matchStrings": ["image: ghcr\\.io/(?<depName>[^:\\s]+):(?!postgresql-)(?<currentValue>\\S+)"],
+      "datasourceTemplate": "docker",
+      "registryUrlTemplate": "https://ghcr.io",
+      "versioningTemplate": "semver"
+    },
+    {
+      "description": "Pangolin ArtifactHub annotations — postgresql-* ghcr.io image lines",
+      "customType": "regex",
+      "fileMatch": ["^charts/pangolin/Chart\\.yaml$"],
+      "matchStrings": ["image: ghcr\\.io/fosrl/pangolin:postgresql-(?<currentValue>\\S+)"],
+      "depNameTemplate": "fosrl/pangolin",
+      "datasourceTemplate": "docker",
+      "registryUrlTemplate": "https://ghcr.io",
+      "versioningTemplate": "semver",
+      "autoReplaceStringTemplate": "image: ghcr.io/fosrl/pangolin:postgresql-{{newValue}}"
+    },
+    {
+      "description": "Newt ArtifactHub annotations — docker.io image lines",
+      "customType": "regex",
+      "fileMatch": ["^charts/newt/Chart\\.yaml$"],
+      "matchStrings": ["image: docker\\.io/(?<depName>[^:\\s]+):(?<currentValue>\\S+)"],
+      "datasourceTemplate": "docker",
+      "registryUrlTemplate": "https://registry.hub.docker.com",
+      "versioningTemplate": "semver"
+    },
+    {
+      "description": "Newt ArtifactHub annotations — ghcr.io image lines",
+      "customType": "regex",
+      "fileMatch": ["^charts/newt/Chart\\.yaml$"],
+      "matchStrings": ["image: ghcr\\.io/(?<depName>[^:\\s]+):(?<currentValue>\\S+)"],
+      "datasourceTemplate": "docker",
+      "registryUrlTemplate": "https://ghcr.io",
+      "versioningTemplate": "semver"
+    },
+    {
+      "description": "Gerbil image tag in charts/pangolin/values.yaml",
+      "customType": "regex",
+      "fileMatch": ["^charts/pangolin/values\\.yaml$"],
+      "matchStrings": ["repository: fosrl/gerbil(?:[^\\n]*\\n)+?\\s+tag: \"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "fosrl/gerbil",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "semver"
+    },
+    {
+      "description": "Traefik standalone image tag in charts/pangolin/values.yaml",
+      "customType": "regex",
+      "fileMatch": ["^charts/pangolin/values\\.yaml$"],
+      "matchStrings": ["repository: traefik(?:[^\\n]*\\n)+?\\s+tag: (?<currentValue>v[^\\s#\\n]+)"],
+      "depNameTemplate": "traefik",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "semver"
+    },
+    {
+      "description": "Embedded Postgres image tag in charts/pangolin/values.yaml",
+      "customType": "regex",
+      "fileMatch": ["^charts/pangolin/values\\.yaml$"],
+      "matchStrings": ["repository: postgres(?:[^\\n]*\\n)+?\\s+tag: (?<currentValue>[^\\s#\\n]+)"],
+      "depNameTemplate": "postgres",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    },
+    {
+      "description": "Kubectl test image tag in charts/newt/values.yaml",
+      "customType": "regex",
+      "fileMatch": ["^charts/newt/values\\.yaml$"],
+      "matchStrings": ["repository: registry\\.k8s\\.io/kubectl(?:[^\\n]*\\n)+?\\s+tag: \"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "registry.k8s.io/kubectl",
+      "datasourceTemplate": "docker",
+      "registryUrlTemplate": "https://registry.k8s.io",
+      "versioningTemplate": "semver"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Group all GitHub Actions workflow updates into a single PR",
+      "matchManagers": ["github-actions"],
+      "groupName": "GitHub Actions",
+      "labels": ["dependencies", "renovate", "github-actions"],
+      "commitMessagePrefix": "chore(deps):",
+      "commitMessageTopic": "GitHub Actions"
+    },
+    {
+      "description": "Group Pangolin application image updates (pangolin, gerbil, kube-controller)",
+      "matchManagers": ["custom.regex"],
+      "matchPackageNames": [
+        "fosrl/pangolin",
+        "fosrl/gerbil",
+        "fosrl/pangolin-kube-controller"
+      ],
+      "groupName": "Pangolin application images",
+      "labels": ["dependencies", "renovate", "chart-update"],
+      "commitMessagePrefix": "chore(deps):",
+      "commitMessageTopic": "Pangolin images"
+    },
+    {
+      "description": "Group Newt image updates into a single PR",
+      "matchManagers": ["custom.regex"],
+      "matchPackageNames": ["fosrl/newt"],
+      "groupName": "Newt image",
+      "labels": ["dependencies", "renovate", "chart-update"],
+      "commitMessagePrefix": "chore(deps):",
+      "commitMessageTopic": "Newt image"
+    },
+    {
+      "description": "Group Helm chart dependency updates into a single PR",
+      "matchManagers": ["helmv3"],
+      "groupName": "Helm dependencies",
+      "labels": ["dependencies", "renovate", "chart-update"],
+      "commitMessagePrefix": "chore(deps):",
+      "commitMessageTopic": "Helm dependencies"
+    },
+    {
+      "description": "Traefik standalone image updates",
+      "matchManagers": ["custom.regex"],
+      "matchPackageNames": ["traefik"],
+      "labels": ["dependencies", "renovate", "chart-update"],
+      "commitMessagePrefix": "chore(deps):",
+      "commitMessageTopic": "Traefik image"
+    },
+    {
+      "description": "Embedded Postgres image updates",
+      "matchManagers": ["custom.regex"],
+      "matchPackageNames": ["postgres"],
+      "labels": ["dependencies", "renovate", "chart-update"],
+      "commitMessagePrefix": "chore(deps):",
+      "commitMessageTopic": "Postgres image"
+    },
+    {
+      "description": "Kubectl test runner image updates",
+      "matchManagers": ["custom.regex"],
+      "matchPackageNames": ["registry.k8s.io/kubectl"],
+      "labels": ["dependencies", "renovate"],
+      "commitMessagePrefix": "chore(deps):",
+      "commitMessageTopic": "kubectl test image"
+    },
+    {
+      "description": "Disable updates for 'latest' tag — production charts must pin explicit versions",
+      "matchCurrentValue": "latest",
+      "enabled": false
+    }
+  ]
+}
