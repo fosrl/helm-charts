@@ -100,7 +100,17 @@ jobs:
         run: python -m pip install --upgrade pip yamllint
 
       - name: Build chart dependencies
-        run: helm dependency build charts/pangolin
+        run: |
+          set -euo pipefail
+          helm dependency build charts/pangolin
+
+      - name: Verify built dependencies
+        run: |
+          set -euo pipefail
+          echo "Dependency directory contents:"
+          find charts/pangolin/charts -maxdepth 1 -type f -print
+          compgen -G "charts/pangolin/charts/cloudnative-pg-*.tgz" > /dev/null
+          compgen -G "charts/pangolin/charts/cluster-*.tgz" > /dev/null
 
       - name: Lint chart
         run: helm lint charts/pangolin
