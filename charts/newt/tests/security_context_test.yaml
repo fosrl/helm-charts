@@ -99,4 +99,5 @@ tests:
           auth:
             existingSecretName: newt-auth
     asserts:
-      - failedTemplate: {}
+      - failedTemplate:
+          errorPattern: "Dropping capabilities is not supported when running as root"

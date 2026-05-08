@@ -1,12 +1,25 @@
+{{- /*
+  RBAC template - creates Role/RoleBinding per unique namespace (when clusterRole=false)
+  or ClusterRole/ClusterRoleBinding globally (when clusterRole=true)
+*/ -}}
 {{- if .Values.rbac.create }}
-{{- $ns := include "newt.namespace" . -}}
+{{- $root := . -}}
+{{- $namespaces := dict -}}
+{{- range $idx, $inst := .Values.newtInstances }}
+{{- if $inst.enabled }}
+{{- $nsName := include "newt.effectiveNamespace" (dict "root" $root "inst" $inst) -}}
+{{- if not (hasKey $namespaces $nsName) }}
+{{- $_ := set $namespaces $nsName true -}}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- if .Values.rbac.clusterRole }}
+{{- /* ClusterRole/ClusterRoleBinding - cluster-scoped, no namespace needed */ -}}
+---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: {{ ternary "ClusterRole" "Role" .Values.rbac.clusterRole }}
+kind: ClusterRole
 metadata:
   name: {{ include "newt.fullname" . }}
-  {{- if not .Values.rbac.clusterRole }}
-  namespace: {{ $ns }}
-  {{- end }}
   labels:
     {{- include "newt.labels" . | nindent 4 }}
   {{- with .Values.rbac.labels }}
@@ -22,7 +35,7 @@ rules:
     verbs: ["get","list","watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: {{ ternary "ClusterRoleBinding" "RoleBinding" .Values.rbac.clusterRole }}
+kind: ClusterRoleBinding
 metadata:
   name: {{ include "newt.fullname" . }}
   labels:
@@ -37,10 +50,56 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: {{ include "newt.serviceAccountName" . }}
-    namespace: {{ $ns }}
+    namespace: {{ .Release.Namespace }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
-  kind: {{ ternary "ClusterRole" "Role" .Values.rbac.clusterRole }}
+  kind: ClusterRole
   name: {{ include "newt.fullname" . }}
+{{- else }}
+{{- /* Role/RoleBinding - one per namespace */ -}}
+{{- range $nsName, $_ := $namespaces }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "newt.fullname" $root }}
+  namespace: {{ $nsName }}
+  labels:
+    {{- include "newt.labels" $root | nindent 4 }}
+  {{- with $root.Values.rbac.labels }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with $root.Values.rbac.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get","list","watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "newt.fullname" $root }}
+  namespace: {{ $nsName }}
+  labels:
+    {{- include "newt.labels" $root | nindent 4 }}
+  {{- with $root.Values.rbac.labels }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with $root.Values.rbac.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "newt.serviceAccountName" $root }}
+    namespace: {{ $nsName }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "newt.fullname" $root }}
 {{- end }}
-
+{{- end }}
+{{- end }}

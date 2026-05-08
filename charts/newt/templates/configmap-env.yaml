@@ -2,11 +2,13 @@
 {{- range $i, $inst := .Values.newtInstances }}
 {{- $inst := $inst | default dict -}}
 {{- if and $inst.enabled (kindIs "map" $inst.extraEnv) (gt (len $inst.extraEnv) 0) }}
+{{- $nsName := include "newt.effectiveNamespace" (dict "root" $root "inst" $inst) }}
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: {{ include "newt.instance.fullname" (dict "root" $root "inst" $inst) }}-env
+  namespace: {{ $nsName }}
   labels:
     {{- include "newt.labels" $root | nindent 4 }}
     newt.instance: {{ $inst.name }}

@@ -39,8 +39,8 @@ tests:
           path: spec.template.spec.containers[0].env[0].name
           value: PANGOLIN_ENDPOINT
       - equal:
-          path: spec.template.spec.containers[0].env[0].value
-          value: "https://pangolin.example.com"
+          path: spec.template.spec.containers[0].env[0].valueFrom.secretKeyRef.key
+          value: PANGOLIN_ENDPOINT
 
   - it: renders PORT when specified
     set:

@@ -1,11 +1,13 @@
 {{- $root := . -}}
 {{- range $i, $inst := .Values.newtInstances }}
 {{- if and (kindIs "map" $inst.updown) $inst.updown.enabled $inst.updown.script (hasKey $root.Values.global.updownScripts $inst.updown.script) }}
+{{- $nsName := include "newt.effectiveNamespace" (dict "root" $root "inst" $inst) }}
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: {{ include "newt.instance.fullname" (dict "root" $root "inst" $inst) }}-updown
+  namespace: {{ $nsName }}
   labels:
     {{- include "newt.labels" $root | nindent 4 }}
     newt.instance: {{ $inst.name }}

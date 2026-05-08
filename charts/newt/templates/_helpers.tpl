@@ -14,6 +14,109 @@
 {{- default .Release.Namespace .Values.global.namespaceOverride -}}
 {{- end }}
 
+{{- /* Resolve effective namespace for an instance. */ -}}
+{{- define "newt.effectiveNamespace" -}}
+{{- $root := .root -}}
+{{- $inst := .inst -}}
+{{- $result := (include "newt.namespace" $root) -}}
+{{- $globalNs := default (dict) (get $root.Values "namespace") -}}
+{{- if and $globalNs (get $globalNs "name") -}}
+{{- $result = $globalNs.name -}}
+{{- end -}}
+{{- $allowOverride := default false $inst.allowGlobalOverride -}}
+{{- $instNs := default (dict) (get $inst "namespace") -}}
+{{- if and $allowOverride $instNs (get $instNs "name") -}}
+{{- $result = $instNs.name -}}
+{{- end -}}
+{{- $result -}}
+{{- end }}
+
+{{- /* Resolve whether Namespace should be created for an instance. */ -}}
+{{- define "newt.effectiveNamespaceCreate" -}}
+{{- $root := .root -}}
+{{- $inst := .inst -}}
+{{- $globalNs := default (dict) (get $root.Values "namespace") -}}
+{{- $result := false -}}
+{{- if and $globalNs (hasKey $globalNs "create") -}}
+{{- $result = $globalNs.create -}}
+{{- end -}}
+{{- $allowOverride := default false $inst.allowGlobalOverride -}}
+{{- $instNs := default (dict) (get $inst "namespace") -}}
+{{- if and $allowOverride $instNs (hasKey $instNs "create") (not (kindIs "invalid" $instNs.create)) -}}
+{{- $result = $instNs.create -}}
+{{- end -}}
+{{- if $result -}}true{{- else -}}false{{- end -}}
+{{- end }}
+
+{{- /* Resolve Namespace labels as JSON map for namespace.yaml. */ -}}
+{{- define "newt.effectiveNamespaceLabels" -}}
+{{- $root := .root -}}
+{{- $inst := .inst -}}
+{{- $globalNs := default (dict) (get $root.Values "namespace") -}}
+{{- $labels := dict -}}
+{{- $_ := set $labels "app.kubernetes.io/managed-by" $root.Release.Service -}}
+{{- $_ := set $labels "app.kubernetes.io/instance" $root.Release.Name -}}
+{{- $_ := set $labels "helm.sh/chart" (include "newt.chart" $root) -}}
+{{- if and $globalNs (hasKey $globalNs "labels") -}}
+{{- range $k, $v := $globalNs.labels -}}
+{{- $_ := set $labels $k $v -}}
+{{- end -}}
+{{- end -}}
+{{- $allowOverride := default false $inst.allowGlobalOverride -}}
+{{- $instNs := default (dict) (get $inst "namespace") -}}
+{{- if and $allowOverride $instNs (hasKey $instNs "labels") -}}
+{{- range $k, $v := $instNs.labels -}}
+{{- $_ := set $labels $k $v -}}
+{{- end -}}
+{{- end -}}
+{{- toJson $labels -}}
+{{- end }}
+
+{{- /* Resolve PSA labels as JSON map for namespace.yaml. */ -}}
+{{- define "newt.effectivePodSecurity" -}}
+{{- $root := .root -}}
+{{- $inst := .inst -}}
+{{- $psa := dict -}}
+{{- $globalNs := default (dict) (get $root.Values "namespace") -}}
+{{- $globalPs := default (dict) (get $globalNs "podSecurity") -}}
+{{- $allowOverride := default false $inst.allowGlobalOverride -}}
+{{- $instNs := default (dict) (get $inst "namespace") -}}
+{{- $instPs := dict -}}
+{{- if and $allowOverride $instNs -}}
+{{- $instPs = default (dict) (get $instNs "podSecurity") -}}
+{{- end -}}
+{{- range $key := list "enforce" "warn" "audit" -}}
+{{- $value := "" -}}
+{{- if and $instPs (hasKey $instPs $key) -}}
+{{- $value = (index $instPs $key) -}}
+{{- else if and $globalPs (hasKey $globalPs $key) -}}
+{{- $value = (index $globalPs $key) -}}
+{{- end -}}
+{{- if $value -}}
+{{- $_ := set $psa (printf "pod-security.kubernetes.io/%s" $key) $value -}}
+{{- end -}}
+{{- end -}}
+{{- toJson $psa -}}
+{{- end }}
+
+{{- /* Resolve whether tester port should be exposed by Service. */ -}}
+{{- define "newt.effectiveTestsEnabled" -}}
+{{- $root := .root -}}
+{{- $inst := .inst -}}
+{{- $result := false -}}
+{{- if and (hasKey $root.Values.global "tests") (hasKey $root.Values.global.tests "enabled") -}}
+{{- $result = $root.Values.global.tests.enabled -}}
+{{- end -}}
+{{- $allowOverride := default false $inst.allowGlobalOverride -}}
+{{- if $allowOverride -}}
+{{- $instTests := default (dict) (get $inst "tests") -}}
+{{- if and $instTests (hasKey $instTests "enabled") -}}
+{{- $result = $instTests.enabled -}}
+{{- end -}}
+{{- end -}}
+{{- if $result -}}true{{- else -}}false{{- end -}}
+{{- end }}
+
 {{- define "newt.serviceAccountName" -}}
 {{- /* Prefer explicit name when provided; guard against missing .Values.serviceAccount */ -}}
 {{- $hasSA := hasKey .Values "serviceAccount" -}}
@@ -30,6 +133,17 @@
     {{- printf "%s-sa" (include "newt.fullname" .) | trunc 63 | trimSuffix "-" -}}
   {{- end -}}
 {{- end -}}{{- end }}
+
+{{- define "newt.instance.serviceAccountName" -}}
+{{- $root := .root -}}
+{{- $inst := .inst -}}
+{{- $sa := default (dict) $inst.serviceAccount -}}
+{{- if $sa.name -}}
+  {{- $sa.name -}}
+{{- else -}}
+  {{- printf "%s-sa" (include "newt.instance.fullname" (dict "root" $root "inst" $inst)) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+{{- end }}
 
 {{- define "newt.labels" -}}
 app.kubernetes.io/name: {{ include "newt.name" . }}
@@ -110,37 +224,36 @@ imagePullSecrets:
 {{- $endpointKey := (default "PANGOLIN_ENDPOINT" $keys.endpointKey) -}}
 {{- $idKey := (default "NEWT_ID" $keys.idKey) -}}
 {{- $secretKey := (default "NEWT_SECRET" $keys.secretKey) -}}
-{{- $existing := get $auth "existingSecretName" -}}
-{{- if $existing }}
+{{- $existing := default "" (get $auth "existingSecretName") -}}
+{{- $createSecret := default true (get $auth "createSecret") -}}
+{{- $envVarsDirect := default false (get $auth "envVarsDirect") -}}
+{{- $hasInlineCredentials := and $inst.pangolinEndpoint $inst.id $inst.secret -}}
+{{- $useGeneratedSecret := and $hasInlineCredentials $createSecret (not $envVarsDirect) (not $existing) -}}
+{{- $generatedSecretName := include "newt.instance.fullname" (dict "root" $root "inst" $inst) -}}
+{{- $authSecretName := ternary $existing $generatedSecretName (ne $existing "") -}}
+{{- if or $existing $useGeneratedSecret }}
 - name: PANGOLIN_ENDPOINT
   valueFrom:
     secretKeyRef:
-      name: {{ $existing }}
+      name: {{ $authSecretName }}
       key: {{ $endpointKey }}
 - name: NEWT_ID
   valueFrom:
     secretKeyRef:
-      name: {{ $existing }}
+      name: {{ $authSecretName }}
       key: {{ $idKey }}
 - name: NEWT_SECRET
   valueFrom:
     secretKeyRef:
-      name: {{ $existing }}
+      name: {{ $authSecretName }}
       key: {{ $secretKey }}
-{{- else }}
+{{- else if and $envVarsDirect $hasInlineCredentials }}
 - name: PANGOLIN_ENDPOINT
   value: {{ $inst.pangolinEndpoint | quote }}
-{{- if $inst.id }}
 - name: NEWT_ID
   value: {{ $inst.id | quote }}
-{{- end }}
-{{- if $inst.secret }}
 - name: NEWT_SECRET
-  valueFrom:
-    secretKeyRef:
-      name: {{ include "newt.instance.fullname" (dict "root" $root "inst" $inst) }}
-      key: NEWT_SECRET
-{{- end }}
+  value: {{ $inst.secret | quote }}
 {{- end }}
 {{- if $inst.provisioningKey }}
 - name: NEWT_PROVISIONING_KEY
@@ -313,11 +426,14 @@ imagePullSecrets:
 {{- $canOverride := (default false $inst.allowGlobalOverride) -}}
 {{- $auth := default (dict) $inst.auth -}}
 {{- $existing := get $auth "existingSecretName" -}}
+{{- $createSecret := default true (get $auth "createSecret") -}}
+{{- $envVarsDirect := default false (get $auth "envVarsDirect") -}}
+{{- $hasInlineCredentials := and $inst.pangolinEndpoint $inst.id $inst.secret -}}
 {{- if not $existing }}
   {{- $args = append $args (printf "--endpoint=%s" $inst.pangolinEndpoint) }}
   {{- if $inst.id }}{{- $args = append $args (printf "--id=%s" $inst.id) }}{{- end }}
 {{- end }}
-{{- if or $inst.secret $existing }}{{- $args = append $args (printf "--secret-env=NEWT_SECRET") }}{{- end }}
+{{- if or $existing (and $hasInlineCredentials $createSecret (not $envVarsDirect)) (and $envVarsDirect $hasInlineCredentials) }}{{- $args = append $args (printf "--secret-env=NEWT_SECRET") }}{{- end }}
 {{- if and $inst.mtu (ne (int $inst.mtu) 1280) }}{{- $args = append $args (printf "--mtu=%v" $inst.mtu) }}{{- end }}
 {{- if $inst.dns }}{{- $args = append $args (printf "--dns=%s" $inst.dns) }}{{- end }}
 {{- if $inst.pingInterval }}{{- $args = append $args (printf "--ping-interval=%s" $inst.pingInterval) }}{{- end }}

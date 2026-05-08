@@ -346,8 +346,9 @@ global:
     port: 9090 # @schema type: integer ; minimum: 1 ; maximum: 65535
     # -- Metrics HTTP path
     path: /metrics # @schema type: string ; minLength: 1 ; pattern: ^/.*
-    # -- Metrics admin server address (NEWT_ADMIN_ADDR). Used for health checks and metrics endpoint.
-    adminAddr: "127.0.0.1:2112" # @schema type: string ; pattern: ^.+:[0-9]+$
+    # -- Metrics admin server address (NEWT_ADMIN_ADDR). Default ":2112" listens on all interfaces (required for in-cluster Prometheus scraping).
+    # Use "127.0.0.1:2112" to restrict to loopback only (disables in-cluster scraping from other Pods).
+    adminAddr: ":2112" # @schema type: string ; pattern: ^.*:[0-9]+$
     # -- Enable async bytes metrics (NEWT_METRICS_ASYNC_BYTES)
     asyncBytes: false # @schema type: boolean
     # -- Region for metrics/telemetry (NEWT_REGION)
@@ -361,8 +362,8 @@ global:
     otel: # @schema type: object ; additionalProperties: false
       # -- OTLP endpoint (OTEL_EXPORTER_OTLP_ENDPOINT)
       exporterOtlpEndpoint: "" # @schema type: string ; pattern: ^$|^https?://.+$
-      # -- OTLP exporter protocol (OTEL_EXPORTER_OTLP_PROTOCOL) - grpc or http/proto
-      exporterOtlpProtocol: "" # @schema type: string ; enum: ["", grpc, http/proto]
+      # -- OTLP exporter protocol (OTEL_EXPORTER_OTLP_PROTOCOL) - grpc, http/protobuf, or http/json
+      exporterOtlpProtocol: "" # @schema type: string ; enum: ["", grpc, http/protobuf, http/json]
       # -- OTLP headers (OTEL_EXPORTER_OTLP_HEADERS) - comma-separated key=value pairs
       exporterOtlpHeaders: "" # @schema type: string
       # -- Service name for OTLP (OTEL_SERVICE_NAME)
@@ -384,8 +385,8 @@ global:
       enabled: false # @schema type: boolean
       # -- Kubernetes Service type
       type: ClusterIP # @schema type: string ; enum: [ClusterIP, LoadBalancer, NodePort]
-      # -- Service port exposed for scraping
-      port: 9090 # @schema type: integer ; minimum: 1 ; maximum: 65535
+      # -- Service port exposed for scraping (matches adminAddr default port 2112)
+      port: 2112 # @schema type: integer ; minimum: 1 ; maximum: 65535
       # -- Service port name
       portName: metrics # @schema type: string ; minLength: 1 ; pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
       # -- Additional Service annotations
@@ -486,13 +487,36 @@ image:
 
 rbac:
   # -- Create RBAC resources (Role/RoleBinding or ClusterRole/ClusterRoleBinding).
-  create: true # @schema type: boolean ; default: true
+  create: false # @schema type: boolean ; default: false
   # -- Create ClusterRole/ClusterRoleBinding instead of namespaced Role/RoleBinding.
   clusterRole: false # @schema type: boolean ; default: false
   # -- Additional annotations applied to RBAC resources.
   annotations: {} # @schema type: object ; additionalProperties: {type: string}
   # -- Additional labels applied to RBAC resources.
   labels: {} # @schema type: object ; additionalProperties: {type: string}
+
+# -----------------------------------------------------------------------------
+# Namespace Configuration
+# -----------------------------------------------------------------------------
+
+# @section Namespace
+# -- Namespace configuration for resources created by this chart.
+namespace:
+  # -- Create namespaces used by this chart.
+  # When false, rely on the Helm release namespace or --create-namespace.
+  create: false # @schema type: boolean ; default: false
+  # -- Default namespace name. Empty means use .Release.Namespace.
+  name: "" # @schema type: string ; pattern: ^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+  # -- Additional labels applied to created namespaces.
+  labels: {} # @schema type: object ; additionalProperties: {type: string}
+  # -- Pod Security Admission labels for created namespaces.
+  podSecurity: # @schema type: object ; additionalProperties: false
+    # -- Pod Security Admission enforce level.
+    enforce: "" # @schema type: string ; enum: ["", privileged, baseline, restricted]
+    # -- Pod Security Admission warn level.
+    warn: "" # @schema type: string ; enum: ["", privileged, baseline, restricted]
+    # -- Pod Security Admission audit level.
+    audit: "" # @schema type: string ; enum: ["", privileged, baseline, restricted]
 
 # -----------------------------------------------------------------------------
 # ServiceAccount Configuration
@@ -523,17 +547,53 @@ newtInstances:
     # @schema default: false
     # -- Allow this instance to override global settings (image, logLevel, etc).
     allowGlobalOverride: false
+    # -- Per-instance namespace override. Only effective when allowGlobalOverride=true.
+    namespace: # @schema type: object ; additionalProperties: false
+      # -- Override target namespace for this instance. Empty means global namespace or release namespace.
+      name: "" # @schema type: string ; pattern: ^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+      # -- Whether to create the namespace for this instance. null means inherit namespace.create.
+      create: null # @schema type:[boolean, "null"]
+      # -- Additional labels for this instance namespace, merged on top of global namespace labels.
+      labels: {} # @schema type: object ; additionalProperties: {type: string}
+      # -- Pod Security Admission labels override for this instance namespace.
+      podSecurity: # @schema type: object ; additionalProperties: false
+        # -- Override enforce level.
+        enforce: "" # @schema type: string ; enum: ["", privileged, baseline, restricted]
+        # -- Override warn level.
+        warn: "" # @schema type: string ; enum: ["", privileged, baseline, restricted]
+        # -- Override audit level.
+        audit: "" # @schema type: string ; enum: ["", privileged, baseline, restricted]
+    # -- Per-instance ServiceAccount configuration. Only effective when allowGlobalOverride=true.
+    serviceAccount: # @schema type: object ; additionalProperties: false
+      # -- Create a dedicated ServiceAccount for this instance. null means inherit global serviceAccount behavior.
+      create: null # @schema type:[boolean, "null"]
+      # -- Custom ServiceAccount name. Empty means auto-generate when create=true.
+      name: "" # @schema type: string ; pattern: ^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+      # -- Additional annotations applied to the instance ServiceAccount.
+      annotations: {} # @schema type: object ; additionalProperties: {type: string}
+      # -- Control automounting of the ServiceAccount token for this instance.
+      automountServiceAccountToken: false # @schema type: boolean ; default: false
     # @schema type: boolean
     # @schema default: true
     enabled: true
     # -- Number of replicas for this instance (default: 1)
     replicas: 1 # @schema type: integer ; minimum: 1
-    # Preferred: use an existing Secret to source all credentials
+    # Preferred: use an existing Secret to source all credentials.
+    # WARNING: For production, prefer auth.existingSecretName to avoid putting credentials in values files.
+    # WARNING: Inline credentials may be stored in Helm release history.
     auth:
       # @schema type: string ; pattern: ^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
-      # -- Name of the existing Secret with endpoint/id/secret keys
+      # -- Name of an existing Secret containing endpoint/id/secret keys.
+      # The Secret must contain keys from auth.keys.endpointKey/auth.keys.idKey/auth.keys.secretKey.
       existingSecretName: ""
-      # -- Key mappings used inside the existing Secret
+      # -- Create a Secret from inline credentials (pangolinEndpoint/id/secret) when provided.
+      # Set false to disable secret creation from inline credentials.
+      createSecret: true # @schema type: boolean ; default: true
+      # -- Inject inline credentials directly as env vars instead of Secret refs.
+      # Use only for local/dev testing because credentials are visible in rendered manifests.
+      envVarsDirect: false # @schema type: boolean ; default: false
+      # -- Key mappings used inside Secrets.
+      # IMPORTANT: auth.keys.* are key names, not credential values.
       keys:
         # -- Key name for the Pangolin endpoint (default: PANGOLIN_ENDPOINT)
         endpointKey: PANGOLIN_ENDPOINT
@@ -541,16 +601,17 @@ newtInstances:
         idKey: NEWT_ID
         # -- Key name for the Newt secret (default: NEWT_SECRET)
         secretKey: NEWT_SECRET
-    # Alternative (inline): provide credentials directly (schema enforces non-empty when used)
+    # Alternative (inline): provide full credentials directly.
+    # These are intended for convenience/testing and can leak via Helm release history.
     # @schema type: string ; pattern: ^$|^https?://[a-zA-Z0-9.-]+(/.*)?$
     # -- Pangolin control-plane endpoint URL (e.g., https://pangolin.example.com)
     pangolinEndpoint: ""
     # @schema type: string ; pattern: ^$|^[a-zA-Z0-9_-]+$
-    # @schema description: WARNING: Use auth.existingSecretName for production to avoid secrets in values
-    # -- Instance ID issued by Pangolin
+    # @schema description: Inline values are for convenience/testing. Use auth.existingSecretName for production.
+    # -- Newt instance ID issued by Pangolin (must be set with pangolinEndpoint and secret)
     id: ""
     # @schema type: string ; pattern: ^$|^[a-zA-Z0-9_-]+$
-    # -- Instance secret issued by Pangolin (WARNING: Use existingSecretName for production)
+    # -- Newt instance secret issued by Pangolin (must be set with pangolinEndpoint and id) - WARNING: Use auth.existingSecretName for production.
     secret: ""
     # -- Provisioning key (NEWT_PROVISIONING_KEY env). When set, Newt can bootstrap credentials and persist them to CONFIG_FILE.
     provisioningKey: "" # @schema type: string

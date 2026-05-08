@@ -5,7 +5,7 @@
 
 # Newt Helm Chart
 
-![Version: 1.3.0](https://img.shields.io/badge/Version-1.3.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 1.11.0](https://img.shields.io/badge/AppVersion-1.11.0-informational?style=flat-square)
+![Version: 1.4.0](https://img.shields.io/badge/Version-1.4.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 1.12.3](https://img.shields.io/badge/AppVersion-1.12.3-informational?style=flat-square)
 
 Helm chart to deploy Newt (fosrl/newt) client instance
 
@@ -135,15 +135,15 @@ global:
 | global.image.repository | string | `"fosrl/newt"` | Container image repository (e.g., fosrl/newt). |
 | global.image.tag | string | `""` | Image tag (defaults to Chart.appVersion if empty). |
 | global.logLevel | string | `"INFO"` | Global log level |
-| global.metrics | object | `{"adminAddr":"127.0.0.1:2112","annotations":{},"asyncBytes":false,"enabled":false,"otel":{"exporterOtlpEndpoint":"","exporterOtlpHeaders":"","exporterOtlpProtocol":"","serviceName":""},"otlpEnabled":false,"path":"/metrics","podMonitor":{"annotations":{},"apiVersion":"monitoring.coreos.com/v1","enabled":false,"honorLabels":true,"interval":"30s","labels":{},"metricRelabelings":[],"namespace":"","path":"/metrics","portName":"metrics","relabelings":[],"scheme":"http","scrapeTimeout":"10s"},"port":9090,"portName":"metrics","pprofEnabled":false,"prometheusRule":{"apiVersion":"monitoring.coreos.com/v1","enabled":false,"labels":{},"namespace":"","rules":[]},"region":"","service":{"annotations":{},"enabled":false,"port":9090,"portName":"metrics","type":"ClusterIP"},"serviceMonitor":{"apiVersion":"monitoring.coreos.com/v1","enabled":false,"interval":"30s","jobLabel":"","labels":{},"metricRelabelings":[],"namespace":"","relabelings":[],"sampleLimit":0,"scheme":"http","scrapeTimeout":"10s","targetLabels":[]},"targetPortName":""}` | --------------------------------------------------------------------------- @section Global Metrics |
-| global.metrics.adminAddr | string | `"127.0.0.1:2112"` | Metrics admin server address (NEWT_ADMIN_ADDR). Used for health checks and metrics endpoint. |
+| global.metrics | object | `{"adminAddr":":2112","annotations":{},"asyncBytes":false,"enabled":false,"otel":{"exporterOtlpEndpoint":"","exporterOtlpHeaders":"","exporterOtlpProtocol":"","serviceName":""},"otlpEnabled":false,"path":"/metrics","podMonitor":{"annotations":{},"apiVersion":"monitoring.coreos.com/v1","enabled":false,"honorLabels":true,"interval":"30s","labels":{},"metricRelabelings":[],"namespace":"","path":"/metrics","portName":"metrics","relabelings":[],"scheme":"http","scrapeTimeout":"10s"},"port":9090,"portName":"metrics","pprofEnabled":false,"prometheusRule":{"apiVersion":"monitoring.coreos.com/v1","enabled":false,"labels":{},"namespace":"","rules":[]},"region":"","service":{"annotations":{},"enabled":false,"port":2112,"portName":"metrics","type":"ClusterIP"},"serviceMonitor":{"apiVersion":"monitoring.coreos.com/v1","enabled":false,"interval":"30s","jobLabel":"","labels":{},"metricRelabelings":[],"namespace":"","relabelings":[],"sampleLimit":0,"scheme":"http","scrapeTimeout":"10s","targetLabels":[]},"targetPortName":""}` | --------------------------------------------------------------------------- @section Global Metrics |
+| global.metrics.adminAddr | string | `":2112"` | Metrics admin server address (NEWT_ADMIN_ADDR). Default ":2112" listens on all interfaces (required for in-cluster Prometheus scraping). Use "127.0.0.1:2112" to restrict to loopback only (disables in-cluster scraping from other Pods). |
 | global.metrics.annotations | object | `{}` | Extra annotations added to metrics-related objects (e.g., Pods/Service depending on chart logic) |
 | global.metrics.asyncBytes | bool | `false` | Enable async bytes metrics (NEWT_METRICS_ASYNC_BYTES) |
 | global.metrics.enabled | bool | `false` | Enable Prometheus-compatible metrics exposure |
 | global.metrics.otel | object | `{"exporterOtlpEndpoint":"","exporterOtlpHeaders":"","exporterOtlpProtocol":"","serviceName":""}` | OTEL exporter configuration (used when otlpEnabled=true) These are passed as environment variables to the container |
 | global.metrics.otel.exporterOtlpEndpoint | string | `""` | OTLP endpoint (OTEL_EXPORTER_OTLP_ENDPOINT) |
 | global.metrics.otel.exporterOtlpHeaders | string | `""` | OTLP headers (OTEL_EXPORTER_OTLP_HEADERS) - comma-separated key=value pairs |
-| global.metrics.otel.exporterOtlpProtocol | string | `""` | OTLP exporter protocol (OTEL_EXPORTER_OTLP_PROTOCOL) - grpc or http/proto |
+| global.metrics.otel.exporterOtlpProtocol | string | `""` | OTLP exporter protocol (OTEL_EXPORTER_OTLP_PROTOCOL) - grpc, http/protobuf, or http/json |
 | global.metrics.otel.serviceName | string | `""` | Service name for OTLP (OTEL_SERVICE_NAME) |
 | global.metrics.otlpEnabled | bool | `false` | Enable OTLP exporter (NEWT_METRICS_OTLP_ENABLED) |
 | global.metrics.path | string | `"/metrics"` | Metrics HTTP path |
@@ -161,7 +161,7 @@ global:
 | global.metrics.podMonitor.relabelings | list | `[]` | Relabeling rules (Prometheus Operator schema; treated as opaque objects) |
 | global.metrics.podMonitor.scheme | string | `"http"` | HTTP scheme for scraping |
 | global.metrics.podMonitor.scrapeTimeout | string | `"10s"` | Scrape timeout (must be <= interval) |
-| global.metrics.port | int | `9090` | Metrics endpoint port exposed by the workload container |
+| global.metrics.port | int | `9090` | Workload container's exposed metrics port (containerPort). Used as the scrape target in ServiceMonitor/PodMonitor; must align with `global.metrics.adminAddr`'s port for in-cluster Prometheus scraping to reach the admin server. See also `global.metrics.path`, `global.metrics.portName`, ServiceMonitor, and PodMonitor. |
 | global.metrics.portName | string | `"metrics"` | Optional Service port name (used when creating a Service) |
 | global.metrics.pprofEnabled | bool | `false` | Enable pprof endpoints (NEWT_PPROF_ENABLED). Disabled by default. |
 | global.metrics.prometheusRule | object | `{"apiVersion":"monitoring.coreos.com/v1","enabled":false,"labels":{},"namespace":"","rules":[]}` | --------------------------------------------------------------------------- |
@@ -171,10 +171,10 @@ global:
 | global.metrics.prometheusRule.namespace | string | `""` | Namespace override for PrometheusRule (empty = release namespace) |
 | global.metrics.prometheusRule.rules | list | `[]` | Rule groups/rules (templated). Structure is PrometheusRule-compatible; treated as opaque objects. |
 | global.metrics.region | string | `""` | Region for metrics/telemetry (NEWT_REGION) |
-| global.metrics.service | object | `{"annotations":{},"enabled":false,"port":9090,"portName":"metrics","type":"ClusterIP"}` | --------------------------------------------------------------------------- |
+| global.metrics.service | object | `{"annotations":{},"enabled":false,"port":2112,"portName":"metrics","type":"ClusterIP"}` | --------------------------------------------------------------------------- |
 | global.metrics.service.annotations | object | `{}` | Additional Service annotations |
 | global.metrics.service.enabled | bool | `false` | Create a dedicated Service for metrics scraping |
-| global.metrics.service.port | int | `9090` | Service port exposed for scraping |
+| global.metrics.service.port | int | `2112` | Service port exposed for scraping (matches adminAddr default port 2112) |
 | global.metrics.service.portName | string | `"metrics"` | Service port name |
 | global.metrics.service.type | string | `"ClusterIP"` | Kubernetes Service type |
 | global.metrics.serviceMonitor | object | `{"apiVersion":"monitoring.coreos.com/v1","enabled":false,"interval":"30s","jobLabel":"","labels":{},"metricRelabelings":[],"namespace":"","relabelings":[],"sampleLimit":0,"scheme":"http","scrapeTimeout":"10s","targetLabels":[]}` | --------------------------------------------------------------------------- |
@@ -234,15 +234,25 @@ global:
 | image.pullPolicy | string | `"IfNotPresent"` | Image pull policy (fallback when global.image.imagePullPolicy not set) |
 | image.repository | string | `""` | Container image repository (fallback; prefer global.image) |
 | image.tag | string | `""` | Image tag (ignored if digest is set) |
-| newtInstances | list | `[{"acceptClients":false,"affinity":{"nodeAffinity":{},"podAffinity":{},"podAntiAffinity":{}},"allowGlobalOverride":false,"auth":{"existingSecretName":"","keys":{"endpointKey":"PANGOLIN_ENDPOINT","idKey":"NEWT_ID","secretKey":"NEWT_SECRET"}},"blueprintData":"","blueprintFile":"","configFile":"","configPersistence":{"enabled":false,"existingClaim":"","fileName":"config.json","mountPath":"/var/lib/newt","type":"emptyDir"},"disableClients":false,"dns":"","dockerSocket":{"enabled":false,"enforceNetworkValidation":false,"path":"/var/run/docker.sock"},"enabled":true,"enforceHcCert":false,"extraContainers":[],"extraEnv":{},"extraVolumeMounts":[],"extraVolumes":[],"generateAndSaveKeyTo":"","healthFile":"/tmp/healthy","hostNetwork":false,"hostPID":false,"id":"","initContainers":[],"interface":"newt","keepInterface":false,"lifecycle":{},"logLevel":"INFO","metrics":{"annotations":{},"enabled":false,"path":"/metrics","podMonitor":{"annotations":{},"apiVersion":"monitoring.coreos.com/v1","enabled":false,"honorLabels":true,"interval":"30s","labels":{},"metricRelabelings":[],"namespace":"","path":"/metrics","portName":"metrics","relabelings":[],"scheme":"http","scrapeTimeout":"10s"},"port":9090,"portName":"metrics","prometheusRule":{"apiVersion":"monitoring.coreos.com/v1","enabled":false,"labels":{},"namespace":"","rules":[]},"service":{"annotations":{},"enabled":false,"port":9090,"portName":"metrics","type":"ClusterIP"},"serviceMonitor":{"apiVersion":"monitoring.coreos.com/v1","enabled":false,"interval":"30s","jobLabel":"","labels":{},"metricRelabelings":[],"namespace":"","relabelings":[],"sampleLimit":0,"scheme":"http","scrapeTimeout":"10s","targetLabels":[]},"targetPortName":""},"mtls":{"certPath":"/certs/client.p12","enabled":false,"mode":"pkcs12","p12Base64":"","pem":{"caPath":"/certs/ca.crt","clientCertPath":"/certs/client.crt","clientKeyPath":"/certs/client.key","secretName":""},"secretName":""},"mtu":1280,"name":"main-tunnel","networkPolicy":{"components":{"custom":{"egress":[],"enabled":false,"ingress":[],"policyTypes":["Ingress","Egress"]},"defaultApp":{"egress":[],"enabled":false,"ingress":[],"policyTypes":[]},"dns":{"egress":[],"enabled":false},"kubeApi":{"egress":[],"enabled":false}},"enabled":null,"includeRuleSets":[],"mode":"merge","useGlobalComponents":{"custom":true,"defaultApp":true,"dns":false,"kubeApi":false}},"newtName":"","noCloud":false,"nodeSelector":{},"pangolinEndpoint":"","pingInterval":"","pingTimeout":"","podDisruptionBudget":{},"podSecurityContext":{},"port":"","provisioningBlueprintData":"","provisioningBlueprintFile":"","provisioningKey":"","replicas":1,"resources":{"limits":{"cpu":"500m","memory":"256Mi"},"requests":{"cpu":"100m","ephemeral-storage":"128Mi","memory":"128Mi"}},"secret":"","securityContext":{},"service":{"annotations":{},"enabled":true,"enabledWhenAcceptClients":true,"externalTrafficPolicy":"","labels":{},"loadBalancerClass":"","loadBalancerIP":"","loadBalancerSourceRanges":[],"nodePorts":{"tester":"","wg":""},"port":51820,"testerPort":51821,"type":"ClusterIP"},"tolerations":[],"topologySpreadConstraints":[],"updown":{"enabled":false,"fileName":"updown.sh","mountPath":"/opt/newt/updown","script":""},"useCommandArgs":false,"useNativeInterface":false}]` | List of Newt instances to deploy. Each instance can optionally override |
+| namespace | object | `{"create":false,"labels":{},"name":"","podSecurity":{"audit":"","enforce":"","warn":""}}` | Namespace configuration for resources created by this chart. |
+| namespace.create | bool | `false` | Create namespaces used by this chart. When false, rely on the Helm release namespace or --create-namespace. |
+| namespace.labels | object | `{}` | Additional labels applied to created namespaces. |
+| namespace.name | string | `""` | Default namespace name. Empty means use .Release.Namespace. |
+| namespace.podSecurity | object | `{"audit":"","enforce":"","warn":""}` | Pod Security Admission labels for created namespaces. |
+| namespace.podSecurity.audit | string | `""` | Pod Security Admission audit level. |
+| namespace.podSecurity.enforce | string | `""` | Pod Security Admission enforce level. |
+| namespace.podSecurity.warn | string | `""` | Pod Security Admission warn level. |
+| newtInstances | list | `[{"acceptClients":false,"affinity":{"nodeAffinity":{},"podAffinity":{},"podAntiAffinity":{}},"allowGlobalOverride":false,"auth":{"createSecret":true,"envVarsDirect":false,"existingSecretName":"","keys":{"endpointKey":"PANGOLIN_ENDPOINT","idKey":"NEWT_ID","secretKey":"NEWT_SECRET"}},"blueprintData":"","blueprintFile":"","configFile":"","configPersistence":{"enabled":false,"existingClaim":"","fileName":"config.json","mountPath":"/var/lib/newt","type":"emptyDir"},"disableClients":false,"dns":"","dockerSocket":{"enabled":false,"enforceNetworkValidation":false,"path":"/var/run/docker.sock"},"enabled":true,"enforceHcCert":false,"extraContainers":[],"extraEnv":{},"extraVolumeMounts":[],"extraVolumes":[],"generateAndSaveKeyTo":"","healthFile":"/tmp/healthy","hostNetwork":false,"hostPID":false,"id":"","initContainers":[],"interface":"newt","keepInterface":false,"lifecycle":{},"logLevel":"INFO","metrics":{"annotations":{},"enabled":false,"path":"/metrics","podMonitor":{"annotations":{},"apiVersion":"monitoring.coreos.com/v1","enabled":false,"honorLabels":true,"interval":"30s","labels":{},"metricRelabelings":[],"namespace":"","path":"/metrics","portName":"metrics","relabelings":[],"scheme":"http","scrapeTimeout":"10s"},"port":9090,"portName":"metrics","prometheusRule":{"apiVersion":"monitoring.coreos.com/v1","enabled":false,"labels":{},"namespace":"","rules":[]},"service":{"annotations":{},"enabled":false,"port":9090,"portName":"metrics","type":"ClusterIP"},"serviceMonitor":{"apiVersion":"monitoring.coreos.com/v1","enabled":false,"interval":"30s","jobLabel":"","labels":{},"metricRelabelings":[],"namespace":"","relabelings":[],"sampleLimit":0,"scheme":"http","scrapeTimeout":"10s","targetLabels":[]},"targetPortName":""},"mtls":{"certPath":"/certs/client.p12","enabled":false,"mode":"pkcs12","p12Base64":"","pem":{"caPath":"/certs/ca.crt","clientCertPath":"/certs/client.crt","clientKeyPath":"/certs/client.key","secretName":""},"secretName":""},"mtu":1280,"name":"main-tunnel","namespace":{"create":null,"labels":{},"name":"","podSecurity":{"audit":"","enforce":"","warn":""}},"networkPolicy":{"components":{"custom":{"egress":[],"enabled":false,"ingress":[],"policyTypes":["Ingress","Egress"]},"defaultApp":{"egress":[],"enabled":false,"ingress":[],"policyTypes":[]},"dns":{"egress":[],"enabled":false},"kubeApi":{"egress":[],"enabled":false}},"enabled":null,"includeRuleSets":[],"mode":"merge","useGlobalComponents":{"custom":true,"defaultApp":true,"dns":false,"kubeApi":false}},"newtName":"","noCloud":false,"nodeSelector":{},"pangolinEndpoint":"","pingInterval":"","pingTimeout":"","podDisruptionBudget":{},"podSecurityContext":{},"port":"","provisioningBlueprintData":"","provisioningBlueprintFile":"","provisioningKey":"","replicas":1,"resources":{"limits":{"cpu":"500m","memory":"256Mi"},"requests":{"cpu":"100m","ephemeral-storage":"128Mi","memory":"128Mi"}},"secret":"","securityContext":{},"service":{"annotations":{},"enabled":true,"enabledWhenAcceptClients":true,"externalTrafficPolicy":"","labels":{},"loadBalancerClass":"","loadBalancerIP":"","loadBalancerSourceRanges":[],"nodePorts":{"tester":"","wg":""},"port":51820,"testerPort":51821,"type":"ClusterIP"},"serviceAccount":{"annotations":{},"automountServiceAccountToken":false,"create":null,"name":""},"tolerations":[],"topologySpreadConstraints":[],"updown":{"enabled":false,"fileName":"updown.sh","mountPath":"/opt/newt/updown","script":""},"useCommandArgs":false,"useNativeInterface":false}]` | List of Newt instances to deploy. Each instance can optionally override |
 | newtInstances[0].acceptClients | bool | `false` | Accept client connections for runtime only (ACCEPT_CLIENTS env). Does NOT create any Service; Service is controlled by newtInstances[x].service.enabled |
 | newtInstances[0].affinity | object | `{"nodeAffinity":{},"podAffinity":{},"podAntiAffinity":{}}` | Pod affinity and anti-affinity |
 | newtInstances[0].affinity.nodeAffinity | object | `{}` | Node affinity rules |
 | newtInstances[0].affinity.podAffinity | object | `{}` | Pod affinity rules |
 | newtInstances[0].affinity.podAntiAffinity | object | `{}` | Pod anti-affinity rules |
 | newtInstances[0].allowGlobalOverride | bool | `false` | Allow this instance to override global settings (image, logLevel, etc). |
-| newtInstances[0].auth.existingSecretName | string | `""` | Name of the existing Secret with endpoint/id/secret keys |
-| newtInstances[0].auth.keys | object | `{"endpointKey":"PANGOLIN_ENDPOINT","idKey":"NEWT_ID","secretKey":"NEWT_SECRET"}` | Key mappings used inside the existing Secret |
+| newtInstances[0].auth.createSecret | bool | `true` | Create a Secret from inline credentials (pangolinEndpoint/id/secret) when provided. Set false to disable secret creation from inline credentials. |
+| newtInstances[0].auth.envVarsDirect | bool | `false` | Inject inline credentials directly as env vars instead of Secret refs. Use only for local/dev testing because credentials are visible in rendered manifests. |
+| newtInstances[0].auth.existingSecretName | string | `""` | Name of an existing Secret containing endpoint/id/secret keys. The Secret must contain keys from auth.keys.endpointKey/auth.keys.idKey/auth.keys.secretKey. |
+| newtInstances[0].auth.keys | object | `{"endpointKey":"PANGOLIN_ENDPOINT","idKey":"NEWT_ID","secretKey":"NEWT_SECRET"}` | Key mappings used inside Secrets. IMPORTANT: auth.keys.* are key names, not credential values. |
 | newtInstances[0].auth.keys.endpointKey | string | `"PANGOLIN_ENDPOINT"` | Key name for the Pangolin endpoint (default: PANGOLIN_ENDPOINT) |
 | newtInstances[0].auth.keys.idKey | string | `"NEWT_ID"` | Key name for the Newt ID (default: NEWT_ID) |
 | newtInstances[0].auth.keys.secretKey | string | `"NEWT_SECRET"` | Key name for the Newt secret (default: NEWT_SECRET) |
@@ -269,7 +279,7 @@ global:
 | newtInstances[0].healthFile | string | `"/tmp/healthy"` | Health file path used by liveness/readiness probes |
 | newtInstances[0].hostNetwork | bool | `false` | Enable host networking (useful with native mode) |
 | newtInstances[0].hostPID | bool | `false` | Enable sharing host PID namespace (rarely needed) |
-| newtInstances[0].id | string | `""` | Instance ID issued by Pangolin |
+| newtInstances[0].id | string | `""` | Newt instance ID issued by Pangolin (must be set with pangolinEndpoint and secret) |
 | newtInstances[0].initContainers | list | `[]` | Additional init containers to add to the pod |
 | newtInstances[0].interface | string | `"newt"` | WireGuard interface name in the pod |
 | newtInstances[0].keepInterface | bool | `false` | Keep the interface on shutdown (native mode) |
@@ -327,6 +337,14 @@ global:
 | newtInstances[0].mtls.pem.secretName | string | `""` | Secret name containing client.crt, client.key, and optionally ca.crt |
 | newtInstances[0].mtls.secretName | string | `""` | Secret name containing client.p12 (if empty and p12Base64 provided, a Secret is generated) |
 | newtInstances[0].mtu | int | `1280` | WireGuard interface MTU (typical cloud path MTU ~1380). Leave at 1280 unless tuning |
+| newtInstances[0].namespace | object | `{"create":null,"labels":{},"name":"","podSecurity":{"audit":"","enforce":"","warn":""}}` | Per-instance namespace override. Only effective when allowGlobalOverride=true. |
+| newtInstances[0].namespace.create | bool \| null | `nil` | Whether to create the namespace for this instance. null means inherit; valid values: `true`, `false`, or `null`. |
+| newtInstances[0].namespace.labels | object | `{}` | Additional labels for this instance namespace, merged on top of global namespace labels. |
+| newtInstances[0].namespace.name | string | `""` | Override target namespace for this instance. Empty means global namespace or release namespace. |
+| newtInstances[0].namespace.podSecurity | object | `{"audit":"","enforce":"","warn":""}` | Pod Security Admission labels override for this instance namespace. |
+| newtInstances[0].namespace.podSecurity.audit | string | `""` | Override audit level. |
+| newtInstances[0].namespace.podSecurity.enforce | string | `""` | Override enforce level. |
+| newtInstances[0].namespace.podSecurity.warn | string | `""` | Override warn level. |
 | newtInstances[0].networkPolicy | object | `{"components":{"custom":{"egress":[],"enabled":false,"ingress":[],"policyTypes":["Ingress","Egress"]},"defaultApp":{"egress":[],"enabled":false,"ingress":[],"policyTypes":[]},"dns":{"egress":[],"enabled":false},"kubeApi":{"egress":[],"enabled":false}},"enabled":null,"includeRuleSets":[],"mode":"merge","useGlobalComponents":{"custom":true,"defaultApp":true,"dns":false,"kubeApi":false}}` | NetworkPolicy behavior (inherit/merge/replace) and enable/disable components. |
 | newtInstances[0].networkPolicy.components | object | `{"custom":{"egress":[],"enabled":false,"ingress":[],"policyTypes":["Ingress","Egress"]},"defaultApp":{"egress":[],"enabled":false,"ingress":[],"policyTypes":[]},"dns":{"egress":[],"enabled":false},"kubeApi":{"egress":[],"enabled":false}}` | Instance-local components that can be merged in (mode=merge) or used exclusively (mode=replace). |
 | newtInstances[0].networkPolicy.enabled | string | `nil` | - true/false: explicitly enable/disable NetworkPolicies for this instance |
@@ -355,7 +373,7 @@ global:
 | newtInstances[0].resources.requests.cpu | string | `"100m"` | CPU request |
 | newtInstances[0].resources.requests.ephemeral-storage | string | `"128Mi"` | Ephemeral storage request |
 | newtInstances[0].resources.requests.memory | string | `"128Mi"` | Memory request |
-| newtInstances[0].secret | string | `""` | Instance secret issued by Pangolin (WARNING: Use existingSecretName for production) |
+| newtInstances[0].secret | string | `""` | Newt instance secret issued by Pangolin (must be set with pangolinEndpoint and id) - WARNING: Use auth.existingSecretName for production. |
 | newtInstances[0].securityContext | object | `{}` | Container-level securityContext override SECURITY NOTE: By default (when nativeMode is disabled), Newt runs as non-root. When nativeMode.enabled=true OR useNativeInterface=true, Newt runs as root with privileges. IMPORTANT: Do NOT set capabilities.drop when running as root - this is invalid. |
 | newtInstances[0].service.annotations | object | `{}` | Service annotations |
 | newtInstances[0].service.enabled | bool | `true` | Create a Service for this instance |
@@ -371,6 +389,11 @@ global:
 | newtInstances[0].service.port | int | `51820` | WireGuard UDP service port |
 | newtInstances[0].service.testerPort | int | `51821` | Tester/diagnostic UDP service port |
 | newtInstances[0].service.type | string | `"ClusterIP"` | Service type for this instance |
+| newtInstances[0].serviceAccount | object | `{"annotations":{},"automountServiceAccountToken":false,"create":null,"name":""}` | Per-instance ServiceAccount configuration. Only effective when allowGlobalOverride=true. |
+| newtInstances[0].serviceAccount.annotations | object | `{}` | Additional annotations applied to the instance ServiceAccount. |
+| newtInstances[0].serviceAccount.automountServiceAccountToken | bool | `false` | Control automounting of the ServiceAccount token for this instance. |
+| newtInstances[0].serviceAccount.create | string | `nil` | Create a dedicated ServiceAccount for this instance. null means inherit global serviceAccount behavior. |
+| newtInstances[0].serviceAccount.name | string | `""` | Custom ServiceAccount name. Empty means auto-generate when create=true. |
 | newtInstances[0].tolerations | list | `[]` | Pod tolerations |
 | newtInstances[0].topologySpreadConstraints | list | `[]` | Pod topology spread constraints |
 | newtInstances[0].updown.enabled | bool | `false` | Mount and execute a shared up/down script |
@@ -379,10 +402,10 @@ global:
 | newtInstances[0].updown.script | string | `""` | inline script content (prefer updownScripts map) |
 | newtInstances[0].useCommandArgs | bool | `false` | Use command/args instead of environment-variable configuration |
 | newtInstances[0].useNativeInterface | bool | `false` | Use native WireGuard kernel interface (requires nativeMode.enabled=true and privileged) |
-| rbac | object | `{"annotations":{},"clusterRole":false,"create":true,"labels":{}}` | --------------------------------------------------------------------------- |
+| rbac | object | `{"annotations":{},"clusterRole":false,"create":false,"labels":{}}` | --------------------------------------------------------------------------- |
 | rbac.annotations | object | `{}` | Additional annotations applied to RBAC resources. |
 | rbac.clusterRole | bool | `false` | Create ClusterRole/ClusterRoleBinding instead of namespaced Role/RoleBinding. |
-| rbac.create | bool | `true` | Create RBAC resources (Role/RoleBinding or ClusterRole/ClusterRoleBinding). |
+| rbac.create | bool | `false` | Create RBAC resources (Role/RoleBinding or ClusterRole/ClusterRoleBinding). |
 | rbac.labels | object | `{}` | Additional labels applied to RBAC resources. |
 | serviceAccount | object | `{"annotations":{},"automountServiceAccountToken":false,"create":true,"name":""}` | --------------------------------------------------------------------------- |
 | serviceAccount.annotations | object | `{}` | Additional annotations applied to the ServiceAccount. |

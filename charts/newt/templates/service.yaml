@@ -1,14 +1,17 @@
 {{- $root := . -}}
 {{- range $i, $inst := .Values.newtInstances }}
 {{- $svc := (default (dict) $inst.service) -}}
-{{- /* service.enabled defaults to true only when key is not present; if explicitly false, respect it */ -}}
-{{- $svcEnabled := ternary $svc.enabled true (hasKey $svc "enabled") -}}
+{{- $enabledByFlag := ternary $svc.enabled true (hasKey $svc "enabled") -}}
+{{- $enabledWhenAcceptClients := default false $svc.enabledWhenAcceptClients -}}
+{{- $svcEnabled := or $enabledByFlag (and $enabledWhenAcceptClients (default false $inst.acceptClients)) -}}
 {{- if and $inst.enabled $svcEnabled }}
+{{- $nsName := include "newt.effectiveNamespace" (dict "root" $root "inst" $inst) }}
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: {{ include "newt.instance.fullname" (dict "root" $root "inst" $inst) }}
+  namespace: {{ $nsName }}
   labels:
     {{- include "newt.labels" $root | nindent 4 }}
     newt.instance: {{ $inst.name }}
@@ -59,7 +62,13 @@ spec:
   selector:
     app.kubernetes.io/instance: {{ $root.Release.Name }}
     newt.instance: {{ $inst.name }}
-  {{- /* Safe defaults for optional nodePorts */}}
+  {{- /* Determine tester port enabled */ -}}
+  {{- $testerEnabled := (include "newt.effectiveTestsEnabled" (dict "root" $root "inst" $inst)) | eq "true" -}}
+  {{- /* Legacy: check testerPort for backward compatibility */ -}}
+  {{- $testerPortVal := int (default 0 $svc.testerPort) -}}
+  {{- if and (not $testerEnabled) (gt $testerPortVal 0) -}}
+  {{- $testerEnabled = true -}}
+  {{- end -}}
   {{- $nodePorts := (default (dict) $svc.nodePorts) }}
   {{- $wgNodePort := (get $nodePorts "wg") }}
   {{- $testerNodePort := (get $nodePorts "tester") }}
@@ -71,12 +80,14 @@ spec:
       {{- if and (eq (default "ClusterIP" $svc.type) "NodePort") $wgNodePort }}
       nodePort: {{ $wgNodePort | int }}
       {{- end }}
+    {{- if $testerEnabled }}
     - name: tester
-      port: {{ default 51821 $svc.testerPort }}
+      port: {{ $svc.testerPort | default 51821 }}
       targetPort: 51821
       protocol: UDP
       {{- if and (eq (default "ClusterIP" $svc.type) "NodePort") $testerNodePort }}
       nodePort: {{ $testerNodePort | int }}
       {{- end }}
+    {{- end }}
 {{- end }}
 {{- end }}
