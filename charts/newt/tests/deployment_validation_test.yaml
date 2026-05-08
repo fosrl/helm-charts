@@ -9,7 +9,8 @@ tests:
           enabled: true
           provisioningBlueprintFile: /etc/newt/provisioning-blueprint.yaml
     asserts:
-      - failedTemplate: {}
+      - failedTemplate:
+          errorPattern: "provisioningBlueprintFile is set but provisioningBlueprintData is empty"
 
 
   - it: fails when configPersistence.type is persistentVolumeClaim but existingClaim is empty
@@ -24,17 +25,8 @@ tests:
             mountPath: /var/lib/newt
             fileName: config.json
     asserts:
-      - failedTemplate: {}
+      - failedTemplate:
+          errorPattern: "configPersistence\\.type is persistentVolumeClaim but existingClaim is empty"
 
-  - it: fails when configPersistence.type is invalid
-    set:
-      newtInstances:
-        - name: test-invalid-cfg-type
-          enabled: true
-          configPersistence:
-            enabled: true
-            type: invalidType
-            mountPath: /var/lib/newt
-            fileName: config.json
-    asserts:
-      - failedTemplate: {}
+  # Note: invalid configPersistence.type is caught by JSON schema validation (enum constraint),
+  # which occurs before template rendering. This cannot be tested with failedTemplate.

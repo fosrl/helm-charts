@@ -27,6 +27,9 @@ tests:
           enabled: true
           auth:
             existingSecretName: newt-auth
+      global:
+        tests:
+          enabled: true
     asserts:
       - isKind:
           of: Service
@@ -56,6 +59,9 @@ tests:
             nodePorts:
               wg: 30080
               tester: 30081
+      global:
+        tests:
+          enabled: true
     asserts:
       - isKind:
           of: Service
@@ -78,6 +84,9 @@ tests:
             existingSecretName: newt-auth
           service:
             type: NodePort
+      global:
+        tests:
+          enabled: true
     asserts:
       - isKind:
           of: Service
@@ -98,6 +107,27 @@ tests:
             existingSecretName: newt-auth
           service:
             enabled: false
+      global:
+        tests:
+          enabled: true
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: service.enabledWhenAcceptClients can enable Service when service.enabled is false
+    set:
+      newtInstances:
+        - name: accept-clients-service
+          enabled: true
+          acceptClients: true
+          auth:
+            existingSecretName: newt-auth
+          service:
+            enabled: false
+            enabledWhenAcceptClients: true
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: spec.selector["newt.instance"]
+          value: accept-clients-service

@@ -228,7 +228,11 @@ Backward compatibility:
       {{- if $addAcceptIngress -}}
         {{- $ranges := (get $svc "loadBalancerSourceRanges") | default list -}}
         {{- $wgPort := (get $svc "port") | default 51820 -}}
-        {{- $testerPort := (get $svc "testerPort") | default 51821 -}}
+        {{- $testerPortVal := $svc.testerPort | default 51821 -}}
+        {{- $testerEnabled := true -}}
+        {{- if eq ($testerPortVal | int) 0 -}}
+        {{- $testerEnabled = false -}}
+        {{- end -}}
 
         {{- $rule := dict -}}
         {{- if gt (len $ranges) 0 -}}
@@ -238,10 +242,11 @@ Backward compatibility:
           {{- end -}}
           {{- $_ := set $rule "from" $fromList -}}
         {{- end -}}
-        {{- $_ := set $rule "ports" (list
-              (dict "port" $wgPort "protocol" "UDP")
-              (dict "port" $testerPort "protocol" "UDP")
-            ) -}}
+        {{- $portList := list (dict "port" $wgPort "protocol" "UDP") -}}
+        {{- if $testerEnabled -}}
+        {{- $portList = append $portList (dict "port" $testerPortVal "protocol" "UDP") -}}
+        {{- end -}}
+        {{- $_ := set $rule "ports" $portList -}}
 
         {{- $ingress = append $ingress $rule -}}
         {{- $_ := set $ptSet "Ingress" true -}}

@@ -96,17 +96,35 @@ spec:
         {{- toYaml $anns | nindent 8 }}
       {{- end }}
     spec:
+      {{- $canOverride := (default false $inst.allowGlobalOverride) -}}
+      {{- $nativeEnabled := or $inst.useNativeInterface $root.Values.global.nativeMode.enabled -}}
       {{- $ips := include "newt.imagePullSecrets" $root -}}
       {{- if $ips }}
 {{ $ips | nindent 6 }}
       {{- end }}
-      {{- if or $root.Values.serviceAccount.create $root.Values.serviceAccount.name }}
+      {{- $instServiceAccount := (default dict $inst.serviceAccount) -}}
+      {{- $instServiceAccountCreateRaw := (get $instServiceAccount "create") -}}
+      {{- $instServiceAccountCreate := false -}}
+      {{- if kindIs "bool" $instServiceAccountCreateRaw -}}
+      {{- $instServiceAccountCreate = $instServiceAccountCreateRaw -}}
+      {{- else if kindIs "string" $instServiceAccountCreateRaw -}}
+      {{- $instServiceAccountCreate = eq (lower $instServiceAccountCreateRaw) "true" -}}
+      {{- end -}}
+      {{- $instServiceAccountName := (default "" (get $instServiceAccount "name")) -}}
+      {{- $useInstanceServiceAccount := and $canOverride (or $instServiceAccountCreate (ne $instServiceAccountName "")) -}}
+      {{- if $useInstanceServiceAccount }}
+      serviceAccountName: {{ include "newt.instance.serviceAccountName" (dict "root" $root "inst" $inst) }}
+      {{- else if or $root.Values.serviceAccount.create $root.Values.serviceAccount.name }}
       serviceAccountName: {{ include "newt.serviceAccountName" $root }}
       {{- end }}
       {{- with $root.Values.global.priorityClassName }}
       priorityClassName: {{ . }}
       {{- end }}
+      {{- if $useInstanceServiceAccount }}
+      automountServiceAccountToken: {{ default false (get $instServiceAccount "automountServiceAccountToken") }}
+      {{- else }}
       automountServiceAccountToken: {{ default false $root.Values.serviceAccount.automountServiceAccountToken }}
+      {{- end }}
       {{- /* 
         Security Context Logic:
         
@@ -120,9 +138,6 @@ spec:
         - If user sets runAsUser: 0 but also sets capabilities.drop, fail rendering
         - This prevents invalid security combinations
       */ -}}
-      {{- $nativeEnabled := or $inst.useNativeInterface $root.Values.global.nativeMode.enabled }}
-      {{- $canOverride := (default false $inst.allowGlobalOverride) }}
-      
       {{- /* Validate: user override cannot combine root with capabilities.drop */ -}}
       {{- if and $canOverride (kindIs "map" $inst.securityContext) (hasKey $inst.securityContext "capabilities") }}
         {{- $overrideSecCtx := $inst.securityContext }}
@@ -196,34 +211,41 @@ spec:
           {{- else }}
           {{- include "newt.instance.commandArgs" (dict "root" $root "inst" $inst) | nindent 10 }}
           env:
-            {{- $auth := default (dict) $inst.auth }}
-            {{- $existing := get $auth "existingSecretName" }}
-            {{- if $existing }}
+            {{- $auth := default (dict) $inst.auth -}}
             {{- $keys := (default dict (get $auth "keys")) -}}
-            {{- $endpointKey := (default "PANGOLIN_ENDPOINT" $keys.endpointKey) -}}
-            {{- $idKey := (default "NEWT_ID" $keys.idKey) -}}
-            {{- $secretKey := (default "NEWT_SECRET" $keys.secretKey) -}}
+            {{- $existing := default "" (get $auth "existingSecretName") -}}
+            {{- $createSecret := true -}}
+            {{- if hasKey $auth "createSecret" }}{{- $createSecret = (index $auth "createSecret") -}}{{- end -}}
+            {{- $envVarsDirect := default false (get $auth "envVarsDirect") -}}
+            {{- $hasInlineCredentials := and $inst.pangolinEndpoint $inst.id $inst.secret -}}
+            {{- $endpointKey := default "PANGOLIN_ENDPOINT" (get $keys "endpointKey") -}}
+            {{- $idKey := default "NEWT_ID" (get $keys "idKey") -}}
+            {{- $secretKey := default "NEWT_SECRET" (get $keys "secretKey") -}}
+            {{- $generatedSecretName := include "newt.instance.fullname" (dict "root" $root "inst" $inst) -}}
+            {{- $authSecretName := ternary $existing $generatedSecretName (ne $existing "") -}}
+            {{- if or $existing (and $hasInlineCredentials $createSecret (not $envVarsDirect)) }}
             - name: PANGOLIN_ENDPOINT
               valueFrom:
                 secretKeyRef:
-                  name: {{ $existing }}
+                  name: {{ $authSecretName }}
                   key: {{ $endpointKey }}
             - name: NEWT_ID
               valueFrom:
                 secretKeyRef:
-                  name: {{ $existing }}
+                  name: {{ $authSecretName }}
                   key: {{ $idKey }}
             - name: NEWT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ $existing }}
+                  name: {{ $authSecretName }}
                   key: {{ $secretKey }}
-            {{- else if $inst.secret }}
+            {{- else if and $envVarsDirect $hasInlineCredentials }}
+            - name: PANGOLIN_ENDPOINT
+              value: {{ $inst.pangolinEndpoint | quote }}
+            - name: NEWT_ID
+              value: {{ $inst.id | quote }}
             - name: NEWT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "newt.instance.fullname" (dict "root" $root "inst" $inst) }}
-                  key: NEWT_SECRET
+              value: {{ $inst.secret | quote }}
             {{- end }}
             {{- include "newt.instance.extraEnv" (dict "root" $root "inst" $inst) | nindent 12 }}
           {{- end }}

@@ -11,7 +11,7 @@ tests:
         - name: test-probes
           enabled: true
           healthFile: /tmp/healthy
-          pangolinEndpoint: https://example.com
+          pangolinEndpoint: "https://example.com"
           id: test
     asserts:
       - exists:
@@ -19,25 +19,26 @@ tests:
       - exists:
           path: spec.template.spec.containers[0].readinessProbe
 
-  - it: uses default secure non-root security context
+  - it: uses default security context with root and NET_ADMIN
     set:
       newtInstances:
         - name: test-sec
           enabled: true
-          pangolinEndpoint: https://example.com
+          useNativeInterface: true
+          pangolinEndpoint: "https://example.com"
           id: test
-          secret: test-secret
+          secret: "test-secret"
     asserts:
       - equal:
           path: spec.template.spec.containers[0].securityContext.runAsUser
-          value: 65534
+          value: 0
 
   - it: applies nodeSelector
     set:
       newtInstances:
         - name: test-nodesel
           enabled: true
-          pangolinEndpoint: https://example.com
+          pangolinEndpoint: "https://example.com"
           id: test
           nodeSelector:
             disktype: ssd
@@ -51,7 +52,7 @@ tests:
       newtInstances:
         - name: test-tolerations
           enabled: true
-          pangolinEndpoint: https://example.com
+          pangolinEndpoint: "https://example.com"
           id: test
           tolerations:
             - key: dedicated

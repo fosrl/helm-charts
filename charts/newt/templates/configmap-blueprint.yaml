@@ -2,11 +2,13 @@
 {{- range $idx, $inst := .Values.newtInstances }}
 {{- $inst := $inst | default dict -}}
 {{- if and $inst.enabled $inst.blueprintFile }}
+{{- $nsName := include "newt.effectiveNamespace" (dict "root" $root "inst" $inst) }}
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: {{ include "newt.instance.fullname" (dict "root" $root "inst" $inst) }}-blueprint
+  namespace: {{ $nsName }}
   labels:
     {{- include "newt.labels" $root | nindent 4 }}
     newt.instance: {{ $inst.name }}

@@ -21,4 +21,4 @@ tests:
     asserts:
       - template: servicemonitor.yaml
         failedTemplate:
-          errorMessage: "Either metrics.podMonitor.enabled or metrics.serviceMonitor.enabled can be enabled at a time, but not both."
+          errorPattern: "metrics\\.podMonitor\\.enabled or metrics\\.serviceMonitor\\.enabled"

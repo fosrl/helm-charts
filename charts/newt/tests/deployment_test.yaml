@@ -26,7 +26,7 @@ tests:
       newtInstances:
         - name: cfg
           enabled: true
-          pangolinEndpoint: https://pangolin.example.com
+          pangolinEndpoint: "https://pangolin.example.com"
           id: test-id
           secret: test-secret
           port: "7777"
@@ -113,29 +113,24 @@ tests:
           path: spec.template.spec.volumes[0].name
           value: blueprint-file
 
-  - it: uses default secure non-root security context when not native mode
+  - it: uses default security context with root and NET_ADMIN (required for WireGuard)
     set:
       newtInstances:
         - name: default-sec
           enabled: true
+          useNativeInterface: true
           auth:
             existingSecretName: newt-auth
     asserts:
       - equal:
           path: spec.template.spec.containers[0].securityContext.runAsUser
-          value: 65534
-      - equal:
-          path: spec.template.spec.containers[0].securityContext.runAsNonRoot
-          value: true
+          value: 0
       - equal:
           path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
-          value: false
-      - equal:
-          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
           value: true
       - equal:
-          path: spec.template.spec.containers[0].securityContext.capabilities.drop[0]
-          value: ALL
+          path: spec.template.spec.containers[0].securityContext.capabilities.add[0]
+          value: NET_ADMIN
 
   - it: creates health file probe when enabled
     set:

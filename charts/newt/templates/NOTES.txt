@@ -40,3 +40,27 @@ Troubleshooting:
 - Describe ({{ $inst.name }}): kubectl describe deploy/{{ include "newt.instance.fullname" (dict "root" $root "inst" $inst) }} -n {{ include "newt.namespace" $root }}
 {{- end }}
 {{- end }}
+
+{{- /* Warning about inline secrets */ -}}
+{{- $hasInlineSecret := false -}}
+{{- $hasEnvVarsDirect := false -}}
+{{- range $i, $inst := .Values.newtInstances }}
+{{- $auth := (default (dict) $inst.auth) -}}
+{{- $createSecret := (default true $auth.createSecret) -}}
+{{- $envVarsDirect := (default false $auth.envVarsDirect) -}}
+{{- if and $inst.enabled $inst.secret (not (get $auth "existingSecretName")) (not $envVarsDirect) $createSecret }}
+{{- $hasInlineSecret = true }}
+{{- end }}
+{{- if and $inst.enabled $envVarsDirect $inst.secret }}
+{{- $hasEnvVarsDirect = true }}
+{{- end }}
+{{- end }}
+{{- if $hasInlineSecret }}
+WARNING: Inline secrets detected in newtInstances[].secret!
+This deployment has credentials stored in plain text in the Helm values.
+For production deployments, use auth.existingSecretName to reference an external Secret.
+{{- end }}
+{{- if $hasEnvVarsDirect }}
+WARNING: auth.envVarsDirect is enabled - credentials will be visible in the Deployment manifest!
+Consider using auth.existingSecretName or the default createSecret mode for better security.
+{{- end }}

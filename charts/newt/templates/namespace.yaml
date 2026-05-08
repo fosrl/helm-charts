@@ -1,0 +1,40 @@
+{{- /*
+  Namespace template with deduplication.
+  Renders Namespace resources for each distinct namespace where namespace.create=true.
+*/ -}}
+{{- $root := . -}}
+{{- $namespaces := dict -}}
+{{- range $idx, $inst := .Values.newtInstances }}
+{{- if $inst.enabled }}
+{{- $nsName := include "newt.effectiveNamespace" (dict "root" $root "inst" $inst) -}}
+{{- $nsCreate := include "newt.effectiveNamespaceCreate" (dict "root" $root "inst" $inst) -}}
+{{- if eq $nsCreate "true" }}
+{{- $instLabels := (include "newt.effectiveNamespaceLabels" (dict "root" $root "inst" $inst "namespaceName" $nsName)) | fromJson -}}
+{{- $instPsa := (include "newt.effectivePodSecurity" (dict "root" $root "inst" $inst)) | fromJson -}}
+{{- if hasKey $namespaces $nsName }}
+{{- $existing := get $namespaces $nsName -}}
+{{- $mergedLabels := mergeOverwrite (deepCopy (default (dict) $existing.labels)) (default (dict) $instLabels) -}}
+{{- $mergedPsa := mergeOverwrite (deepCopy (default (dict) $existing.psa)) (default (dict) $instPsa) -}}
+{{- $_ := set $namespaces $nsName (dict "labels" $mergedLabels "psa" $mergedPsa) -}}
+{{- else }}
+{{- $_ := set $namespaces $nsName (dict "labels" (default (dict) $instLabels) "psa" (default (dict) $instPsa)) -}}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- range $nsName, $nsData := $namespaces }}
+{{- $labels := default (dict) $nsData.labels }}
+{{- $psa := default (dict) $nsData.psa }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $nsName }}
+  labels:
+    {{- range $k, $v := $labels }}
+    {{ $k }}: {{ $v | quote }}
+    {{- end }}
+    {{- range $k, $v := $psa }}
+    {{ $k }}: {{ $v | quote }}
+    {{- end }}
+{{- end }}
