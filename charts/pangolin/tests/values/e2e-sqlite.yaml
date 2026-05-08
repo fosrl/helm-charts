@@ -1,0 +1,9 @@
+deployment:
+  type: standalone
+  mode: multi
+
+gerbil:
+  enabled: false
+
+database:
+  mode: sqlite

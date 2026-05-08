@@ -1,0 +1,401 @@
+suite: default rendering
+templates:
+  - templates/deployment-controller.yaml
+  - templates/deployment-pangolin.yaml
+  - templates/deployment-gerbil.yaml
+  - templates/service-pangolin.yaml
+  - templates/service-controller.yaml
+  - templates/serviceaccount.yaml
+  - templates/configmap-controller.yaml
+  - templates/rbac.yaml
+  - templates/secrets.yaml
+  - templates/secret-controller-tls.yaml
+tests:
+  - it: renders Pangolin ServiceAccount by default
+    template: templates/serviceaccount.yaml
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: ServiceAccount
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin-sa
+      - equal:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: pangolin
+      - equal:
+          path: automountServiceAccountToken
+          value: false
+
+  - it: renders Gerbil ServiceAccount by default
+    template: templates/serviceaccount.yaml
+    documentIndex: 1
+    asserts:
+      - isKind:
+          of: ServiceAccount
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin-gerbil-sa
+      - equal:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: gerbil
+      - equal:
+          path: automountServiceAccountToken
+          value: false
+
+  - it: renders Controller ServiceAccount by default
+    template: templates/serviceaccount.yaml
+    documentIndex: 2
+    asserts:
+      - isKind:
+          of: ServiceAccount
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin-controller-sa
+      - equal:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: controller
+      - equal:
+          path: automountServiceAccountToken
+          value: true
+
+  - it: renders RBAC Role by default
+    template: templates/rbac.yaml
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: Role
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin
+      - equal:
+          path: rules[0].apiGroups[0]
+          value: ""
+      - equal:
+          path: rules[0].resources[0]
+          value: events
+
+  - it: does not use the CHANGE-ME-PLEASE placeholder for app secret
+    template: templates/secrets.yaml
+    asserts:
+      - notEqual:
+          path: data.PANGOLIN_SECRET
+          value: Q0hBTkdFLU1FLVBMRUFTRQ==
+
+  - it: does not render controller TLS Secret by default
+    template: templates/secret-controller-tls.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders controller TLS Secret as kubernetes.io/tls when enabled
+    template: templates/secret-controller-tls.yaml
+    set:
+      controller.tls.enabled: true
+    asserts:
+      - isKind:
+          of: Secret
+      - equal:
+          path: type
+          value: kubernetes.io/tls
+      - exists:
+          path: data["tls.crt"]
+      - exists:
+          path: data["tls.key"]
+
+  - it: renders RBAC RoleBinding by default
+    template: templates/rbac.yaml
+    documentIndex: 1
+    asserts:
+      - isKind:
+          of: RoleBinding
+
+  - it: renders controller ClusterRole for IngressClass and CRD discovery access
+    template: templates/rbac.yaml
+    documentIndex: 2
+    asserts:
+      - isKind:
+          of: ClusterRole
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["networking.k8s.io"]
+            resources: ["ingressclasses"]
+            verbs: ["get", "list", "watch"]
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["apiextensions.k8s.io"]
+            resources: ["customresourcedefinitions"]
+            verbs: ["get", "list", "watch"]
+
+  - it: renders controller ClusterRoleBinding for cluster-scoped access
+    template: templates/rbac.yaml
+    documentIndex: 3
+    asserts:
+      - isKind:
+          of: ClusterRoleBinding
+      - equal:
+          path: roleRef.kind
+          value: ClusterRole
+      - equal:
+          path: subjects[0].name
+          value: RELEASE-NAME-pangolin-controller-sa
+      - lengthEqual:
+          path: subjects
+          count: 1
+
+  - it: does not render controller ClusterRole/ClusterRoleBinding in standalone mode
+    set:
+      deployment.type: standalone
+    template: templates/rbac.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: does not render controller ClusterRole/ClusterRoleBinding when controller is disabled
+    set:
+      deployment.type: controller
+      controller.enabled: false
+    template: templates/rbac.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: does not render controller ClusterRole/ClusterRoleBinding when RBAC creation is disabled
+    set:
+      deployment.type: controller
+      controller.enabled: true
+      rbac.create: false
+    template: templates/rbac.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders Pangolin Deployment by default
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin
+      - equal:
+          path: spec.replicas
+          value: 1
+      - equal:
+          path: spec.selector.matchLabels["app.kubernetes.io/component"]
+          value: pangolin
+
+  - it: renders Gerbil Deployment by default
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin-gerbil
+      - equal:
+          path: spec.replicas
+          value: 1
+      - equal:
+          path: spec.selector.matchLabels["app.kubernetes.io/component"]
+          value: gerbil
+
+  - it: renders Gerbil Deployment with replicas 0 when startupMode is delayed
+    template: templates/deployment-gerbil.yaml
+    set:
+      gerbil.startupMode: delayed
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 0
+
+  - it: does not render broken default gerbil probes
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].startupProbe
+      - notExists:
+          path: spec.template.spec.containers[0].livenessProbe
+      - notExists:
+          path: spec.template.spec.containers[0].readinessProbe
+
+  - it: renders Controller Deployment by default
+    template: templates/deployment-controller.yaml
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin-controller
+      - equal:
+          path: spec.selector.matchLabels["app.kubernetes.io/component"]
+          value: controller
+
+  - it: renders Pangolin Service by default
+    template: templates/service-pangolin.yaml
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: spec.type
+          value: ClusterIP
+      - equal:
+          path: spec.selector["app.kubernetes.io/component"]
+          value: pangolin
+
+  - it: renders Controller Service by default
+    template: templates/service-controller.yaml
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: spec.type
+          value: ClusterIP
+
+  - it: renders app secret when generated
+    template: templates/secrets.yaml
+    asserts:
+      - isKind:
+          of: Secret
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin-app
+
+  - it: uses correct image for pangolin in cloudnativepg mode (postgresql image)
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: docker.io/fosrl/pangolin:postgresql-1.18.2
+
+  - it: uses sqlite image for pangolin when database mode is sqlite
+    set:
+      database.mode: sqlite
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: docker.io/fosrl/pangolin:1.18.2
+
+  - it: respects explicit pangolin image tag override regardless of database mode
+    set:
+      images.pangolin.tag: "custom-tag"
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: docker.io/fosrl/pangolin:custom-tag
+
+  - it: uses correct image for gerbil
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: docker.io/fosrl/gerbil:1.3.1
+
+  - it: renders with correct security context for pangolin (pod level)
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - notExists:
+          path: spec.template.spec.securityContext.runAsNonRoot
+
+  - it: renders gerbil with pod security context runAsNonRoot false
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: false
+
+  - it: does not render lease rules when leader election is disabled
+    template: templates/rbac.yaml
+    documentIndex: 0
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            apiGroups: ["coordination.k8s.io"]
+
+  - it: renders lease rules when leader election is enabled
+    set:
+      controller.leaderElection.enabled: true
+    template: templates/rbac.yaml
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: rules[0].apiGroups[0]
+          value: coordination.k8s.io
+      - equal:
+          path: rules[0].resources[0]
+          value: leases
+      - notContains:
+          path: rules[0].verbs
+          content: delete
+
+  - it: uses leaderElection.enabled for controller environment
+    set:
+      controller.leaderElection.enabled: true
+    template: templates/configmap-controller.yaml
+    asserts:
+      - equal:
+          path: data.ENABLE_LEADER_ELECTION
+          value: "true"
+
+  - it: renders traefik CRD rules in controller mode
+    set:
+      deployment.type: controller
+      controller.enabled: true
+    template: templates/rbac.yaml
+    documentIndex: 0
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["traefik.io"]
+            resources:
+              - ingressroutes
+              - ingressroutetcps
+              - ingressrouteudps
+              - middlewares
+              - middlewaretcps
+              - traefikservices
+              - serverstransports
+              - serverstransporttcps
+              - tlsoptions
+              - tlsstores
+            verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  - it: gerbil renders default args with correct reachableAt
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].args[0]
+          value: "--reachableAt=http://RELEASE-NAME-pangolin-gerbil:3004"
+
+  - it: gerbil renders default args with correct generateAndSaveKeyTo
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].args[1]
+          value: "--generateAndSaveKeyTo=/var/config/key"
+
+  - it: gerbil renders default args with correct remoteConfig
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].args[2]
+          value: "--remoteConfig=http://RELEASE-NAME-pangolin:3001/api/v1/"
+
+  - it: gerbil default args have exactly three entries
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - lengthEqual:
+          path: spec.template.spec.containers[0].args
+          count: 3
+
+  - it: gerbil does not render env when extraEnv is empty
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].env

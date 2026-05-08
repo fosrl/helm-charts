@@ -1,0 +1,196 @@
+{{- if eq .Values.deployment.type "controller" }}
+Pangolin controller mode is enabled.
+
+The pangolin-kube-controller and Pangolin application are deployed in multi-pod mode.
+The pangolin-kube-controller reads Pangolin Traefik config output and reconciles Kubernetes/Traefik CRs.
+
+{{- if .Values.pangolin.config.traefik.enabled }}
+Pangolin config.yml includes a traefik section by default. This configures the
+Traefik routing/certificate output Pangolin generates; it does NOT install Traefik.
+Ensure pangolin.config.traefik.http_entrypoint, https_entrypoint, and cert_resolver
+match your real Traefik deployment.
+{{- else }}
+Pangolin config.yml traefik section is disabled. Pangolin will fall back to its
+upstream Traefik defaults instead, so ensure those match your real Traefik deployment.
+{{- end }}
+
+Next steps:
+	1) kubectl get pods -n {{ include "pangolin.namespace" . }} -l app.kubernetes.io/instance={{ .Release.Name }}
+	2) kubectl get svc  -n {{ include "pangolin.namespace" . }} -l app.kubernetes.io/instance={{ .Release.Name }}
+	3) kubectl get events -n {{ include "pangolin.namespace" . }} --sort-by=.lastTimestamp | tail -n 50
+
+If you expect Traefik CRDs/resources to be reconciled:
+	- Ensure a Traefik controller with CRDs is available in the target namespace (deployment.traefikNamespace).
+	- Or install the bundled Traefik dependency via deployment.installTraefikController=true.
+
+{{- if .Values.controller.enabled }}
+Controller: {{ include "pangolin.fullname" . }}-controller
+Controller metrics: http://{{ include "pangolin.fullname" . }}-controller.{{ include "pangolin.namespace" . }}.svc:9090/metrics
+{{- end }}
+
+{{- if .Values.pangolin.service.enabled }}
+Pangolin service: {{ include "pangolin.fullname" . }}.{{ include "pangolin.namespace" . }}.svc:{{ .Values.pangolin.service.ports.external }}
+{{- end }}
+{{- $dashboardUrl := .Values.pangolin.config.app.dashboard_url | default "" | trim }}
+{{- $dashboardPort := .Values.pangolin.service.ports.next | default 3002 }}
+{{- $pangolinNamespace := include "pangolin.namespace" . }}
+{{- $pangolinDeployment := include "pangolin.fullname" . }}
+{{- $pangolinContainer := "pangolin" }}
+
+Pangolin dashboard URL:
+{{- if $dashboardUrl }}
+  {{ $dashboardUrl }}
+{{- else }}
+  No dashboard URL was configured.
+  Use port-forwarding for local access:
+    kubectl -n {{ include "pangolin.namespace" . }} port-forward svc/{{ include "pangolin.fullname" . }} {{ $dashboardPort }}:{{ $dashboardPort }}
+  Then open:
+    http://localhost:{{ $dashboardPort }}
+{{- end }}
+
+Initial Pangolin setup token (preferred: prints the full token block):
+  kubectl logs -n {{ $pangolinNamespace }} deploy/{{ $pangolinDeployment }} -c {{ $pangolinContainer }} | sed -n '/SETUP TOKEN GENERATED/,/================================/p'
+Simpler fallback (matches the marker line and next two lines):
+  kubectl logs -n {{ $pangolinNamespace }} deploy/{{ $pangolinDeployment }} -c {{ $pangolinContainer }} | grep -A2 "SETUP TOKEN GENERATED"
+
+The setup token is printed during the first Pangolin startup. If the token is no longer visible, check previous logs:
+  kubectl logs -n {{ $pangolinNamespace }} deploy/{{ $pangolinDeployment }} -c {{ $pangolinContainer }} --previous
+
+{{- if and (not .Values.pangolin.secret.existingSecretName) .Values.pangolin.secret.generated.create }}
+Pangolin app Secret: {{ include "pangolin.app.secretName" . }} (key: {{ .Values.pangolin.secret.generated.key }})
+Tip: For production, set pangolin.secret.existingSecretName to an externally managed Secret.
+{{- end }}
+
+{{- if eq .Values.database.mode "sqlite" }}
+WARNING: database.mode=sqlite is intended for development/testing only. Do not use SQLite for production/HA.
+{{- end }}
+
+{{- if eq .Values.database.mode "external" }}
+External database mode is enabled.
+	- Preferred: database.connection.existingSecretName (Secret with final connection string)
+	- External-mode compatibility: database.external.existingSecretName
+{{- end }}
+
+{{- if and .Values.networkPolicy.enabled (not .Values.networkPolicy.allowExternalEgressHttps) }}
+NetworkPolicy: HTTPS egress to 0.0.0.0/0 is disabled by default.
+If Pangolin/Gerbil require outbound 443, set networkPolicy.allowExternalEgressHttps=true or add a scoped rule via networkPolicy.extraEgress.
+{{- end }}
+{{- if .Values.networkPolicy.enabled }}
+External access depends on your ingress/service exposure and NetworkPolicy rules.
+{{- end }}
+
+{{- else if eq .Values.deployment.type "standalone" }}
+Pangolin standalone mode is enabled.
+
+The built-in Traefik workload and Pangolin are deployed.
+
+{{- if .Values.pangolin.config.traefik.enabled }}
+Pangolin config.yml includes a traefik section by default. This configures the
+Traefik routing/certificate output Pangolin generates; it does NOT install Traefik.
+Ensure pangolin.config.traefik.http_entrypoint, https_entrypoint, and cert_resolver
+match the standalone Traefik configuration in this release.
+{{- else }}
+Pangolin config.yml traefik section is disabled. Pangolin will fall back to its
+upstream Traefik defaults instead, so ensure those still match the standalone
+Traefik configuration in this release.
+{{- end }}
+
+Next steps:
+	1) kubectl get pods -n {{ include "pangolin.namespace" . }} -l app.kubernetes.io/instance={{ .Release.Name }}
+	2) kubectl get svc  -n {{ include "pangolin.namespace" . }} -l app.kubernetes.io/instance={{ .Release.Name }}
+
+{{- if .Values.traefik.service.enabled }}
+Traefik: {{ include "pangolin.fullname" . }}-traefik.{{ include "pangolin.namespace" . }}.svc
+{{- if .Values.traefik.config.dashboard }}
+Traefik dashboard: http://{{ include "pangolin.fullname" . }}-traefik.{{ include "pangolin.namespace" . }}.svc:{{ .Values.traefik.config.adminPort }}/dashboard
+{{- else }}
+Traefik dashboard is disabled by default (traefik.config.dashboard=false).
+{{- end }}
+{{- if not .Values.traefik.persistence.enabled }}
+Warning: Traefik ACME state is not persisted (traefik.persistence.enabled=false). Enabling ACME without persistence may hit Let's Encrypt rate limits after restarts.
+{{- end }}
+{{- end }}
+
+{{- end }}
+
+{{- if eq .Values.database.mode "cloudnativepg" }}
+CloudNativePG is configured as the database backend.
+Cluster: {{ include "pangolin.db.cnpgClusterName" . }}
+{{- end }}
+
+{{- if eq .Values.database.mode "embedded" }}
+Embedded PostgreSQL is enabled.
+Database: {{ .Values.database.name }}
+{{- if and .Values.database.embedded.enabled (not .Values.database.embedded.auth.existingSecretName) .Values.database.embedded.auth.generatedSecret.create }}
+Embedded PostgreSQL auth Secret: {{ include "pangolin.database.authSecretName" . }}
+Note: The chart generates a strong random password by default unless database.embedded.auth.generatedSecret.password is explicitly set.
+{{- end }}
+{{- end }}
+
+{{- $dbWait := (include "pangolin.wait.config" (dict "root" . "override" (.Values.pangolin.databaseWait | default dict)) | fromYaml) | default dict -}}
+{{- $dbWaitUserEnabled := ternary (index $dbWait "enabled") true (hasKey $dbWait "enabled") -}}
+{{- $dbWaitEnabled := and (ne (include "pangolin.db.mode" .) "sqlite") $dbWaitUserEnabled -}}
+{{- $dbWaitHost := include "pangolin.db.waitHost" . | trim -}}
+{{- if and $dbWaitEnabled $dbWaitHost }}
+Initial startup may take a few minutes while the wait-for-db initContainer checks database readiness and Pangolin runs migrations.
+{{- end }}
+
+{{- if eq (include "pangolin.gerbil.resourcesEnabled" .) "true" }}
+Gerbil note: Gerbil requires NET_ADMIN capability for WireGuard interface management and
+typically runs as root. SYS_MODULE is NOT added by default; add it to
+gerbil.securityContext.capabilities.add only if your node kernel requires module loading
+from inside the container. Review cluster security policies accordingly.
+{{- if eq (include "pangolin.gerbil.startupMode" .) "delayed" }}
+Gerbil startup mode is delayed: the Gerbil Deployment is rendered with replicas=0.
+Complete Pangolin first-run setup (including exit-node registration), then run:
+  helm upgrade {{ .Release.Name }} <chart-path-or-repo/chart> --namespace {{ include "pangolin.namespace" . }} --set gerbil.startupMode=normal
+Or scale once for immediate start:
+  kubectl scale deployment/{{ include "pangolin.fullname" . }}-gerbil -n {{ include "pangolin.namespace" . }} --replicas=1
+If logs include `Created new exit node ...`, Pangolin has created the local exit node and Gerbil can be enabled/started.
+{{- end }}
+{{- if and (not .Values.namespace.create) (ne (default "" .Values.namespace.podSecurity.enforce) "privileged") }}
+PSA note: If Pod Security Admission is enforced, ensure the target namespace allows NET_ADMIN.
+`--create-namespace` alone does not add PSA labels. Either set:
+  namespace.create=true
+  namespace.podSecurity.enforce=privileged
+or label the namespace manually:
+  kubectl label ns {{ include "pangolin.namespace" . }} pod-security.kubernetes.io/enforce=privileged --overwrite
+{{- end }}
+{{- if not .Values.gerbil.persistence.enabled }}
+WARNING: gerbil.persistence.enabled=false. Gerbil saves its WireGuard private key to
+/var/config/key. Without a PVC the key regenerates on every Pod restart, forcing all
+WireGuard peers to re-handshake. Enable gerbil.persistence.enabled=true (or supply
+gerbil.persistence.existingClaim) for any non-ephemeral environment.
+{{- end }}
+{{- if and .Values.gerbil.service.enabled (eq (.Values.gerbil.service.type | default "ClusterIP") "ClusterIP") }}
+WARNING: gerbil.service.type=ClusterIP. External WireGuard clients CANNOT reach Gerbil
+through a ClusterIP service. For external connectivity set gerbil.service.type to
+LoadBalancer or NodePort, or use hostNetwork/hostPort on the Gerbil Pod.
+{{- end }}
+{{- if not .Values.gerbil.service.enabled }}
+Gerbil Service is disabled (gerbil.service.enabled=false). UDP ports are still opened on the Pod; ensure your exposure model (hostNetwork/hostPorts/Service/LoadBalancer) matches your environment.
+{{- end }}
+{{- end }}
+{{- if and .Values.gerbil.enabled (eq (include "pangolin.gerbil.startupMode" .) "disabledUntilSetup") }}
+Gerbil startup mode is disabledUntilSetup: Gerbil resources are not rendered until you switch to normal mode.
+After Pangolin setup is complete, run:
+  helm upgrade {{ .Release.Name }} <chart-path-or-repo/chart> --namespace {{ include "pangolin.namespace" . }} --set gerbil.startupMode=normal
+{{- end }}
+
+{{- $bp := .Values.pangolin.blueprints | default dict }}
+{{- if default false (get $bp "enabled") }}
+Blueprints are enabled.
+{{- $bpCm := default (dict) (get $bp "configMap") }}
+{{- $bpExistingCm := default "" (get $bp "existingConfigMap") }}
+{{- $bpEs := default (dict) (get $bp "environmentSecret") }}
+{{- $bpExistingEs := default "" (get $bp "existingEnvironmentSecret") }}
+{{- if or (default false (get $bpCm "create")) $bpExistingCm }}
+Blueprint ConfigMap: {{ include "pangolin.blueprints.configMapName" . }}
+{{- end }}
+{{- if or (default false (get $bpEs "create")) $bpExistingEs }}
+Blueprint environment Secret: {{ include "pangolin.blueprints.envSecretName" . }}
+{{- end }}
+Tip: Supply blueprint files to Newt agents using --blueprint-file or
+  --provisioning-blueprint-file pointing to the blueprint YAML content.
+  See https://docs.pangolin.net/manage/blueprints for details.
+{{- end }}

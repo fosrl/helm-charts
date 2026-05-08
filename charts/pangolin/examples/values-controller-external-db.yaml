@@ -1,0 +1,122 @@
+# Example: Controller mode with an external PostgreSQL database
+#
+# Topology: deployment.type=controller + deployment.mode=multi
+# Database:  database.mode=external
+#
+# Use this when you already have a PostgreSQL server (RDS, Cloud SQL, self-managed,
+# etc.) and you want Pangolin to connect to it.
+#
+# IMPORTANT: database.mode=external requires a database Secret source. Helm will fail
+# with PANGOLIN-061 if none of the options below is configured.
+#
+# Three supported configurations:
+#
+# Option A (recommended): Reference a pre-existing Kubernetes Secret you manage:
+#   database:
+#     mode: external
+#     connection:
+#       existingSecretName: pangolin-ext-db
+#       existingSecretKey: connectionString
+#
+#   Create the Secret first:
+#     kubectl create secret generic pangolin-ext-db \
+#       --from-literal=connectionString="postgresql://pangolin:<REPLACE_WITH_ACTUAL_PASSWORD>@db.example.test:5432/pangolin?sslmode=require"
+#
+# Option B: Chart-managed Secret from a full connection string:
+#   database:
+#     mode: external
+#     external:
+#       generatedSecret:
+#         create: true
+#         connectionString: "postgresql://pangolin:<REPLACE_WITH_ACTUAL_PASSWORD>@db.example.test:5432/pangolin?sslmode=require"
+#
+# Option C: Chart-managed Secret from individual connection parameters:
+#   database:
+#     mode: external
+#     external:
+#       generatedSecret:
+#         create: true
+#         host: db.example.com
+#         port: 5432
+#         database: pangolin
+#         username: pangolin
+#         password: <REPLACE_WITH_ACTUAL_PASSWORD>
+#         # Example for in-cluster / self-signed test DB:
+#         # sslMode: disable
+#         # Example for production external PostgreSQL:
+#         sslMode: require  # or verify-ca / verify-full when CA trust is configured
+#
+# Prerequisites:
+#   1. PostgreSQL server reachable from the cluster
+#   2. Traefik installed in the cluster with CRDs
+#
+# Usage:
+#   helm install pangolin charts/pangolin \
+#     -f examples/values-controller-external-db.yaml \
+#     --namespace pangolin --create-namespace
+
+deployment:
+  type: controller
+  mode: multi
+
+# ---------------------------------------------------------------------------
+# Database – external PostgreSQL
+# ---------------------------------------------------------------------------
+# Option A (user-managed Secret) is shown below — adjust to Option B or C as needed.
+database:
+  mode: external
+  # Reference the pre-existing Secret that holds the connection string.
+  # Pangolin will read POSTGRES_CONNECTION_STRING from this Secret.
+  connection:
+    existingSecretName: pangolin-ext-db        # name of your pre-existing Secret
+    existingSecretKey: connectionString         # key inside the Secret
+
+# Disable CloudNativePG subcharts – not needed for external databases.
+cnpg-operator:
+  enabled: false
+cnpg-cluster:
+  enabled: false
+
+# ---------------------------------------------------------------------------
+# Pangolin application settings
+# ---------------------------------------------------------------------------
+pangolin:
+  replicaCount: 1
+  config:
+    app:
+      # REPLACE: set to the actual public URL of your Pangolin dashboard.
+      dashboard_url: "https://pangolin.yourdomain.example"
+      log_level: info
+    gerbil:
+      # REPLACE: set to the hostname/IP where external WireGuard peers reach Gerbil.
+      base_endpoint: "vpn.yourdomain.example"
+
+# ---------------------------------------------------------------------------
+# Controller
+# ---------------------------------------------------------------------------
+controller:
+  enabled: true
+  replicaCount: 1
+
+# ---------------------------------------------------------------------------
+# Gerbil
+# ---------------------------------------------------------------------------
+gerbil:
+  enabled: true
+  persistence:
+    enabled: true
+    size: 1Gi
+  service:
+    type: ClusterIP  # change to LoadBalancer for external WireGuard access
+
+# ---------------------------------------------------------------------------
+# NetworkPolicy
+# ---------------------------------------------------------------------------
+networkPolicy:
+  enabled: true
+  # Add the external DB endpoint as an egress CIDR so Pangolin can reach it.
+  # externalCIDRs only apply to Pangolin → DB egress rules.
+  database:
+    enabled: true
+    # externalCIDRs:
+    #   - 203.0.113.10/32   # replace with your external DB IP

@@ -1,0 +1,142 @@
+{{- $root := . -}}
+{{- $pdb := $root.Values.highAvailability.podDisruptionBudget | default dict -}}
+{{- if $pdb.enabled -}}
+{{- $fullname := include "pangolin.fullname" $root -}}
+{{- $namespace := include "pangolin.namespace" $root -}}
+{{- $annotations := mergeOverwrite (dict) (include "pangolin.global.commonAnnotations" $root | fromYaml) ($pdb.annotations | default dict) -}}
+{{- $minAvailable := $pdb.minAvailable | default 1 -}}
+{{- $maxUnavailable := $pdb.maxUnavailable -}}
+
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ printf "%s-pdb" $fullname }}
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "pangolin.labels" $root | nindent 4 }}
+    {{- range $k, $v := ($pdb.labels | default dict) }}
+    {{ $k }}: {{ $v | quote }}
+    {{- end }}
+  {{- if gt (len $annotations) 0 }}
+  annotations:
+    {{- toYaml $annotations | nindent 4 }}
+  {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "pangolin.pangolin.selectorLabels" $root | nindent 6 }}
+  {{- if $maxUnavailable }}
+  maxUnavailable: {{ $maxUnavailable }}
+  {{- else }}
+  minAvailable: {{ $minAvailable }}
+  {{- end }}
+
+{{- if and $root.Values.controller.enabled (eq $root.Values.deployment.type "controller") }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ printf "%s-controller-pdb" $fullname }}
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "pangolin.labels" $root | nindent 4 }}
+    {{- range $k, $v := ($pdb.labels | default dict) }}
+    {{ $k }}: {{ $v | quote }}
+    {{- end }}
+  {{- if gt (len $annotations) 0 }}
+  annotations:
+    {{- toYaml $annotations | nindent 4 }}
+  {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "pangolin.controller.selectorLabels" $root | nindent 6 }}
+  {{- if $maxUnavailable }}
+  maxUnavailable: {{ $maxUnavailable }}
+  {{- else }}
+  minAvailable: {{ $minAvailable }}
+  {{- end }}
+{{- end }}
+
+{{- if and (eq (include "pangolin.gerbil.resourcesEnabled" $root) "true") (eq $root.Values.deployment.mode "multi") }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ printf "%s-gerbil-pdb" $fullname }}
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "pangolin.labels" $root | nindent 4 }}
+    {{- range $k, $v := ($pdb.labels | default dict) }}
+    {{ $k }}: {{ $v | quote }}
+    {{- end }}
+  {{- if gt (len $annotations) 0 }}
+  annotations:
+    {{- toYaml $annotations | nindent 4 }}
+  {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "pangolin.gerbil.selectorLabels" $root | nindent 6 }}
+  {{- if $maxUnavailable }}
+  maxUnavailable: {{ $maxUnavailable }}
+  {{- else }}
+  minAvailable: {{ $minAvailable }}
+  {{- end }}
+{{- end }}
+
+{{- if and $root.Values.traefik.enabled (eq $root.Values.deployment.type "standalone") }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ printf "%s-traefik-standalone-pdb" $fullname }}
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "pangolin.labels" $root | nindent 4 }}
+    {{- range $k, $v := ($pdb.labels | default dict) }}
+    {{ $k }}: {{ $v | quote }}
+    {{- end }}
+  {{- if gt (len $annotations) 0 }}
+  annotations:
+    {{- toYaml $annotations | nindent 4 }}
+  {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "pangolin.traefik.standalone.selectorLabels" $root | nindent 6 }}
+  {{- if $maxUnavailable }}
+  maxUnavailable: {{ $maxUnavailable }}
+  {{- else }}
+  minAvailable: {{ $minAvailable }}
+  {{- end }}
+{{- end }}
+
+{{- if and (eq $root.Values.database.mode "embedded") $root.Values.database.embedded.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ printf "%s-embedded-postgres-pdb" $fullname }}
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "pangolin.labels" $root | nindent 4 }}
+    {{- range $k, $v := ($pdb.labels | default dict) }}
+    {{ $k }}: {{ $v | quote }}
+    {{- end }}
+  {{- if gt (len $annotations) 0 }}
+  annotations:
+    {{- toYaml $annotations | nindent 4 }}
+  {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "pangolin.embeddedPostgres.selectorLabels" $root | nindent 6 }}
+  {{- if $maxUnavailable }}
+  maxUnavailable: {{ $maxUnavailable }}
+  {{- else }}
+  minAvailable: {{ $minAvailable }}
+  {{- end }}
+{{- end }}
+
+{{- end }}

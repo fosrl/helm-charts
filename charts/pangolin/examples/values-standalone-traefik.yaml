@@ -1,0 +1,139 @@
+# Example: Standalone mode with built-in Traefik
+#
+# Topology: deployment.type=standalone + deployment.mode=multi
+# Database:  database.mode=cloudnativepg (default)
+#
+# In standalone mode, an internal Traefik workload is deployed alongside
+# Pangolin instead of using an external Traefik controller. This is simpler
+# to set up but NOT recommended for production:
+#   - No separate Traefik controller or CRDs required
+#   - The pangolin-kube-controller is NOT deployed
+#   - Traefik is managed and scaled by this chart
+#
+# Prerequisites:
+#   1. A registered domain with DNS pointing to the Traefik LoadBalancer IP
+#   2. ACME / Let's Encrypt email set in traefik.config.letsencryptEmail
+#   3. traefik.persistence.enabled=true (required for ACME certificate storage)
+#
+# IMPORTANT: Keep traefik.config.dynamicRouters.host set to your real domain.
+# The chart will fail if this is empty or set to the placeholder "example.com".
+#
+# Usage:
+#   helm install pangolin charts/pangolin \
+#     -f examples/values-standalone-traefik.yaml \
+#     --namespace pangolin
+
+deployment:
+  type: standalone
+  mode: multi
+
+namespace:
+  create: true
+  name: pangolin
+  podSecurity:
+    enforce: privileged
+    warn: baseline
+    audit: baseline
+
+# ---------------------------------------------------------------------------
+# Database – CloudNativePG (adjust to your environment)
+# ---------------------------------------------------------------------------
+database:
+  mode: cloudnativepg
+  cloudnativepg:
+    cluster:
+      name: pangolin-db
+
+cnpg-operator:
+  enabled: false
+cnpg-cluster:
+  enabled: true
+
+# ---------------------------------------------------------------------------
+# Pangolin – standalone mode: no controller, Traefik handles routing
+# ---------------------------------------------------------------------------
+pangolin:
+  replicaCount: 1
+  config:
+    app:
+      # REPLACE: set to the actual public URL of your Pangolin dashboard.
+      dashboard_url: "https://pangolin.yourdomain.example"
+      log_level: info
+    gerbil:
+      # REPLACE: set to the hostname/IP where external WireGuard peers reach Gerbil.
+      base_endpoint: "vpn.yourdomain.example"
+    # Configure Pangolin's Traefik output so it generates routing rules that
+    # match the standalone Traefik workload below. This does NOT install
+    # Traefik by itself; that is controlled by top-level traefik.enabled.
+    traefik:
+      enabled: true
+      http_entrypoint: web
+      https_entrypoint: websecure
+      cert_resolver: letsencrypt
+      prefer_wildcard_cert: false
+      additional_middlewares: []
+    domains:
+      my-domain:
+        base_domain: yourdomain.example
+        cert_resolver: letsencrypt
+        prefer_wildcard_cert: false
+
+# ---------------------------------------------------------------------------
+# Controller – disabled in standalone mode
+# ---------------------------------------------------------------------------
+controller:
+  enabled: false
+
+# ---------------------------------------------------------------------------
+# Gerbil
+# ---------------------------------------------------------------------------
+gerbil:
+  enabled: true
+  persistence:
+    enabled: true
+    size: 1Gi
+  service:
+    type: ClusterIP  # Traefik handles external routing; Gerbil uses ClusterIP
+
+# ---------------------------------------------------------------------------
+# Standalone Traefik
+# ---------------------------------------------------------------------------
+traefik:
+  enabled: true
+  replicaCount: 1
+  service:
+    type: LoadBalancer
+    # externalTrafficPolicy: Local  # recommended for accurate source IPs
+    annotations: {}
+
+  config:
+    # Required: ACME account email for Let's Encrypt.
+    # REPLACE: must be a real email address registered with Let's Encrypt.
+    letsencryptEmail: "ops@yourdomain.example"
+    # Required: the public hostname Traefik will route to Pangolin.
+    # REPLACE: must be a real hostname (not example.com or empty).
+    dynamicRouters:
+      host: "pangolin.yourdomain.example"
+
+    dashboard: false  # set true (and persistence.enabled=true) to enable the dashboard
+    insecureSkipVerify: false
+    logLevel: INFO
+    certResolver: letsencrypt
+    acmeCaServer: "https://acme-v02.api.letsencrypt.org/directory"
+
+  # Required when traefik.config.dashboard=true; strongly recommended otherwise
+  # so ACME certificates persist across Pod restarts (avoids rate-limit issues).
+  persistence:
+    enabled: true
+    size: 1Gi
+
+# ---------------------------------------------------------------------------
+# NetworkPolicy – adapted for standalone (no controller API egress needed)
+# ---------------------------------------------------------------------------
+networkPolicy:
+  enabled: true
+  allowExternalEgressHttps: true  # Traefik needs HTTPS egress for ACME validation
+  gerbil:
+    allowWireguardUdpEgress: true
+    wireguardUdpCIDRs:
+      - 0.0.0.0/0

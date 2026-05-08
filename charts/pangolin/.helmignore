@@ -1,0 +1,22 @@
+# Editor/OS
+*.swp
+*.tmp
+*.bak
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Archives/logs
+*.tar.gz
+*.log
+*.orig
+*.rej
+
+# VCS
+.git/
+.gitignore
+
+# Chart dev/test artifacts
+tests/
+README.md.gotmpl

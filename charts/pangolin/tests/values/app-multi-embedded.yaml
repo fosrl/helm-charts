@@ -1,0 +1,14 @@
+# Multi-workload install using embedded Postgres (lightweight CI scenario)
+deployment:
+  type: standalone
+  mode: multi
+
+gerbil:
+  enabled: false
+
+database:
+  mode: embedded
+  embedded:
+    enabled: true
+    workloadType:
+      kind: Deployment

@@ -1,0 +1,33 @@
+{{- if and .Values.controller.enabled (eq .Values.deployment.type "controller") }}
+{{- $effectiveEndpoint := include "pangolin.controller.configEndpoint" . -}}
+{{- $allowInsecureHttp := eq (include "pangolin.controller.configAllowInsecureHttp" .) "true" -}}
+{{- $leaderElectionConfig := get .Values.controller "leaderElection" | default dict -}}
+{{- $leaderElectionEnabled := .Values.controller.config.enableLeaderElection -}}
+{{- if hasKey $leaderElectionConfig "enabled" -}}
+{{- $leaderElectionEnabled = get $leaderElectionConfig "enabled" -}}
+{{- end -}}
+{{- $leaseLockNamespace := coalesce (get $leaderElectionConfig "leaseLockNamespace") .Values.controller.config.leaseLockNamespace .Values.controller.config.targetNamespace .Values.deployment.traefikNamespace (include "pangolin.namespace" .) -}}
+{{- $metaAnns := mergeOverwrite (dict) (include "pangolin.global.commonAnnotations" . | fromYaml) (include "pangolin.component.commonAnnotations" (dict "root" . "component" "controller") | fromYaml) -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "pangolin.controller.configMapName" . }}
+  namespace: {{ include "pangolin.namespace" . }}
+  labels:
+    {{- include "pangolin.labels" . | nindent 4 }}
+    {{- include "pangolin.component.commonLabels" (dict "root" . "component" "controller") | nindent 4 }}
+  {{- if gt (len $metaAnns) 0 }}
+  annotations:
+    {{- toYaml $metaAnns | nindent 4 }}
+  {{- end }}
+data:
+  METRICS_ADDR: {{ .Values.controller.config.metricsAddr | quote }}
+  CONFIG_ENDPOINT: {{ $effectiveEndpoint | quote }}
+  TARGET_NAMESPACE: {{ .Values.controller.config.targetNamespace | default .Values.deployment.traefikNamespace | default (include "pangolin.namespace" .) | quote }}
+  ENABLE_LEADER_ELECTION: {{ ternary "true" "false" $leaderElectionEnabled | quote }}
+  LEASE_LOCK_NAMESPACE: {{ $leaseLockNamespace | quote }}
+  READ_ONLY: {{ ternary "true" "false" .Values.controller.config.readOnly | quote }}
+  LOG_TRAEFIK_CONFIG: {{ ternary "true" "false" .Values.controller.config.logTraefikConfig | quote }}
+  CONFIG_TLS_SKIP_VERIFY: {{ ternary "true" "false" .Values.controller.config.configTlsSkipVerify | quote }}
+  CONFIG_ALLOW_INSECURE_HTTP: {{ ternary "true" "false" $allowInsecureHttp | quote }}
+{{- end }}

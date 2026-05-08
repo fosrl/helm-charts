@@ -1,0 +1,225 @@
+suite: resource policy rendering
+templates:
+  - templates/deployment-pangolin.yaml
+  - templates/deployment-gerbil.yaml
+  - templates/deployment-controller.yaml
+  - templates/deployment-embedded-postgres.yaml
+  - templates/deployment-traefik.yaml
+tests:
+  # --------------------------------------------------------------------------
+  # Default: ephemeral-storage must NOT be rendered
+  # --------------------------------------------------------------------------
+  - it: default does not render ephemeral-storage in pangolin requests
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].resources.requests["ephemeral-storage"]
+
+  - it: default does not render ephemeral-storage in pangolin limits
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].resources.limits["ephemeral-storage"]
+
+  - it: default does not render ephemeral-storage in gerbil requests
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].resources.requests["ephemeral-storage"]
+
+  - it: default does not render ephemeral-storage in gerbil limits
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].resources.limits["ephemeral-storage"]
+
+  - it: default does not render ephemeral-storage in controller requests
+    template: templates/deployment-controller.yaml
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].resources.requests["ephemeral-storage"]
+
+  - it: default does not render ephemeral-storage in controller limits
+    template: templates/deployment-controller.yaml
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].resources.limits["ephemeral-storage"]
+
+  # --------------------------------------------------------------------------
+  # Default: CPU limits must be rendered
+  # --------------------------------------------------------------------------
+  - it: default renders CPU limit for pangolin
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.cpu
+          value: 1000m
+
+  - it: default renders CPU limit for gerbil
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.cpu
+          value: 500m
+
+  - it: default renders CPU limit for controller
+    template: templates/deployment-controller.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.cpu
+          value: 500m
+
+  # --------------------------------------------------------------------------
+  # Default: memory resources are always rendered
+  # --------------------------------------------------------------------------
+  - it: default renders memory request for pangolin
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.memory
+          value: 256Mi
+
+  - it: default renders memory limit for pangolin
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.memory
+          value: 1Gi
+
+  # --------------------------------------------------------------------------
+  # ephemeralStorage.enabled=true renders ephemeral-storage in all workloads
+  # --------------------------------------------------------------------------
+  - it: ephemeral-storage enabled renders requests in pangolin
+    template: templates/deployment-pangolin.yaml
+    set:
+      resourcesPolicy.ephemeralStorage.enabled: true
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests["ephemeral-storage"]
+          value: 32Mi
+
+  - it: ephemeral-storage enabled renders limits in pangolin
+    template: templates/deployment-pangolin.yaml
+    set:
+      resourcesPolicy.ephemeralStorage.enabled: true
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits["ephemeral-storage"]
+          value: 256Mi
+
+  - it: ephemeral-storage enabled renders requests in gerbil
+    template: templates/deployment-gerbil.yaml
+    set:
+      resourcesPolicy.ephemeralStorage.enabled: true
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests["ephemeral-storage"]
+          value: 16Mi
+
+  - it: ephemeral-storage enabled renders limits in gerbil
+    template: templates/deployment-gerbil.yaml
+    set:
+      resourcesPolicy.ephemeralStorage.enabled: true
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits["ephemeral-storage"]
+          value: 128Mi
+
+  - it: ephemeral-storage enabled renders requests in controller
+    template: templates/deployment-controller.yaml
+    set:
+      resourcesPolicy.ephemeralStorage.enabled: true
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests["ephemeral-storage"]
+          value: 16Mi
+
+  - it: ephemeral-storage enabled renders limits in controller
+    template: templates/deployment-controller.yaml
+    set:
+      resourcesPolicy.ephemeralStorage.enabled: true
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits["ephemeral-storage"]
+          value: 128Mi
+
+  # --------------------------------------------------------------------------
+  # cpuLimits.enabled=false omits CPU limits but preserves other resources
+  # --------------------------------------------------------------------------
+  - it: disabling CPU limits omits cpu from pangolin limits
+    template: templates/deployment-pangolin.yaml
+    set:
+      resourcesPolicy.cpuLimits.enabled: false
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].resources.limits.cpu
+
+  - it: disabling CPU limits preserves memory limit in pangolin
+    template: templates/deployment-pangolin.yaml
+    set:
+      resourcesPolicy.cpuLimits.enabled: false
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.memory
+          value: 1Gi
+
+  - it: disabling CPU limits preserves CPU request in pangolin
+    template: templates/deployment-pangolin.yaml
+    set:
+      resourcesPolicy.cpuLimits.enabled: false
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.cpu
+          value: 200m
+
+  - it: disabling CPU limits omits cpu from gerbil limits
+    template: templates/deployment-gerbil.yaml
+    set:
+      resourcesPolicy.cpuLimits.enabled: false
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].resources.limits.cpu
+
+  - it: disabling CPU limits preserves memory limit in gerbil
+    template: templates/deployment-gerbil.yaml
+    set:
+      resourcesPolicy.cpuLimits.enabled: false
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.memory
+          value: 512Mi
+
+  - it: disabling CPU limits omits cpu from controller limits
+    template: templates/deployment-controller.yaml
+    set:
+      resourcesPolicy.cpuLimits.enabled: false
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].resources.limits.cpu
+
+  - it: disabling CPU limits preserves memory limit in controller
+    template: templates/deployment-controller.yaml
+    set:
+      resourcesPolicy.cpuLimits.enabled: false
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.memory
+          value: 512Mi
+
+  # --------------------------------------------------------------------------
+  # Combined: CPU limits disabled + ephemeral-storage enabled
+  # --------------------------------------------------------------------------
+  - it: ephemeral-storage enabled and CPU limits disabled renders storage without CPU limit
+    template: templates/deployment-pangolin.yaml
+    set:
+      resourcesPolicy.cpuLimits.enabled: false
+      resourcesPolicy.ephemeralStorage.enabled: true
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].resources.limits.cpu
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits["ephemeral-storage"]
+          value: 256Mi
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests["ephemeral-storage"]
+          value: 32Mi

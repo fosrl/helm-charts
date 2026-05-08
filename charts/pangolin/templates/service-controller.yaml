@@ -1,0 +1,34 @@
+{{- if and .Values.controller.enabled .Values.controller.service.enabled (eq .Values.deployment.type "controller") }}
+{{- $root := . -}}
+{{- $ctrl := .Values.controller -}}
+{{- $svcType := $ctrl.service.type | default "ClusterIP" -}}
+{{- $svcAnns := mergeOverwrite (dict) (include "pangolin.global.commonAnnotations" $root | fromYaml) .Values.global.additionalServiceAnnotations (include "pangolin.component.commonAnnotations" (dict "root" $root "component" "controller") | fromYaml) (mergeOverwrite (dict) $ctrl.service.annotations) -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "pangolin.fullname" . }}-controller
+  namespace: {{ include "pangolin.namespace" . }}
+  labels:
+    {{- include "pangolin.labels" $root | nindent 4 }}
+    {{- include "pangolin.component.commonLabels" (dict "root" $root "component" "controller") | nindent 4 }}
+    {{- include "pangolin.renderNonSelectorLabels" (dict "labels" ($root.Values.global.additionalServiceLabels | default dict)) | nindent 4 }}
+    {{- include "pangolin.renderNonSelectorLabels" (dict "labels" ($ctrl.service.labels | default dict)) | nindent 4 }}
+    app.kubernetes.io/component: controller
+  {{- if gt (len $svcAnns) 0 }}
+  annotations:
+    {{- toYaml $svcAnns | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ $svcType }}
+  selector:
+    {{- if eq .Values.deployment.mode "single" }}
+    {{- include "pangolin.single.selectorLabels" $root | nindent 4 }}
+    {{- else }}
+    {{- include "pangolin.controller.selectorLabels" $root | nindent 4 }}
+    {{- end }}
+  ports:
+    - name: {{ $ctrl.service.portName | default "metrics" }}
+      port: {{ $ctrl.service.port }}
+      targetPort: 9090
+      protocol: TCP
+{{- end }}

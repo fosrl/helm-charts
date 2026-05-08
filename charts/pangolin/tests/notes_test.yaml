@@ -1,0 +1,39 @@
+suite: NOTES rendering
+templates:
+  - templates/NOTES.txt
+tests:
+  - it: shows configured dashboard URL and setup token command
+    set:
+      pangolin.config.app.dashboard_url: https://pangolin-e2e.cloud.mschaeferger.org
+    asserts:
+      - matchRegex:
+          path: raw
+          pattern: 'Pangolin dashboard URL:\n  https://pangolin-e2e\.cloud\.mschaeferger\.org'
+      - matchRegex:
+          path: raw
+          pattern: 'kubectl logs -n [^ ]+ deploy/[^ ]+ -c pangolin \| sed -n ''/SETUP TOKEN GENERATED/,/================================/p'''
+      - matchRegex:
+          path: raw
+          pattern: 'kubectl logs -n [^ ]+ deploy/[^ ]+ -c pangolin \| grep -A2 "SETUP TOKEN GENERATED"'
+
+  - it: shows local port-forward fallback when dashboard URL is empty
+    set:
+      pangolin.config.app.dashboard_url: ""
+    asserts:
+      - matchRegex:
+          path: raw
+          pattern: 'No dashboard URL was configured\.'
+      - matchRegex:
+          path: raw
+          pattern: 'kubectl -n [^ ]+ port-forward svc/[^ ]+ 3002:3002'
+      - matchRegex:
+          path: raw
+          pattern: 'http://localhost:3002'
+
+  - it: shows delayed gerbil enable command
+    set:
+      gerbil.startupMode: delayed
+    asserts:
+      - matchRegex:
+          path: raw
+          pattern: 'helm upgrade RELEASE-NAME <chart-path-or-repo/chart> --namespace NAMESPACE --set gerbil\.startupMode=normal'

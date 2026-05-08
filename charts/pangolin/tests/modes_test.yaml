@@ -1,0 +1,118 @@
+suite: topology and mode rendering
+templates:
+  - templates/deployment-controller.yaml
+  - templates/deployment-traefik.yaml
+  - templates/deployment-embedded-postgres.yaml
+  - templates/deployment-pangolin.yaml
+  - templates/deployment-gerbil.yaml
+  - templates/deployment-single.yaml
+tests:
+  - it: does not render standalone Traefik by default
+    template: templates/deployment-traefik.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: does not render embedded postgres by default
+    template: templates/deployment-embedded-postgres.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders controller by default in controller mode
+    set:
+      deployment.type: controller
+    template: templates/deployment-controller.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: Deployment
+
+  - it: renders standalone Traefik when enabled in standalone mode
+    set:
+      deployment.type: standalone
+      traefik.enabled: true
+      traefik.config.letsencryptEmail: ops@example.com
+      traefik.config.dynamicRouters.host: pangolin.local
+    template: templates/deployment-traefik.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: Deployment
+
+  - it: suppresses controller in standalone mode
+    set:
+      deployment.type: standalone
+      traefik.enabled: true
+      traefik.config.letsencryptEmail: ops@example.com
+      traefik.config.dynamicRouters.host: pangolin.local
+    template: templates/deployment-controller.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: does not render gerbil when disabled
+    set:
+      gerbil.enabled: false
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders gerbil when enabled
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+
+  - it: renders embedded postgres when enabled
+    set:
+      database.mode: embedded
+      database.embedded.enabled: true
+    template: templates/deployment-embedded-postgres.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: StatefulSet
+
+  - it: renders embedded postgres as Deployment when configured
+    set:
+      database.mode: embedded
+      database.embedded.enabled: true
+      database.embedded.workloadType.kind: Deployment
+    template: templates/deployment-embedded-postgres.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: Deployment
+
+  - it: pangolin deployment renders in multi mode
+    set:
+      deployment.mode: multi
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+
+  - it: single deployment is not rendered in multi mode
+    set:
+      deployment.mode: multi
+    template: templates/deployment-single.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: standalone Traefik not rendered in controller mode
+    set:
+      deployment.type: controller
+      traefik.enabled: true
+      traefik.config.letsencryptEmail: ops@example.com
+      traefik.config.dynamicRouters.host: pangolin.local
+    template: templates/deployment-traefik.yaml
+    asserts:
+      - hasDocuments:
+          count: 0

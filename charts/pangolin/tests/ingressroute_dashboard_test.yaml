@@ -1,0 +1,77 @@
+suite: dashboard ingressroute rendering
+templates:
+  - templates/ingressroute-dashboard.yaml
+tests:
+  - it: renders no dashboard ingressroute when disabled
+    set:
+      pangolin.ingressRoute.dashboard.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: derives host from dashboard_url and routes api/dashboard to expected ports and priorities
+    set:
+      deployment.type: controller
+      pangolin.config.app.dashboard_url: https://pangolin-e2e.cloud.mschaeferger.org
+      pangolin.service.ports.external: 3000
+      pangolin.service.ports.next: 3002
+    asserts:
+      - isKind:
+          of: IngressRoute
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin-dashboard
+      - equal:
+          path: spec.entryPoints[0]
+          value: websecure
+      - equal:
+          path: spec.routes[0].match
+          value: Host(`pangolin-e2e.cloud.mschaeferger.org`) && PathPrefix(`/api/v1`)
+      - equal:
+          path: spec.routes[0].priority
+          value: 100
+      - equal:
+          path: spec.routes[0].services[0].port
+          value: 3000
+      - equal:
+          path: spec.routes[1].match
+          value: Host(`pangolin-e2e.cloud.mschaeferger.org`)
+      - equal:
+          path: spec.routes[1].priority
+          value: 10
+      - equal:
+          path: spec.routes[1].services[0].port
+          value: 3002
+      - equal:
+          path: spec.tls.certResolver
+          value: letsencrypt
+
+  - it: renders tls secretName mode and omits certResolver
+    set:
+      pangolin.ingressRoute.dashboard.tls.certResolver: ""
+      pangolin.ingressRoute.dashboard.tls.secretName: pangolin-dashboard-tls
+    asserts:
+      - equal:
+          path: spec.tls.secretName
+          value: pangolin-dashboard-tls
+      - notExists:
+          path: spec.tls.certResolver
+
+  - it: renders user labels annotations and traefik selector labels
+    set:
+      pangolin.ingressRoute.dashboard.labels:
+        team: platform
+      pangolin.ingressRoute.dashboard.traefikSelectorLabels:
+        traefik-instance: public
+      pangolin.ingressRoute.dashboard.annotations:
+        example.com/managed-by: helm
+    asserts:
+      - equal:
+          path: metadata.labels.team
+          value: platform
+      - equal:
+          path: metadata.labels["traefik-instance"]
+          value: public
+      - equal:
+          path: metadata.annotations["example.com/managed-by"]
+          value: helm

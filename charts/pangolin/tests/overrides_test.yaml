@@ -1,0 +1,150 @@
+suite: value overrides and name handling
+templates:
+  - templates/deployment-pangolin.yaml
+  - templates/deployment-gerbil.yaml
+  - templates/service-pangolin.yaml
+  - templates/serviceaccount.yaml
+  - templates/secrets.yaml
+  - templates/rbac.yaml
+tests:
+  - it: respects fullnameOverride on deployment
+    set:
+      global.fullnameOverride: custom-pangolin
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - equal:
+          path: metadata.name
+          value: custom-pangolin
+
+  - it: respects fullnameOverride on service
+    set:
+      global.fullnameOverride: custom-pangolin
+    template: templates/service-pangolin.yaml
+    asserts:
+      - equal:
+          path: metadata.name
+          value: custom-pangolin
+
+  - it: respects nameOverride on serviceaccount
+    set:
+      global.nameOverride: myapp
+    template: templates/serviceaccount.yaml
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-myapp-sa
+
+  - it: uses existing secret when specified
+    set:
+      pangolin.secret.existingSecretName: my-secret
+    template: templates/secrets.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders with custom replica count
+    set:
+      pangolin.replicaCount: 3
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 3
+
+  - it: renders with custom image pull secrets
+    set:
+      global.image.imagePullSecrets:
+        - name: my-registry-secret
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.imagePullSecrets[0].name
+          value: my-registry-secret
+
+  - it: respects priorityClassName
+    set:
+      global.priorityClassName: system-cluster-critical
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.priorityClassName
+          value: system-cluster-critical
+
+  - it: renders target-namespace RBAC docs when traefikNamespace differs
+    set:
+      deployment.type: controller
+      controller.enabled: true
+      deployment.traefikNamespace: traefik-system
+    template: templates/rbac.yaml
+    asserts:
+      - hasDocuments:
+          count: 6
+
+  - it: renders RBAC Role in release namespace
+    set:
+      deployment.type: controller
+      controller.enabled: true
+      deployment.traefikNamespace: traefik-system
+    template: templates/rbac.yaml
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: NAMESPACE
+
+  - it: renders RBAC Role in traefik target namespace
+    set:
+      deployment.type: controller
+      controller.enabled: true
+      deployment.traefikNamespace: traefik-system
+    template: templates/rbac.yaml
+    documentIndex: 2
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: traefik-system
+
+  - it: gerbil command override replaces default entrypoint
+    set:
+      gerbil.command:
+        - /usr/local/bin/gerbil
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].command[0]
+          value: /usr/local/bin/gerbil
+
+  - it: gerbil args override replaces chart-computed default args
+    set:
+      gerbil.args:
+        - --reachableAt=http://my-gerbil.example.com:3004
+        - --generateAndSaveKeyTo=/data/key
+        - --remoteConfig=http://my-pangolin.example.com:3001/api/v1/
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].args[0]
+          value: "--reachableAt=http://my-gerbil.example.com:3004"
+      - equal:
+          path: spec.template.spec.containers[0].args[1]
+          value: "--generateAndSaveKeyTo=/data/key"
+      - equal:
+          path: spec.template.spec.containers[0].args[2]
+          value: "--remoteConfig=http://my-pangolin.example.com:3001/api/v1/"
+      - lengthEqual:
+          path: spec.template.spec.containers[0].args
+          count: 3
+
+  - it: gerbil extraEnv renders env section
+    set:
+      gerbil.extraEnv:
+        LOG_LEVEL: DEBUG
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[0].name
+          value: LOG_LEVEL
+      - equal:
+          path: spec.template.spec.containers[0].env[0].value
+          value: DEBUG

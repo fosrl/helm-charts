@@ -1,0 +1,184 @@
+suite: chart validation
+templates:
+  - templates/validate.yaml
+tests:
+  - it: fails when controller single mode is selected without controller enabled
+    set:
+      deployment.mode: single
+      deployment.type: controller
+      controller.enabled: false
+    asserts:
+      - failedTemplate:
+          errorMessage: "PANGOLIN-016: deployment.mode=single with deployment.type=controller requires controller.enabled=true."
+
+  - it: fails when dashboard_url is empty in non-sqlite mode
+    set:
+      database.mode: cloudnativepg
+      pangolin.config.app.dashboard_url: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: "PANGOLIN-055: pangolin.config.app.dashboard_url must be set (non-empty). For development/testing only, set database.mode=sqlite to bypass this validation."
+
+  - it: fails when domains map is empty in non-sqlite mode
+    set:
+      database.mode: cloudnativepg
+      pangolin.config.domains: null
+    asserts:
+      - failedTemplate:
+          errorMessage: "PANGOLIN-056: pangolin.config.domains must contain at least one domain entry with base_domain and cert_resolver. For development/testing only, set database.mode=sqlite to bypass this validation."
+
+  - it: fails when configured domain entry misses cert_resolver
+    set:
+      database.mode: cloudnativepg
+      pangolin.config.domains:
+        domain1:
+          base_domain: example.com
+          cert_resolver: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: "PANGOLIN-059: pangolin.config.domains.domain1.cert_resolver must be set (non-empty)."
+
+  - it: fails when gerbil base_endpoint is empty in non-sqlite mode
+    set:
+      database.mode: cloudnativepg
+      pangolin.config.gerbil.base_endpoint: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: "PANGOLIN-060: pangolin.config.gerbil.base_endpoint must be set (non-empty). For development/testing only, set database.mode=sqlite to bypass this validation."
+
+  - it: allows empty required pangolin config in sqlite dev/test mode
+    set:
+      database.mode: sqlite
+      pangolin.config.app.dashboard_url: ""
+      pangolin.config.domains: {}
+      pangolin.config.gerbil.base_endpoint: ""
+      pangolin.ingressRoute.dashboard.enabled: false
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: fails when CNPG cluster names drift
+    set:
+      database.mode: cloudnativepg
+      cnpg-cluster.enabled: true
+      database.cloudnativepg.cluster.name: foo
+      cnpg-cluster.fullnameOverride: bar
+    asserts:
+      - failedTemplate:
+          errorMessage: "PANGOLIN-CNPG: cnpg-cluster.fullnameOverride and database.cloudnativepg.cluster.name must match when cnpg-cluster.enabled=true"
+
+  - it: allows cnpg-cluster.fullnameOverride to define CNPG name when database cluster name is default
+    set:
+      database.mode: cloudnativepg
+      cnpg-cluster.enabled: true
+      cnpg-cluster.fullnameOverride: custom-cnpg
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: fails when standalone traefik enabled without ACME email
+    set:
+      traefik.enabled: true
+      traefik.config.letsencryptEmail: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: "PANGOLIN-014: traefik.config.letsencryptEmail must be set when traefik.enabled=true"
+
+  - it: fails when standalone traefik enabled with placeholder router host
+    set:
+      traefik.enabled: true
+      traefik.config.letsencryptEmail: "ops@example.com"
+      traefik.config.dynamicRouters.host: "example.com"
+    asserts:
+      - failedTemplate:
+          errorMessage: "PANGOLIN-043: traefik.config.dynamicRouters.host must be set to a real hostname (must not be empty or example.com) when traefik.enabled=true"
+
+  - it: fails when standalone traefik dashboard enabled without persistence
+    set:
+      traefik.enabled: true
+      traefik.config.letsencryptEmail: "ops@example.com"
+      traefik.config.dynamicRouters.host: "pangolin.local"
+      traefik.config.dashboard: true
+      traefik.persistence.enabled: false
+    asserts:
+      - failedTemplate:
+          errorMessage: "PANGOLIN-015: traefik.persistence.enabled must be true when traefik.config.dashboard=true (ACME state should persist to avoid rate limits on restarts)"
+
+  - it: fails when enabling traefik dependency outside controller mode
+    set:
+      deployment.type: standalone
+      deployment.installTraefikController: true
+    asserts:
+      - failedTemplate:
+          errorMessage: "PANGOLIN-012: deployment.installTraefikController=true requires deployment.type=controller"
+
+  - it: fails when traefik subchart is disabled while being installed
+    set:
+      deployment.type: controller
+      deployment.installTraefikController: true
+      traefikController.deployment.enabled: false
+    asserts:
+      - failedTemplate:
+          errorMessage: "PANGOLIN-012: traefikController.deployment.enabled=false conflicts with deployment.installTraefikController=true"
+
+  - it: fails when traefik subchart disables kubernetesCRD provider
+    set:
+      deployment.type: controller
+      deployment.installTraefikController: true
+      traefikController.providers.kubernetesCRD.enabled: false
+    asserts:
+      - failedTemplate:
+          errorMessage: "PANGOLIN-012: traefikController.providers.kubernetesCRD.enabled=false is not supported (required by controller mode)"
+
+  - it: fails when external mode has no Secret source configured
+    set:
+      database.mode: external
+    asserts:
+      - failedTemplate:
+          errorMessage: "PANGOLIN-061: database.mode=external requires a database connection Secret. Either set database.connection.existingSecretName (user-managed Secret) or set database.external.generatedSecret.create=true with database.external.generatedSecret.connectionString or host/username/password/port/database values (chart-managed Secret)."
+
+  - it: fails when dashboard ingressroute is enabled and host cannot be derived
+    set:
+      database.mode: sqlite
+      pangolin.config.app.dashboard_url: ""
+      pangolin.ingressRoute.dashboard.host: ""
+      pangolin.ingressRoute.dashboard.enabled: true
+    asserts:
+      - failedTemplate:
+          errorMessage: "PANGOLIN-063: pangolin.ingressRoute.dashboard.enabled=true requires a host. Set pangolin.ingressRoute.dashboard.host or provide a parseable pangolin.config.app.dashboard_url."
+
+  - it: fails when dashboard ingressroute tls mode sets certResolver and secretName together
+    set:
+      pangolin.ingressRoute.dashboard.tls.certResolver: letsencrypt
+      pangolin.ingressRoute.dashboard.tls.secretName: dashboard-tls
+    asserts:
+      - failedTemplate:
+          errorMessage: "PANGOLIN-065: pangolin.ingressRoute.dashboard.tls.certResolver and tls.secretName are mutually exclusive. Set exactly one TLS mode."
+
+  - it: fails when cross-namespace ingressroute service references are not explicitly allowed
+    set:
+      pangolin.ingressRoute.dashboard.routes.api.service.namespace: other-namespace
+      pangolin.ingressRoute.dashboard.allowCrossNamespaceServices: false
+    asserts:
+      - failedTemplate:
+          errorMessage: "PANGOLIN-066: cross-namespace Traefik service references are disabled. Set pangolin.ingressRoute.dashboard.allowCrossNamespaceServices=true to allow routes.api.service.namespace=\"other-namespace\" (Traefik kubernetesCRD provider must also allow cross-namespace references)."
+
+  - it: fails when gerbil startupMode is invalid
+    set:
+      gerbil.startupMode: invalid
+    asserts:
+      - failedTemplate:
+          errorMessage: "values don't meet the specifications of the schema(s) in the following chart(s):\npangolin:\n- at '/gerbil/startupMode': value must be one of 'normal', 'delayed', 'disabledUntilSetup'\n"
+
+  - it: passes when external mode has existingSecretName configured
+    set:
+      database.mode: external
+      database.connection.existingSecretName: my-db-secret
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: passes when external mode has generatedSecret.create=true configured
+    set:
+      database.mode: external
+      database.external.generatedSecret.create: true
+      database.external.generatedSecret.connectionString: "postgresql://u:p@h:5432/db"
+    asserts:
+      - notFailedTemplate: {}

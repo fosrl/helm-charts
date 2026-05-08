@@ -1,0 +1,29 @@
+{{- if and .Values.controller.enabled .Values.controller.monitoring.prometheusRule.enabled }}
+{{- $root := . -}}
+{{- $pr := .Values.controller.monitoring.prometheusRule -}}
+{{- $prAnns := mergeOverwrite (dict) (include "pangolin.global.commonAnnotations" $root | fromYaml) (include "pangolin.component.commonAnnotations" (dict "root" $root "component" "controller") | fromYaml) ($pr.annotations | default dict) -}}
+apiVersion: {{ $pr.apiVersion | default "monitoring.coreos.com/v1" }}
+kind: PrometheusRule
+metadata:
+  name: {{ include "pangolin.fullname" . }}-controller
+  namespace: {{ $pr.namespace | default (include "pangolin.namespace" $root) }}
+  labels:
+    {{- include "pangolin.labels" $root | nindent 4 }}
+    {{- include "pangolin.component.commonLabels" (dict "root" $root "component" "controller") | nindent 4 }}
+    {{- range $k, $v := $pr.labels }}
+    {{ $k }}: {{ $v | quote }}
+    {{- end }}
+  {{- if gt (len $prAnns) 0 }}
+  annotations:
+    {{- toYaml $prAnns | nindent 4 }}
+  {{- end }}
+spec:
+  groups:
+    - name: pangolin-controller
+      {{- if and $pr.rules (gt (len $pr.rules) 0) }}
+      rules:
+        {{- toYaml $pr.rules | nindent 8 }}
+      {{- else }}
+      rules: []
+      {{- end }}
+{{- end }}

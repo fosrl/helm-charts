@@ -1,0 +1,165 @@
+# Example: Strict NetworkPolicy configuration
+#
+# Topology: deployment.type=controller + deployment.mode=multi
+# Database:  database.mode=cloudnativepg (default)
+#
+# This example demonstrates a strict NetworkPolicy posture:
+#   - External ingress restricted to only the public Pangolin dashboard port
+#   - Controller metrics ingress locked to the monitoring namespace
+#   - Controller egress restricted to the cluster API server CIDR
+#   - HTTPS external egress disabled (Pangolin and Gerbil must not need it)
+#   - Gerbil WireGuard UDP egress scoped to known peer CIDRs
+#   - All other traffic implicitly denied by NetworkPolicy defaults
+#
+# IMPORTANT: You MUST set networkPolicy.controller.egress.kubernetesApi.cidr to the IP/CIDR of
+# your cluster API server. Without this, the controller cannot reach the
+# Kubernetes API and will fail to reconcile Traefik CRDs.
+#
+# How to find your API server CIDR:
+#   kubectl get endpoints kubernetes -o jsonpath='{.subsets[*].addresses[*].ip}'
+#
+# Usage:
+#   helm install pangolin charts/pangolin \
+#     -f examples/values-networkpolicy-strict.yaml \
+#     --namespace pangolin --create-namespace
+
+deployment:
+  type: controller
+  mode: multi
+
+# ---------------------------------------------------------------------------
+# Database – CloudNativePG (default)
+# ---------------------------------------------------------------------------
+database:
+  mode: cloudnativepg
+  cloudnativepg:
+    cluster:
+      name: pangolin-db
+  connection:
+    existingSecretName: ""  # set to CNPG app Secret name
+
+cnpg-operator:
+  enabled: false
+cnpg-cluster:
+  enabled: false
+
+# ---------------------------------------------------------------------------
+# Pangolin
+# ---------------------------------------------------------------------------
+pangolin:
+  replicaCount: 1
+  config:
+    app:
+      # REPLACE: set to the actual public URL of your Pangolin dashboard.
+      dashboard_url: "https://pangolin.yourdomain.example"
+      log_level: info
+
+controller:
+  enabled: true
+
+gerbil:
+  enabled: true
+  persistence:
+    enabled: true
+
+# ---------------------------------------------------------------------------
+# NetworkPolicy – strict posture
+# ---------------------------------------------------------------------------
+networkPolicy:
+  enabled: true
+
+  # Disable broad external HTTPS egress.
+  # Pangolin and Gerbil will use only the scoped egress rules below.
+  allowExternalEgressHttps: false
+
+  # Allow external ingress only on the public dashboard port (3000).
+  allowExternalIngress: true
+
+  # DNS egress configuration.
+  # The chart defaults to kube-system for standard Kubernetes clusters.
+  # Override `to` if your cluster DNS runs in a different namespace or pod.
+  dns:
+    enabled: true
+    ports:
+      - protocol: UDP
+        port: 53
+      - protocol: TCP
+        port: 53
+    to:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: kube-system
+
+  # Pangolin public/ingress port controls.
+  pangolin:
+    externalIngress:
+      external: true        # allow dashboard access on port 3000
+      next: false           # keep Next.js SSR port internal
+      integration: false    # keep integration API internal
+      requireIntegrationFlag: true
+    # Pangolin-only egress rules.
+    # Use this for outbound rules specific to Pangolin (e.g. SMTP, OIDC providers).
+    # These rules do NOT apply to Controller or Gerbil.
+    extraEgress: []
+    # Example: Allow Pangolin to reach an SMTP relay and OIDC provider:
+    # extraEgress:
+    #   - ports:
+    #       - protocol: TCP
+    #         port: 587
+    #     to:
+    #       - ipBlock:
+    #           cidr: 203.0.113.10/32   # SMTP relay IP
+    #   - ports:
+    #       - protocol: TCP
+    #         port: 443
+    #     to:
+    #       - ipBlock:
+    #           cidr: 198.51.100.0/24   # OIDC provider CIDR
+
+  # Scope controller metrics ingress to the monitoring namespace only.
+  controller:
+    # Controller egress to the Kubernetes API server.
+    # Replace with your actual API server CIDR.
+    egress:
+      enabled: true
+      kubernetesApi:
+        enabled: true
+        cidr: 10.96.0.1/32   # example: replace with actual cluster API server IP
+        port: 443
+    metrics:
+      allowExternalIngress: false
+      # Uncomment and adjust to allow Prometheus scraping from a specific namespace:
+      # namespaceSelector:
+      #   matchLabels:
+      #     kubernetes.io/metadata.name: monitoring
+      # podSelector:
+      #   matchLabels:
+      #     app.kubernetes.io/name: prometheus
+    # Controller-only egress rules.
+    # Use this for controller-specific outbound rules (e.g. external metrics sink).
+    extraEgress: []
+
+  # Scope DB egress to the CNPG cluster.
+  database:
+    enabled: true
+    port: 5432
+
+  # Gerbil WireGuard egress – scoped to expected peer ranges.
+  # For internet-facing deployments, 0.0.0.0/0 is typically required.
+  gerbil:
+    allowWireguardUdpEgress: true
+    wireguardUdpCIDRs:
+      - 0.0.0.0/0
+    # Gerbil-only egress rules.
+    # These rules do NOT apply to Pangolin or Controller.
+    extraEgress: []
+
+  # Global extra egress – applied to ALL components (Pangolin, Controller, Gerbil).
+  # Prefer component-scoped extraEgress above for precision.
+  # extraEgress:
+  #   - ports:
+  #       - protocol: TCP
+  #         port: 443
+  #     to:
+  #       - ipBlock:
+  #           cidr: 0.0.0.0/0

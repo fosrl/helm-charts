@@ -1,0 +1,86 @@
+suite: cnpg subchart naming and wiring
+templates:
+  - charts/cnpg-cluster/templates/cluster.yaml
+  - charts/cnpg-cluster/templates/monitoring-logical-replication.yaml
+tests:
+  - it: renders RFC1123-safe lowercase CNPG resource names by default when enabled
+    set:
+      cnpg-cluster.enabled: true
+    template: charts/cnpg-cluster/templates/cluster.yaml
+    asserts:
+      - isKind:
+          of: Cluster
+      - equal:
+          path: metadata.name
+          value: pangolin-db
+      - matchRegex:
+          path: metadata.name
+          pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+
+  - it: e2e values render the CNPG Cluster as pangolin-db
+    release:
+      name: pangolin-e2e
+    values:
+      - ../examples/values-e2e-kind.yaml
+    template: charts/cnpg-cluster/templates/cluster.yaml
+    asserts:
+      - equal:
+          path: metadata.name
+          value: pangolin-db
+
+  - it: single-controller example renders CNPG cluster using cnpg-cluster alias values
+    values:
+      - ../examples/values-single-controller.yaml
+    template: charts/cnpg-cluster/templates/cluster.yaml
+    asserts:
+      - equal:
+          path: metadata.name
+          value: pangolin-db
+
+  - it: single-standalone example renders CNPG cluster using cnpg-cluster alias values
+    values:
+      - ../examples/values-single-standalone.yaml
+    template: charts/cnpg-cluster/templates/cluster.yaml
+    asserts:
+      - equal:
+          path: metadata.name
+          value: pangolin-db
+
+  - it: renders CNPG monitoring ConfigMap name in lowercase when enabled
+    set:
+      cnpg-cluster.enabled: true
+    template: charts/cnpg-cluster/templates/monitoring-logical-replication.yaml
+    asserts:
+      - isKind:
+          of: ConfigMap
+      - equal:
+          path: metadata.name
+          value: pangolin-db-monitoring-logical-replication
+      - matchRegex:
+          path: metadata.name
+          pattern: "^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$"
+
+  - it: respects custom CNPG cluster name via fullnameOverride
+    set:
+      cnpg-cluster.enabled: true
+      database.cloudnativepg.cluster.name: my-custom-db
+      cnpg-cluster.fullnameOverride: my-custom-db
+    template: charts/cnpg-cluster/templates/cluster.yaml
+    asserts:
+      - equal:
+          path: metadata.name
+          value: my-custom-db
+
+  - it: long release names still render short CNPG names with fullnameOverride
+    release:
+      name: this-is-a-very-long-release-name-to-test-cnpg-names
+    set:
+      cnpg-cluster.enabled: true
+    template: charts/cnpg-cluster/templates/cluster.yaml
+    asserts:
+      - equal:
+          path: metadata.name
+          value: pangolin-db
+      - matchRegex:
+          path: metadata.name
+          pattern: "^.{1,63}$"

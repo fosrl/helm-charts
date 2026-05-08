@@ -1,0 +1,463 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $root := . -}}
+{{- $fullname := include "pangolin.fullname" $root -}}
+{{- $namespace := include "pangolin.namespace" $root -}}
+{{- $pangolinNpAnns := mergeOverwrite (dict) (include "pangolin.global.commonAnnotations" $root | fromYaml) (include "pangolin.component.commonAnnotations" (dict "root" $root "component" "pangolin") | fromYaml) -}}
+{{- $controllerNpAnns := mergeOverwrite (dict) (include "pangolin.global.commonAnnotations" $root | fromYaml) (include "pangolin.component.commonAnnotations" (dict "root" $root "component" "controller") | fromYaml) -}}
+{{- $gerbilNpAnns := mergeOverwrite (dict) (include "pangolin.global.commonAnnotations" $root | fromYaml) (include "pangolin.component.commonAnnotations" (dict "root" $root "component" "gerbil") | fromYaml) -}}
+{{- $embeddedNpAnns := mergeOverwrite (dict) (include "pangolin.global.commonAnnotations" $root | fromYaml) (($root.Values.database.embedded.commonAnnotations) | default dict) -}}
+{{- $allowExternal := (default true $root.Values.networkPolicy.allowExternalIngress) -}}
+{{- $allowHttpsEgress := (default false $root.Values.networkPolicy.allowExternalEgressHttps) -}}
+{{- $extraIngress := $root.Values.networkPolicy.extraIngress | default list -}}
+{{- $extraEgress := $root.Values.networkPolicy.extraEgress | default list -}}
+{{- $legacyKubeApiCidrs := $root.Values.networkPolicy.kubernetesApiCIDRs | default list -}}
+
+{{- $npDns := $root.Values.networkPolicy.dns | default dict -}}
+{{- $dnsEnabled := true -}}
+{{- if hasKey $npDns "enabled" -}}
+{{- $dnsEnabled = $npDns.enabled -}}
+{{- end -}}
+{{- $dnsPorts := $npDns.ports | default (list (dict "protocol" "UDP" "port" 53) (dict "protocol" "TCP" "port" 53)) -}}
+{{- $dnsTo := $npDns.to | default (list (dict "namespaceSelector" (dict "matchLabels" (dict "kubernetes.io/metadata.name" "kube-system")))) -}}
+{{- $dnsEgress := dict "to" $dnsTo "ports" $dnsPorts -}}
+
+{{- $npPangolin := $root.Values.networkPolicy.pangolin | default dict -}}
+{{- $npPangolinIngress := $npPangolin.ingress | default dict -}}
+{{- $npPangolinDashboardIngress := $npPangolinIngress.dashboard | default dict -}}
+{{- $pangolinDashboardFrom := $npPangolinDashboardIngress.from | default list -}}
+{{- $npPangolinExternal := $npPangolin.externalIngress | default dict -}}
+{{- $allowPangolinExternal := (default true $npPangolinExternal.external) -}}
+{{- $allowPangolinNext := (default false $npPangolinExternal.next) -}}
+{{- $allowPangolinIntegration := (default false $npPangolinExternal.integration) -}}
+{{- $requireIntegrationFlag := (default true $npPangolinExternal.requireIntegrationFlag) -}}
+{{- $pangolinExtraIngress := $npPangolin.extraIngress | default list -}}
+{{- $pangolinExtraEgress := $npPangolin.extraEgress | default list -}}
+
+{{- $npController := $root.Values.networkPolicy.controller | default dict -}}
+{{- $npControllerMetrics := $npController.metrics | default dict -}}
+{{- $controllerMetricsEnabled := (default false $npControllerMetrics.enabled) -}}
+{{- $controllerMetricsFrom := $npControllerMetrics.from | default list -}}
+{{- $allowControllerMetricsExternal := (default false $npControllerMetrics.allowExternalIngress) -}}
+{{- $controllerMetricsNamespaceSelector := $npControllerMetrics.namespaceSelector | default dict -}}
+{{- $controllerMetricsPodSelector := $npControllerMetrics.podSelector | default dict -}}
+{{- $npControllerEgress := $npController.egress | default dict -}}
+{{- $controllerEgressEnabled := true -}}
+{{- if hasKey $npControllerEgress "enabled" -}}
+{{- $controllerEgressEnabled = $npControllerEgress.enabled -}}
+{{- end -}}
+{{- $npControllerKubernetesApi := $npControllerEgress.kubernetesApi | default dict -}}
+{{- $controllerKubernetesApiEnabled := true -}}
+{{- if hasKey $npControllerKubernetesApi "enabled" -}}
+{{- $controllerKubernetesApiEnabled = $npControllerKubernetesApi.enabled -}}
+{{- end -}}
+{{- $controllerKubernetesApiPort := (default 443 $npControllerKubernetesApi.port) -}}
+{{- $controllerKubernetesApiCidrs := list -}}
+{{- if $npControllerKubernetesApi.cidr -}}
+{{- $controllerKubernetesApiCidrs = append $controllerKubernetesApiCidrs $npControllerKubernetesApi.cidr -}}
+{{- end -}}
+{{- if gt (len $legacyKubeApiCidrs) 0 -}}
+{{- $controllerKubernetesApiCidrs = concat $controllerKubernetesApiCidrs $legacyKubeApiCidrs -}}
+{{- end -}}
+{{- $controllerExtraIngress := $npController.extraIngress | default list -}}
+{{- $controllerExtraEgress := $npController.extraEgress | default list -}}
+
+{{- $npDatabase := $root.Values.networkPolicy.database | default dict -}}
+{{- $allowDatabaseEgress := (default true $npDatabase.enabled) -}}
+{{- $databasePort := (default 5432 $npDatabase.port) -}}
+{{- $databaseCnpgPeers := $npDatabase.cnpgPeers | default list -}}
+{{- $databaseExternalCidrs := $npDatabase.externalCIDRs | default list -}}
+{{- $databaseExtraIngress := $npDatabase.extraIngress | default list -}}
+{{- $databaseExtraEgress := $npDatabase.extraEgress | default list -}}
+
+{{- $npGerbil := $root.Values.networkPolicy.gerbil | default dict -}}
+{{- $allowGerbilWireguardUdpEgress := (default true $npGerbil.allowWireguardUdpEgress) -}}
+{{- $gerbilWireguardUdpCidrs := $npGerbil.wireguardUdpCIDRs | default (list "0.0.0.0/0") -}}
+{{- $gerbilExtraIngress := $npGerbil.extraIngress | default list -}}
+{{- $gerbilExtraEgress := $npGerbil.extraEgress | default list -}}
+
+{{- $singleMode := eq $root.Values.deployment.mode "single" -}}
+{{- $renderPangolin := true -}}
+{{- $renderController := and $root.Values.controller.enabled (eq $root.Values.deployment.type "controller") -}}
+{{- $renderGerbil := eq (include "pangolin.gerbil.resourcesEnabled" $root) "true" -}}
+{{- $renderEmbeddedPostgres := and (eq $root.Values.database.mode "embedded") $root.Values.database.embedded.enabled -}}
+
+{{- $selSingle := dict "app.kubernetes.io/name" (include "pangolin.name" $root) "app.kubernetes.io/instance" $root.Release.Name "app.kubernetes.io/component" "single" -}}
+{{- $selPangolin := ternary $selSingle (dict "app.kubernetes.io/name" (include "pangolin.name" $root) "app.kubernetes.io/instance" $root.Release.Name "app.kubernetes.io/component" "pangolin") $singleMode -}}
+{{- $selController := ternary $selSingle (dict "app.kubernetes.io/name" (include "pangolin.name" $root) "app.kubernetes.io/instance" $root.Release.Name "app.kubernetes.io/component" "controller") $singleMode -}}
+{{- $selGerbil := ternary $selSingle (dict "app.kubernetes.io/name" (include "pangolin.name" $root) "app.kubernetes.io/instance" $root.Release.Name "app.kubernetes.io/component" "gerbil") $singleMode -}}
+{{- $selEmbeddedPostgres := dict "app.kubernetes.io/name" (include "pangolin.name" $root) "app.kubernetes.io/instance" $root.Release.Name "app.kubernetes.io/component" "embedded-postgres" -}}
+
+{{- if $renderPangolin -}}
+{{- $pangolinIngress := list -}}
+{{- if $renderController -}}
+{{- $pangolinIngress = append $pangolinIngress (dict "from" (list (dict "podSelector" (dict "matchLabels" $selController))) "ports" (list (dict "protocol" "TCP" "port" $root.Values.pangolin.service.ports.internalApi))) -}}
+{{- end -}}
+{{- if $renderGerbil -}}
+{{- $pangolinIngress = append $pangolinIngress (dict "from" (list (dict "podSelector" (dict "matchLabels" $selGerbil))) "ports" (list (dict "protocol" "TCP" "port" $root.Values.pangolin.service.ports.internalApi))) -}}
+{{- end -}}
+{{- if $allowExternal -}}
+{{- if $allowPangolinExternal -}}
+{{- $pangolinExternalIngress := dict "ports" (list (dict "protocol" "TCP" "port" $root.Values.pangolin.service.ports.external)) -}}
+{{- if gt (len $pangolinDashboardFrom) 0 -}}
+{{- $_ := set $pangolinExternalIngress "from" $pangolinDashboardFrom -}}
+{{- end -}}
+{{- $pangolinIngress = append $pangolinIngress $pangolinExternalIngress -}}
+{{- end -}}
+{{- if $allowPangolinNext -}}
+{{- $pangolinIngress = append $pangolinIngress (dict "ports" (list (dict "protocol" "TCP" "port" $root.Values.pangolin.service.ports.next))) -}}
+{{- end -}}
+{{- if and $allowPangolinIntegration (or (not $requireIntegrationFlag) (($root.Values.pangolin.config | default dict).flags | default dict).enable_integration_api) -}}
+{{- $pangolinIngress = append $pangolinIngress (dict "ports" (list (dict "protocol" "TCP" "port" $root.Values.pangolin.service.ports.integration))) -}}
+{{- end -}}
+{{- end -}}
+{{- if $extraIngress -}}
+{{- $pangolinIngress = concat $pangolinIngress $extraIngress -}}
+{{- end -}}
+{{- if $pangolinExtraIngress -}}
+{{- $pangolinIngress = concat $pangolinIngress $pangolinExtraIngress -}}
+{{- end -}}
+
+{{- $pangolinEgress := list -}}
+{{- if $dnsEnabled -}}
+{{- $pangolinEgress = append $pangolinEgress $dnsEgress -}}
+{{- end -}}
+{{- if $allowDatabaseEgress -}}
+{{- if $renderEmbeddedPostgres -}}
+{{- $pangolinEgress = append $pangolinEgress (dict "to" (list (dict "podSelector" (dict "matchLabels" $selEmbeddedPostgres))) "ports" (list (dict "protocol" "TCP" "port" ($root.Values.database.embedded.service.port | default 5432)))) -}}
+{{- else if eq $root.Values.database.mode "cloudnativepg" -}}
+{{- if gt (len $databaseCnpgPeers) 0 -}}
+{{- $pangolinEgress = append $pangolinEgress (dict "to" $databaseCnpgPeers "ports" (list (dict "protocol" "TCP" "port" $databasePort))) -}}
+{{- else -}}
+{{- $cnpgCluster := ($root.Values.database.cloudnativepg | default dict).cluster | default dict -}}
+{{- $cnpgClusterName := $cnpgCluster.name | default "pangolin-db" -}}
+{{- $cnpgClusterNs := $cnpgCluster.namespace | default "" -}}
+{{- $cnpgPeer := dict "podSelector" (dict "matchLabels" (dict "cnpg.io/cluster" $cnpgClusterName)) -}}
+{{- if and $cnpgClusterNs (ne $cnpgClusterNs $namespace) -}}
+{{- $_ := set $cnpgPeer "namespaceSelector" (dict "matchLabels" (dict "kubernetes.io/metadata.name" $cnpgClusterNs)) -}}
+{{- end -}}
+{{- $pangolinEgress = append $pangolinEgress (dict "to" (list $cnpgPeer) "ports" (list (dict "protocol" "TCP" "port" $databasePort))) -}}
+{{- end -}}
+{{- else if and (eq $root.Values.database.mode "external") (gt (len $databaseExternalCidrs) 0) -}}
+{{- $externalDbTo := list -}}
+{{- range $cidr := $databaseExternalCidrs -}}
+{{- $externalDbTo = append $externalDbTo (dict "ipBlock" (dict "cidr" $cidr)) -}}
+{{- end -}}
+{{- $pangolinEgress = append $pangolinEgress (dict "to" $externalDbTo "ports" (list (dict "protocol" "TCP" "port" $databasePort))) -}}
+{{- end -}}
+{{- end -}}
+{{- if $allowHttpsEgress -}}
+{{- $pangolinEgress = append $pangolinEgress (dict "to" (list (dict "ipBlock" (dict "cidr" "0.0.0.0/0"))) "ports" (list (dict "protocol" "TCP" "port" 443))) -}}
+{{- end -}}
+{{- if $extraEgress -}}
+{{- $pangolinEgress = concat $pangolinEgress $extraEgress -}}
+{{- end -}}
+{{- if $pangolinExtraEgress -}}
+{{- $pangolinEgress = concat $pangolinEgress $pangolinExtraEgress -}}
+{{- end -}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-pangolin-ingress
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "pangolin.labels" $root | nindent 4 }}
+    {{- include "pangolin.component.commonLabels" (dict "root" $root "component" "pangolin") | nindent 4 }}
+    app.kubernetes.io/component: pangolin
+  {{- if gt (len $pangolinNpAnns) 0 }}
+  annotations:
+    {{- toYaml $pangolinNpAnns | nindent 4 }}
+  {{- end }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- toYaml $selPangolin | nindent 6 }}
+  policyTypes:
+    - Ingress
+  {{- if gt (len $pangolinIngress) 0 }}
+  ingress:
+    {{- toYaml $pangolinIngress | nindent 4 }}
+  {{- else }}
+  ingress: []
+  {{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-pangolin-egress
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "pangolin.labels" $root | nindent 4 }}
+    {{- include "pangolin.component.commonLabels" (dict "root" $root "component" "pangolin") | nindent 4 }}
+    app.kubernetes.io/component: pangolin
+  {{- if gt (len $pangolinNpAnns) 0 }}
+  annotations:
+    {{- toYaml $pangolinNpAnns | nindent 4 }}
+  {{- end }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- toYaml $selPangolin | nindent 6 }}
+  policyTypes:
+    - Egress
+  egress:
+    {{- toYaml $pangolinEgress | nindent 4 }}
+{{- end }}
+
+{{ if $renderController }}
+{{- $controllerIngress := list -}}
+{{- if and $allowExternal $allowControllerMetricsExternal -}}
+{{- $controllerIngress = append $controllerIngress (dict "ports" (list (dict "protocol" "TCP" "port" ($root.Values.controller.service.port | default 9090)))) -}}
+{{- else if $controllerMetricsEnabled -}}
+{{- if gt (len $controllerMetricsFrom) 0 -}}
+{{- $controllerIngress = append $controllerIngress (dict "from" $controllerMetricsFrom "ports" (list (dict "protocol" "TCP" "port" ($root.Values.controller.service.port | default 9090)))) -}}
+{{- else -}}
+{{- $controllerMetricsPeer := dict -}}
+{{- if gt (len $controllerMetricsNamespaceSelector) 0 -}}
+{{- $_ := set $controllerMetricsPeer "namespaceSelector" $controllerMetricsNamespaceSelector -}}
+{{- end -}}
+{{- if gt (len $controllerMetricsPodSelector) 0 -}}
+{{- $_ := set $controllerMetricsPeer "podSelector" $controllerMetricsPodSelector -}}
+{{- end -}}
+{{- if gt (len $controllerMetricsPeer) 0 -}}
+{{- $controllerIngress = append $controllerIngress (dict "from" (list $controllerMetricsPeer) "ports" (list (dict "protocol" "TCP" "port" ($root.Values.controller.service.port | default 9090)))) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- $controllerEgress := list -}}
+{{- if $dnsEnabled -}}
+{{- $controllerEgress = append $controllerEgress $dnsEgress -}}
+{{- end -}}
+{{- if $renderPangolin -}}
+{{- $controllerEgress = append $controllerEgress (dict "to" (list (dict "podSelector" (dict "matchLabels" $selPangolin))) "ports" (list (dict "protocol" "TCP" "port" $root.Values.pangolin.service.ports.internalApi))) -}}
+{{- end -}}
+{{- if and $controllerKubernetesApiEnabled (gt (len $controllerKubernetesApiCidrs) 0) -}}
+{{- $kubeApiTo := list -}}
+{{- range $cidr := $controllerKubernetesApiCidrs -}}
+{{- $kubeApiTo = append $kubeApiTo (dict "ipBlock" (dict "cidr" $cidr)) -}}
+{{- end -}}
+{{- $controllerEgress = append $controllerEgress (dict "to" $kubeApiTo "ports" (list (dict "protocol" "TCP" "port" $controllerKubernetesApiPort))) -}}
+{{- end -}}
+{{- if $extraEgress -}}
+{{- $controllerEgress = concat $controllerEgress $extraEgress -}}
+{{- end -}}
+{{- if $controllerExtraIngress -}}
+{{- $controllerIngress = concat $controllerIngress $controllerExtraIngress -}}
+{{- end -}}
+{{- if $controllerExtraEgress -}}
+{{- $controllerEgress = concat $controllerEgress $controllerExtraEgress -}}
+{{- end -}}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-controller-ingress
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "pangolin.labels" $root | nindent 4 }}
+    {{- include "pangolin.component.commonLabels" (dict "root" $root "component" "controller") | nindent 4 }}
+    app.kubernetes.io/component: controller
+  {{- if gt (len $controllerNpAnns) 0 }}
+  annotations:
+    {{- toYaml $controllerNpAnns | nindent 4 }}
+  {{- end }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- toYaml $selController | nindent 6 }}
+  policyTypes:
+    - Ingress
+  {{- if gt (len $controllerIngress) 0 }}
+  ingress:
+    {{- toYaml $controllerIngress | nindent 4 }}
+  {{- else }}
+  ingress: []
+  {{- end }}
+{{- if and $controllerEgressEnabled (gt (len $controllerEgress) 0) }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-controller-egress
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "pangolin.labels" $root | nindent 4 }}
+    {{- include "pangolin.component.commonLabels" (dict "root" $root "component" "controller") | nindent 4 }}
+    app.kubernetes.io/component: controller
+  {{- if gt (len $controllerNpAnns) 0 }}
+  annotations:
+    {{- toYaml $controllerNpAnns | nindent 4 }}
+  {{- end }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- toYaml $selController | nindent 6 }}
+  policyTypes:
+    - Egress
+  egress:
+    {{- toYaml $controllerEgress | nindent 4 }}
+{{- end }}
+{{- end }}
+
+{{ if $renderGerbil }}
+{{- $gerbilIngress := list -}}
+{{- if $allowExternal -}}
+{{- $gerbilIngress = append $gerbilIngress (dict "ports" (list (dict "protocol" "UDP" "port" $root.Values.gerbil.ports.wg1) (dict "protocol" "UDP" "port" $root.Values.gerbil.ports.wg2))) -}}
+{{- end -}}
+{{- $internalApiFrom := list -}}
+{{- if $renderPangolin -}}
+{{- $internalApiFrom = append $internalApiFrom (dict "podSelector" (dict "matchLabels" $selPangolin)) -}}
+{{- end -}}
+{{- if $renderController -}}
+{{- $internalApiFrom = append $internalApiFrom (dict "podSelector" (dict "matchLabels" $selController)) -}}
+{{- end -}}
+{{- if gt (len $internalApiFrom) 0 -}}
+{{- $gerbilIngress = append $gerbilIngress (dict "from" $internalApiFrom "ports" (list (dict "protocol" "TCP" "port" ($root.Values.gerbil.ports.internalApi | default 3004)))) -}}
+{{- end -}}
+
+{{- $gerbilEgress := list -}}
+{{- if $dnsEnabled -}}
+{{- $gerbilEgress = append $gerbilEgress $dnsEgress -}}
+{{- end -}}
+{{- if $renderPangolin -}}
+{{- $gerbilEgress = append $gerbilEgress (dict "to" (list (dict "podSelector" (dict "matchLabels" $selPangolin))) "ports" (list (dict "protocol" "TCP" "port" $root.Values.pangolin.service.ports.internalApi))) -}}
+{{- end -}}
+{{- if $allowGerbilWireguardUdpEgress -}}
+{{- $gerbilWireguardTo := list -}}
+{{- range $cidr := $gerbilWireguardUdpCidrs -}}
+{{- $gerbilWireguardTo = append $gerbilWireguardTo (dict "ipBlock" (dict "cidr" $cidr)) -}}
+{{- end -}}
+{{- if gt (len $gerbilWireguardTo) 0 -}}
+{{- $gerbilEgress = append $gerbilEgress (dict "to" $gerbilWireguardTo "ports" (list (dict "protocol" "UDP" "port" $root.Values.gerbil.ports.wg1) (dict "protocol" "UDP" "port" $root.Values.gerbil.ports.wg2))) -}}
+{{- end -}}
+{{- end -}}
+{{- if $allowHttpsEgress -}}
+{{- $gerbilEgress = append $gerbilEgress (dict "to" (list (dict "ipBlock" (dict "cidr" "0.0.0.0/0"))) "ports" (list (dict "protocol" "TCP" "port" 443))) -}}
+{{- end -}}
+{{- if $extraEgress -}}
+{{- $gerbilEgress = concat $gerbilEgress $extraEgress -}}
+{{- end -}}
+{{- if $gerbilExtraIngress -}}
+{{- $gerbilIngress = concat $gerbilIngress $gerbilExtraIngress -}}
+{{- end -}}
+{{- if $gerbilExtraEgress -}}
+{{- $gerbilEgress = concat $gerbilEgress $gerbilExtraEgress -}}
+{{- end -}}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-gerbil-ingress
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "pangolin.labels" $root | nindent 4 }}
+    {{- include "pangolin.component.commonLabels" (dict "root" $root "component" "gerbil") | nindent 4 }}
+    app.kubernetes.io/component: gerbil
+  {{- if gt (len $gerbilNpAnns) 0 }}
+  annotations:
+    {{- toYaml $gerbilNpAnns | nindent 4 }}
+  {{- end }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- toYaml $selGerbil | nindent 6 }}
+  policyTypes:
+    - Ingress
+  {{- if gt (len $gerbilIngress) 0 }}
+  ingress:
+    {{- toYaml $gerbilIngress | nindent 4 }}
+  {{- else }}
+  ingress: []
+  {{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-gerbil-egress
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "pangolin.labels" $root | nindent 4 }}
+    {{- include "pangolin.component.commonLabels" (dict "root" $root "component" "gerbil") | nindent 4 }}
+    app.kubernetes.io/component: gerbil
+  {{- if gt (len $gerbilNpAnns) 0 }}
+  annotations:
+    {{- toYaml $gerbilNpAnns | nindent 4 }}
+  {{- end }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- toYaml $selGerbil | nindent 6 }}
+  policyTypes:
+    - Egress
+  egress:
+    {{- toYaml $gerbilEgress | nindent 4 }}
+{{- end }}
+
+{{ if $renderEmbeddedPostgres }}
+{{- $embeddedIngress := list -}}
+{{- if $renderPangolin -}}
+{{- $embeddedIngress = append $embeddedIngress (dict "from" (list (dict "podSelector" (dict "matchLabels" $selPangolin))) "ports" (list (dict "protocol" "TCP" "port" ($root.Values.database.embedded.service.port | default 5432)))) -}}
+{{- end -}}
+{{- if $databaseExtraIngress -}}
+{{- $embeddedIngress = concat $embeddedIngress $databaseExtraIngress -}}
+{{- end -}}
+{{- $embeddedEgress := list -}}
+{{- if $dnsEnabled -}}
+{{- $embeddedEgress = append $embeddedEgress $dnsEgress -}}
+{{- end -}}
+{{- if $databaseExtraEgress -}}
+{{- $embeddedEgress = concat $embeddedEgress $databaseExtraEgress -}}
+{{- end -}}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-embedded-postgres-ingress
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "pangolin.labels" $root | nindent 4 }}
+    {{- include "pangolin.renderNonSelectorLabels" (dict "labels" (($root.Values.database.embedded.commonLabels) | default dict)) | nindent 4 }}
+    app.kubernetes.io/component: embedded-postgres
+  {{- if gt (len $embeddedNpAnns) 0 }}
+  annotations:
+    {{- toYaml $embeddedNpAnns | nindent 4 }}
+  {{- end }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- toYaml $selEmbeddedPostgres | nindent 6 }}
+  policyTypes:
+    - Ingress
+  {{- if gt (len $embeddedIngress) 0 }}
+  ingress:
+    {{- toYaml $embeddedIngress | nindent 4 }}
+  {{- else }}
+  ingress: []
+  {{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-embedded-postgres-egress
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "pangolin.labels" $root | nindent 4 }}
+    {{- include "pangolin.renderNonSelectorLabels" (dict "labels" (($root.Values.database.embedded.commonLabels) | default dict)) | nindent 4 }}
+    app.kubernetes.io/component: embedded-postgres
+  {{- if gt (len $embeddedNpAnns) 0 }}
+  annotations:
+    {{- toYaml $embeddedNpAnns | nindent 4 }}
+  {{- end }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- toYaml $selEmbeddedPostgres | nindent 6 }}
+  policyTypes:
+    - Egress
+  {{- if gt (len $embeddedEgress) 0 }}
+  egress:
+    {{- toYaml $embeddedEgress | nindent 4 }}
+  {{- else }}
+  egress: []
+  {{- end }}
+{{- end }}
+{{- end }}

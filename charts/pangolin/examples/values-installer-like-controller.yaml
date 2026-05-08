@@ -1,0 +1,35 @@
+# Example: Installer-like Pangolin config on Kubernetes controller mode
+#
+# Mirrors upstream quick-installer config semantics while keeping Kubernetes-native
+# controller deployment (no standalone Traefik Pod from this chart).
+
+deployment:
+  type: controller
+  mode: multi
+
+pangolin:
+  config:
+    app:
+      dashboard_url: "https://pangolin.yourdomain.example"
+      log_level: info
+      telemetry:
+        anonymous_usage: true
+    domains:
+      domain1:
+        base_domain: yourdomain.example
+        cert_resolver: letsencrypt
+    gerbil:
+      start_port: 51820
+      clients_start_port: 21820
+      base_endpoint: vpn.yourdomain.example
+    flags:
+      require_email_verification: false
+      disable_signup_without_invite: true
+      disable_user_create_org: false
+      allow_raw_resources: true
+    traefik:
+      # Controls Pangolin-generated Traefik config only; does not install Traefik.
+      enabled: true
+      http_entrypoint: web
+      https_entrypoint: websecure
+      cert_resolver: letsencrypt

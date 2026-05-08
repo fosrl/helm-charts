@@ -1,0 +1,25 @@
+suite: example database connection rendering
+templates:
+  - templates/secret-db-connection.yaml
+  - templates/secret-cnpg-connection.yaml
+tests:
+  - it: e2e kind example does not render chart-managed DB connection strings
+    values:
+      - ../examples/values-e2e-kind.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: controller cnpg example does not render chart-managed DB connection strings
+    values:
+      - ../examples/values-controller-cnpg.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: controller external db example does not render chart-managed DB connection strings
+    values:
+      - ../examples/values-controller-external-db.yaml
+    asserts:
+      - hasDocuments:
+          count: 0

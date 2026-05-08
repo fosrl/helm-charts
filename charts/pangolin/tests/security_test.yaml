@@ -1,0 +1,231 @@
+suite: security tests
+templates:
+  - templates/deployment-controller.yaml
+  - templates/deployment-pangolin.yaml
+  - templates/deployment-gerbil.yaml
+  - templates/serviceaccount.yaml
+  - templates/rbac.yaml
+tests:
+  - it: controller security context defaults are runtime compatible
+    template: templates/deployment-controller.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsNonRoot
+          value: false
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop[0]
+          value: ALL
+
+  - it: controller automountServiceAccountToken is true
+    template: templates/deployment-controller.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: true
+
+  - it: controller seccomp profile RuntimeDefault
+    template: templates/deployment-controller.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.seccompProfile.type
+          value: RuntimeDefault
+
+  - it: controller fsGroupChangePolicy
+    template: templates/deployment-controller.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.fsGroupChangePolicy
+          value: OnRootMismatch
+
+  - it: pangolin security context defaults are runtime compatible
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsNonRoot
+          value: false
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop[0]
+          value: ALL
+
+  - it: pangolin automountServiceAccountToken is false
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+
+  - it: pangolin uses component-specific ServiceAccount
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: RELEASE-NAME-pangolin-sa
+
+  - it: gerbil security context runAsNonRoot is false
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: false
+
+  - it: gerbil automountServiceAccountToken is false
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+
+  - it: gerbil uses component-specific ServiceAccount
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: RELEASE-NAME-pangolin-gerbil-sa
+
+  - it: controller uses component-specific ServiceAccount
+    template: templates/deployment-controller.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: RELEASE-NAME-pangolin-controller-sa
+
+  - it: gerbil container securityContext includes NET_ADMIN capability
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsNonRoot
+          value: false
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.capabilities.add[0]
+          value: NET_ADMIN
+      - lengthEqual:
+          path: spec.template.spec.containers[0].securityContext.capabilities.add
+          count: 1
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop[0]
+          value: ALL
+
+  - it: pangolin runAsNonRoot can be overridden to true
+    set:
+      pangolin.securityContext.runAsNonRoot: true
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsNonRoot
+          value: true
+
+  - it: controller runAsNonRoot can be overridden to true
+    set:
+      controller.securityContext.runAsNonRoot: true
+    template: templates/deployment-controller.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsNonRoot
+          value: true
+
+  - it: RBAC binds only to controller ServiceAccount
+    template: templates/rbac.yaml
+    documentIndex: 1
+    asserts:
+      - isKind:
+          of: RoleBinding
+      - equal:
+          path: subjects[0].name
+          value: RELEASE-NAME-pangolin-controller-sa
+
+  - it: RBAC not rendered in standalone mode (only controller needs it)
+    set:
+      deployment.type: standalone
+      controller.enabled: false
+    template: templates/rbac.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: controller ServiceAccount has automountServiceAccountToken true
+    template: templates/serviceaccount.yaml
+    documentIndex: 2
+    asserts:
+      - isKind:
+          of: ServiceAccount
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin-controller-sa
+      - equal:
+          path: automountServiceAccountToken
+          value: true
+
+  - it: pangolin ServiceAccount has automountServiceAccountToken false
+    template: templates/serviceaccount.yaml
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: ServiceAccount
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin-sa
+      - equal:
+          path: automountServiceAccountToken
+          value: false
+
+  - it: gerbil ServiceAccount has automountServiceAccountToken false
+    template: templates/serviceaccount.yaml
+    documentIndex: 1
+    asserts:
+      - isKind:
+          of: ServiceAccount
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin-gerbil-sa
+      - equal:
+          path: automountServiceAccountToken
+          value: false
+
+  - it: controller automountServiceAccountToken can be overridden to false
+    set:
+      serviceAccount.controller.automountServiceAccountToken: false
+    template: templates/deployment-controller.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+
+  - it: pangolin automountServiceAccountToken can be overridden to true
+    set:
+      serviceAccount.pangolin.automountServiceAccountToken: true
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: true
+
+  - it: gerbil automountServiceAccountToken can be overridden to true
+    set:
+      serviceAccount.gerbil.automountServiceAccountToken: true
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: true
+
+  - it: controller ServiceAccount automountServiceAccountToken can be overridden to false
+    set:
+      serviceAccount.controller.automountServiceAccountToken: false
+    template: templates/serviceaccount.yaml
+    documentIndex: 2
+    asserts:
+      - equal:
+          path: automountServiceAccountToken
+          value: false

@@ -1,0 +1,46 @@
+{{- if .Values.pangolin.service.enabled }}
+{{- $root := . -}}
+{{- $pangolin := .Values.pangolin -}}
+{{- $svcType := $pangolin.service.type | default "ClusterIP" -}}
+{{- $svcAnns := mergeOverwrite (dict) (include "pangolin.global.commonAnnotations" $root | fromYaml) .Values.global.additionalServiceAnnotations (include "pangolin.component.commonAnnotations" (dict "root" $root "component" "pangolin") | fromYaml) (mergeOverwrite (dict) $pangolin.service.annotations) -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "pangolin.fullname" . }}
+  namespace: {{ include "pangolin.namespace" . }}
+  labels:
+    {{- include "pangolin.labels" $root | nindent 4 }}
+    {{- include "pangolin.component.commonLabels" (dict "root" $root "component" "pangolin") | nindent 4 }}
+    {{- include "pangolin.renderNonSelectorLabels" (dict "labels" ($root.Values.global.additionalServiceLabels | default dict)) | nindent 4 }}
+    {{- include "pangolin.renderNonSelectorLabels" (dict "labels" ($pangolin.service.labels | default dict)) | nindent 4 }}
+    app.kubernetes.io/component: pangolin
+  {{- if gt (len $svcAnns) 0 }}
+  annotations:
+    {{- toYaml $svcAnns | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ $svcType }}
+  selector:
+    {{- if eq .Values.deployment.mode "single" }}
+    {{- include "pangolin.single.selectorLabels" $root | nindent 4 }}
+    {{- else }}
+    {{- include "pangolin.pangolin.selectorLabels" $root | nindent 4 }}
+    {{- end }}
+  ports:
+    - name: external
+      port: {{ $pangolin.service.ports.external }}
+      targetPort: {{ $pangolin.service.ports.external }}
+      protocol: TCP
+    - name: internal-api
+      port: {{ $pangolin.service.ports.internalApi }}
+      targetPort: {{ $pangolin.service.ports.internalApi }}
+      protocol: TCP
+    - name: next
+      port: {{ $pangolin.service.ports.next }}
+      targetPort: {{ $pangolin.service.ports.next }}
+      protocol: TCP
+    - name: integration
+      port: {{ $pangolin.service.ports.integration }}
+      targetPort: {{ $pangolin.service.ports.integration }}
+      protocol: TCP
+{{- end }}

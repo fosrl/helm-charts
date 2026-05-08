@@ -1,0 +1,30 @@
+{{- if and (eq .Values.database.mode "embedded") .Values.database.embedded.enabled .Values.database.embedded.service.enabled }}
+{{- $root := . -}}
+{{- $embed := .Values.database.embedded -}}
+{{- $svcType := $embed.service.type | default "ClusterIP" -}}
+{{- $svcAnns := mergeOverwrite (dict) (include "pangolin.global.commonAnnotations" $root | fromYaml) .Values.global.additionalServiceAnnotations ($embed.commonAnnotations | default dict) (mergeOverwrite (dict) $embed.service.annotations) -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ printf "%s-embedded-postgres" (include "pangolin.fullname" .) }}
+  namespace: {{ include "pangolin.namespace" . }}
+  labels:
+    {{- include "pangolin.labels" $root | nindent 4 }}
+    {{- include "pangolin.renderNonSelectorLabels" (dict "labels" ($embed.commonLabels | default dict)) | nindent 4 }}
+    {{- include "pangolin.renderNonSelectorLabels" (dict "labels" ($root.Values.global.additionalServiceLabels | default dict)) | nindent 4 }}
+    {{- include "pangolin.renderNonSelectorLabels" (dict "labels" ($embed.service.labels | default dict)) | nindent 4 }}
+    app.kubernetes.io/component: embedded-postgres
+  {{- if gt (len $svcAnns) 0 }}
+  annotations:
+    {{- toYaml $svcAnns | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ $svcType }}
+  selector:
+    {{- include "pangolin.embeddedPostgres.selectorLabels" $root | nindent 4 }}
+  ports:
+    - name: postgres
+      port: {{ $embed.service.port | default 5432 }}
+      targetPort: 5432
+      protocol: TCP
+{{- end }}

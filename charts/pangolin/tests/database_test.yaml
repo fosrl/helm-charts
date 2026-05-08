@@ -1,0 +1,250 @@
+suite: database rendering
+templates:
+  - templates/secrets.yaml
+  - templates/secret-cnpg-connection.yaml
+  - templates/secret-cnpg-app-auth.yaml
+  - templates/secret-embedded-postgres-auth.yaml
+  - templates/service-embedded-postgres.yaml
+  - templates/deployment-pangolin.yaml
+tests:
+  - it: does not render CNPG connection secret by default (create=false)
+    set:
+      database.mode: cloudnativepg
+    template: templates/secret-cnpg-connection.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders CNPG connection secret when create=true and password provided
+    set:
+      database.mode: cloudnativepg
+      database.cloudnativepg.connection.generatedSecret.create: true
+      database.cloudnativepg.auth.generatedSecret.create: true
+      database.cloudnativepg.auth.generatedSecret.password: "s3cr3t"
+    template: templates/secret-cnpg-connection.yaml
+    asserts:
+      - isKind:
+          of: Secret
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin-db-connection
+      - equal:
+          path: stringData.connectionString
+          value: "postgresql://pangolin:s3cr3t@pangolin-db-rw:5432/pangolin?sslmode=disable"
+
+  - it: renders CNPG auth secret when auth.generatedSecret.create=true
+    set:
+      database.mode: cloudnativepg
+      database.cloudnativepg.auth.generatedSecret.create: true
+      database.cloudnativepg.auth.generatedSecret.password: "s3cr3t"
+    template: templates/secret-cnpg-app-auth.yaml
+    asserts:
+      - isKind:
+          of: Secret
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin-cnpg-app-auth
+      - equal:
+          path: stringData.password
+          value: s3cr3t
+
+  - it: respects explicit CNPG generated connection sslMode override
+    set:
+      database.mode: cloudnativepg
+      database.cloudnativepg.connection.generatedSecret.create: true
+      database.cloudnativepg.connection.sslMode: require
+      database.cloudnativepg.auth.generatedSecret.create: true
+      database.cloudnativepg.auth.generatedSecret.password: "s3cr3t"
+    template: templates/secret-cnpg-connection.yaml
+    asserts:
+      - equal:
+          path: stringData.connectionString
+          value: "postgresql://pangolin:s3cr3t@pangolin-db-rw:5432/pangolin?sslmode=require"
+
+  - it: renders Pangolin deployment with POSTGRES_CONNECTION_STRING for cloudnativepg
+    set:
+      database.mode: cloudnativepg
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[1].name
+          value: POSTGRES_CONNECTION_STRING
+
+  - it: cloudnativepg mode auto-derives CNPG app Secret name and uri key by default
+    set:
+      database.mode: cloudnativepg
+      database.cloudnativepg.cluster.name: pangolin-db
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[1].valueFrom.secretKeyRef.name
+          value: pangolin-db-app
+      - equal:
+          path: spec.template.spec.containers[0].env[1].valueFrom.secretKeyRef.key
+          value: uri
+
+  - it: cloudnativepg mode auto-derives CNPG app Secret using custom cluster name
+    set:
+      database.mode: cloudnativepg
+      database.cloudnativepg.cluster.name: my-cluster
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[1].valueFrom.secretKeyRef.name
+          value: my-cluster-app
+      - equal:
+          path: spec.template.spec.containers[0].env[1].valueFrom.secretKeyRef.key
+          value: uri
+
+  - it: cloudnativepg mode uses cnpg-cluster.fullnameOverride for app Secret when cnpg-cluster is enabled
+    set:
+      database.mode: cloudnativepg
+      cnpg-cluster.enabled: true
+      cnpg-cluster.fullnameOverride: my-subchart-db
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[1].valueFrom.secretKeyRef.name
+          value: my-subchart-db-app
+      - equal:
+          path: spec.template.spec.containers[0].env[1].valueFrom.secretKeyRef.key
+          value: uri
+
+  - it: uses existing Secret for POSTGRES_CONNECTION_STRING in cloudnativepg mode when configured
+    set:
+      database.mode: cloudnativepg
+      database.connection.existingSecretName: my-db
+      database.connection.existingSecretKey: url
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[1].valueFrom.secretKeyRef.name
+          value: my-db
+      - equal:
+          path: spec.template.spec.containers[0].env[1].valueFrom.secretKeyRef.key
+          value: url
+
+  - it: renders embedded postgres auth secret when enabled
+    set:
+      database.mode: embedded
+      database.embedded.enabled: true
+      database.embedded.auth.generatedSecret.create: true
+    template: templates/secret-embedded-postgres-auth.yaml
+    asserts:
+      - isKind:
+          of: Secret
+      - exists:
+          path: data.password
+      - notEqual:
+          path: data.password
+          value: cGFuZ29saW4=
+
+  - it: renders embedded postgres Service selector using embedded selector labels
+    set:
+      database.mode: embedded
+      database.embedded.enabled: true
+      database.embedded.service.enabled: true
+    template: templates/service-embedded-postgres.yaml
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: spec.selector["app.kubernetes.io/component"]
+          value: embedded-postgres
+      - exists:
+          path: spec.selector["app.kubernetes.io/instance"]
+
+  - it: honors embedded postgres auth Secret name override
+    set:
+      database.mode: embedded
+      database.embedded.enabled: true
+      database.embedded.auth.generatedSecret.create: true
+      database.embedded.auth.generatedSecret.name: my-embedded-auth
+    template: templates/secret-embedded-postgres-auth.yaml
+    asserts:
+      - equal:
+          path: metadata.name
+          value: my-embedded-auth
+
+  - it: uses existing Secret for POSTGRES_CONNECTION_STRING in external mode when configured
+    set:
+      database.mode: external
+      database.external.existingSecretName: my-ext
+      database.external.existingSecretKey: url
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[1].valueFrom.secretKeyRef.name
+          value: my-ext
+      - equal:
+          path: spec.template.spec.containers[0].env[1].valueFrom.secretKeyRef.key
+          value: url
+
+  - it: fails to render CNPG connection secret when create=true but no password provided
+    set:
+      database.mode: cloudnativepg
+      database.cloudnativepg.connection.generatedSecret.create: true
+    template: templates/secret-cnpg-connection.yaml
+    asserts:
+      - failedTemplate:
+          errorMessage: "PANGOLIN-CNPG: Cannot generate a PostgreSQL connection string for CloudNativePG without a password. Set database.cloudnativepg.auth.generatedSecret.password, set database.cloudnativepg.auth.existingSecretName, or use database.connection.existingSecretName to reference the CNPG-generated app Secret."
+
+  - it: uses SQLite value in POSTGRES_CONNECTION_STRING when sqlite mode enabled
+    set:
+      database.mode: sqlite
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[1].name
+          value: POSTGRES_CONNECTION_STRING
+
+  - it: uses CNPG-generated app Secret (pangolin-db-app/uri) as connection source when referenced
+    set:
+      database.mode: cloudnativepg
+      database.connection.existingSecretName: pangolin-db-app
+      database.connection.existingSecretKey: uri
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[1].valueFrom.secretKeyRef.name
+          value: pangolin-db-app
+      - equal:
+          path: spec.template.spec.containers[0].env[1].valueFrom.secretKeyRef.key
+          value: uri
+
+  - it: default database mode is cloudnativepg
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: docker.io/fosrl/pangolin:postgresql-1.18.2
+
+  - it: cnpg-operator can be enabled independently without cnpg-cluster
+    set:
+      cnpg-operator.enabled: true
+      cnpg-cluster.enabled: false
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: docker.io/fosrl/pangolin:postgresql-1.18.2
+      - equal:
+          path: spec.template.spec.containers[0].env[1].valueFrom.secretKeyRef.name
+          value: pangolin-db-app
+
+  - it: cnpg-cluster can be enabled independently without cnpg-operator
+    set:
+      cnpg-operator.enabled: false
+      cnpg-cluster.enabled: true
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: docker.io/fosrl/pangolin:postgresql-1.18.2
+      - equal:
+          path: spec.template.spec.containers[0].env[1].valueFrom.secretKeyRef.name
+          value: pangolin-db-app
