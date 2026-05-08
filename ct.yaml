@@ -6,8 +6,12 @@ target-branch: main
 chart-dirs:
   - charts
 
+chart-repos:
+  - cloudnative-pg=https://cloudnative-pg.github.io/charts
+
 validate-maintainers: false
 helm-extra-args: --timeout 600s
 check-version-increment: true
 additional-commands:
-  - helm unittest --debug --strict {{ .Path }}
+  # Use chart metadata name to build a POSIX path; .Path can collapse backslashes on Windows shellwords parsing.
+  - bash ./scripts/helm-unittest-path.sh "charts/{{ .Yaml.Name }}"
