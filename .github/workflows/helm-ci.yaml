@@ -3,7 +3,7 @@ name: Helm Chart CI
 on:
   pull_request:
   push:
-    branches: [ main ]
+    branches: [ dev-clone, main ]
 
 jobs:
   lint-test:
@@ -11,20 +11,27 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
 
       - name: Set up Helm
-        uses: azure/setup-helm@v4
+        uses: Azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5.0.0
+        with:
+          version: v3.20.2
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: '3.x'
 
       - name: Set up chart-testing
-        uses: helm/chart-testing-action@v2.8.0
+        uses: helm/chart-testing-action@6ec842c01de15ebb84c8627d2744a0c2f2755c9f # v2.8.0
+
+      - name: Add Helm dependency repositories
+        run: |
+          helm repo add cloudnative-pg https://cloudnative-pg.github.io/charts
+          helm repo update
 
       - name: List changed charts
         id: list-changed
@@ -37,3 +44,105 @@ jobs:
       - name: Run ct lint
         if: steps.list-changed.outputs.changed == 'true'
         run: ct lint --target-branch ${{ github.event.repository.default_branch }}
+
+  pangolin-validate:
+    name: Pangolin chart validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Helm
+        uses: Azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5.0.0
+        with:
+          version: v3.20.2
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.x'
+
+      - name: Add Helm dependency repositories
+        run: |
+          helm repo add cloudnative-pg https://cloudnative-pg.github.io/charts
+          helm repo update
+
+      - name: Install helm-unittest plugin
+        run: helm plugin install https://github.com/helm-unittest/helm-unittest.git --version 1.0.3
+
+      - name: Install kubeconform
+        run: |
+          set -euo pipefail
+          KUBECONFORM_VERSION="v0.7.0"
+          curl -fsSL \
+            -o "${RUNNER_TEMP}/kubeconform.tar.gz" \
+            "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          curl -fsSL \
+            -o "${RUNNER_TEMP}/kubeconform-checksums.txt" \
+            "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/CHECKSUMS"
+          KUBECONFORM_SHA256=$(grep "kubeconform-linux-amd64.tar.gz" "${RUNNER_TEMP}/kubeconform-checksums.txt" | awk '{print $1}')
+          if [ -z "${KUBECONFORM_SHA256}" ]; then
+            echo "ERROR: Could not find SHA256 for kubeconform-linux-amd64.tar.gz in CHECKSUMS file"
+            exit 1
+          fi
+          echo "${KUBECONFORM_SHA256}  ${RUNNER_TEMP}/kubeconform.tar.gz" > "${RUNNER_TEMP}/kubeconform.tar.gz.sha256"
+          if ! sha256sum -c "${RUNNER_TEMP}/kubeconform.tar.gz.sha256"; then
+            echo "ERROR: kubeconform tarball SHA256 verification failed"
+            exit 1
+          fi
+          mkdir -p "${RUNNER_TEMP}/kubeconform-bin"
+          tar -xz -C "${RUNNER_TEMP}/kubeconform-bin" -f "${RUNNER_TEMP}/kubeconform.tar.gz" kubeconform
+          echo "${RUNNER_TEMP}/kubeconform-bin" >> "$GITHUB_PATH"
+          "${RUNNER_TEMP}/kubeconform-bin/kubeconform" -v
+
+      - name: Install yamllint
+        run: python -m pip install --upgrade pip yamllint
+
+      - name: Build chart dependencies
+        run: helm dependency build charts/pangolin
+
+      - name: Lint chart
+        run: helm lint charts/pangolin
+
+      - name: Render chart variants
+        run: |
+          set -euo pipefail
+          mkdir -p rendered
+
+          helm template demo charts/pangolin --namespace pangolin > rendered/default.yaml
+          helm template demo charts/pangolin --namespace pangolin --set networkPolicy.enabled=false > rendered/no-netpol.yaml
+          helm template demo charts/pangolin --namespace pangolin --set deployment.type=controller --set deployment.mode=multi > rendered/controller-multi.yaml
+          helm template demo charts/pangolin --namespace pangolin --set deployment.type=standalone --set deployment.mode=multi > rendered/standalone-multi.yaml
+          helm template demo charts/pangolin --namespace pangolin --set database.mode=sqlite > rendered/sqlite.yaml
+          helm template demo charts/pangolin --namespace pangolin --set gerbil.service.type=LoadBalancer > rendered/gerbil-lb.yaml
+
+          shopt -s nullglob
+          for values in charts/pangolin/examples/*.yaml; do
+            name="$(basename "$values" .yaml)"
+            helm template demo charts/pangolin --namespace pangolin -f "$values" > "rendered/example-${name}.yaml"
+          done
+          shopt -u nullglob
+
+      - name: yamllint rendered manifests
+        run: |
+          yamllint -d '{extends: relaxed, rules: {line-length: {max: 200}, indentation: {spaces: consistent, indent-sequences: whatever}, trailing-spaces: disable}}' rendered/*.yaml
+
+      - name: kubeconform rendered manifests
+        run: |
+          set -euo pipefail
+          for f in rendered/*.yaml; do
+            echo "==> kubeconform: $f"
+            kubeconform -strict -summary -ignore-missing-schemas "$f"
+          done
+
+      - name: Run helm-unittest
+        run: helm unittest charts/pangolin
+
+      - name: Upload rendered manifests
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pangolin-rendered-manifests
+          path: rendered/*.yaml
+          if-no-files-found: ignore
