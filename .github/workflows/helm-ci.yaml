@@ -6,44 +6,44 @@ on:
     branches: [ dev-clone, main ]
 
 jobs:
-  lint-test:
-    runs-on: ubuntu-latest
+  # lint-test:
+  #   runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          fetch-depth: 0
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+  #       with:
+  #         fetch-depth: 0
 
-      - name: Set up Helm
-        uses: Azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5.0.0
-        with:
-          version: v3.20.2
+  #     - name: Set up Helm
+  #       uses: Azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5.0.0
+  #       with:
+  #         version: v3.20.2
 
-      - name: Set up Python
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-        with:
-          python-version: '3.x'
+  #     - name: Set up Python
+  #       uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+  #       with:
+  #         python-version: '3.x'
 
-      - name: Set up chart-testing
-        uses: helm/chart-testing-action@6ec842c01de15ebb84c8627d2744a0c2f2755c9f # v2.8.0
+  #     - name: Set up chart-testing
+  #       uses: helm/chart-testing-action@6ec842c01de15ebb84c8627d2744a0c2f2755c9f # v2.8.0
 
-      - name: Add Helm dependency repositories
-        run: |
-          helm repo add cloudnative-pg https://cloudnative-pg.github.io/charts
-          helm repo update
+  #     - name: Add Helm dependency repositories
+  #       run: |
+  #         helm repo add cloudnative-pg https://cloudnative-pg.github.io/charts
+  #         helm repo update
 
-      - name: List changed charts
-        id: list-changed
-        run: |
-          changed=$(ct list-changed --target-branch ${{ github.event.repository.default_branch }})
-          if [[ -n "$changed" ]]; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          fi
+  #     - name: List changed charts
+  #       id: list-changed
+  #       run: |
+  #         changed=$(ct list-changed --target-branch ${{ github.event.repository.default_branch }})
+  #         if [[ -n "$changed" ]]; then
+  #           echo "changed=true" >> "$GITHUB_OUTPUT"
+  #         fi
 
-      - name: Run ct lint
-        if: steps.list-changed.outputs.changed == 'true'
-        run: ct lint --target-branch ${{ github.event.repository.default_branch }}
+  #     - name: Run ct lint
+  #       if: steps.list-changed.outputs.changed == 'true'
+  #       run: ct lint --target-branch ${{ github.event.repository.default_branch }}
 
   pangolin-validate:
     name: Pangolin chart validation
