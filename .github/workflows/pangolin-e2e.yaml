@@ -93,13 +93,30 @@ jobs:
       - name: Install Traefik CRDs/controller
         run: |
           helm upgrade --install "${E2E_TRAEFIK_RELEASE}" traefik/traefik \
+            --version 40.0.0 \
             --namespace "${TRAEFIK_NAMESPACE}" \
             --create-namespace \
-            --wait \
             --timeout 10m \
             --set service.type=ClusterIP \
             --set ingressRoute.dashboard.enabled=false \
             --set providers.kubernetesCRD.enabled=true
+          
+          # Do not use --wait for Traefik in kind; instead explicitly wait for deployment
+          # because the Service type may remain as LoadBalancer in some chart versions
+          # and Helm --wait would timeout waiting for a pending LoadBalancer ingress.
+          kubectl rollout status deployment/"${E2E_TRAEFIK_RELEASE}" \
+            -n "${TRAEFIK_NAMESPACE}" \
+            --timeout=600s
+          
+          # Verify that the Service is actually ClusterIP (not LoadBalancer)
+          SERVICE_TYPE="$(kubectl get svc "${E2E_TRAEFIK_RELEASE}" -n "${TRAEFIK_NAMESPACE}" -o jsonpath='{.spec.type}')"
+          if [ "${SERVICE_TYPE}" != "ClusterIP" ]; then
+            echo "ERROR: Traefik Service type is ${SERVICE_TYPE}, expected ClusterIP"
+            kubectl get svc -n "${TRAEFIK_NAMESPACE}" -o wide
+            exit 1
+          fi
+          
+          kubectl get svc,pods -n "${TRAEFIK_NAMESPACE}" -o wide
 
       - name: Render manifests for diagnostics
         run: |
