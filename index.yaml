@@ -370,4 +370,87 @@ entries:
     urls:
     - newt-1.0.0.tgz
     version: 1.0.0
-generated: "2026-05-09T07:25:43.44332042Z"
+  pangolin:
+  - annotations:
+      artifacthub.io/category: networking
+      artifacthub.io/images: |
+        - name: pangolin-dockerhub
+          image: docker.io/fosrl/pangolin:1.18.2
+          whitelisted: false
+          platforms:
+            - linux/amd64
+            - linux/arm64
+            - linux/arm/v7
+        - name: pangolin-ghcr
+          image: ghcr.io/fosrl/pangolin:1.18.2
+          whitelisted: false
+          platforms:
+            - linux/amd64
+            - linux/arm64
+            - linux/arm/v7
+        - name: pangolin-postgresql-dockerhub
+          image: docker.io/fosrl/pangolin:postgresql-1.18.2
+          whitelisted: false
+          platforms:
+            - linux/amd64
+            - linux/arm64
+            - linux/arm/v7
+        - name: pangolin-postgresql-ghcr
+          image: ghcr.io/fosrl/pangolin:postgresql-1.18.2
+          whitelisted: false
+          platforms:
+            - linux/amd64
+            - linux/arm64
+            - linux/arm/v7
+      artifacthub.io/license: MIT
+      artifacthub.io/links: |
+        - name: support
+          url: https://github.com/fosrl/helm-charts/issues
+        - name: documentation
+          url: https://docs.digpangolin.com/self-host/manual/kubernetes
+      artifacthub.io/prerelease: "true"
+      artifacthub.io/recommendations: |
+        - url: https://artifacthub.io/packages/helm/fosrl/newt
+      artifacthub.io/screenshots: |
+        - title: Pangolin-UI
+          url: https://github.com/fosrl/pangolin/raw/main/public/screenshots/hero.png
+      artifacthub.io/signKey: |
+        fingerprint: 48E7F670FCC13645FC48B08D587294B228C2EC2C
+        url: https://charts.fossorial.io/pgp_keys.asc
+    apiVersion: v2
+    appVersion: 1.18.2
+    created: "2026-05-09T07:38:20.002431377Z"
+    dependencies:
+    - alias: cnpg-operator
+      condition: cnpg-operator.enabled
+      name: cloudnative-pg
+      repository: https://cloudnative-pg.github.io/charts
+      version: 0.28.0
+    - alias: cnpg-cluster
+      condition: cnpg-cluster.enabled
+      name: cluster
+      repository: https://cloudnative-pg.github.io/charts
+      version: 0.6.0
+    description: Pangolin Helm Chart
+    digest: dd70db685f2d94d9415fa2887c06a256205e124b5fac1440afa0cffc93aadabf
+    home: https://digpangolin.com/
+    icon: https://raw.githubusercontent.com/fosrl/pangolin/refs/heads/main/public/logo/pangolin_orange.svg
+    keywords:
+    - pangolin
+    - vpn
+    - wireguard
+    - networking
+    kubeVersion: '>=1.30.14-0'
+    maintainers:
+    - email: info@marcschaeferger.de
+      name: marcschaeferger
+      url: https://github.com/marcschaeferger
+    name: pangolin
+    sources:
+    - https://github.com/fosrl/helm-charts
+    - https://github.com/fosrl/pangolin
+    type: application
+    urls:
+    - pangolin-0.1.0-alpha.0.tgz
+    version: 0.1.0-alpha.0
+generated: "2026-05-09T07:38:20.002458017Z"
