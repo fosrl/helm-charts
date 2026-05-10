@@ -1,6 +1,6 @@
 apiVersion: v2
-version: 0.1.0-alpha.0
-appVersion: "1.18.2"
+version: 0.1.0-alpha.1
+appVersion: "1.18.3"
 kubeVersion: ">=1.30.14-0"
 name: pangolin
 description: Pangolin Helm Chart
@@ -32,30 +32,33 @@ dependencies:
     condition: cnpg-cluster.enabled
 annotations:
   artifacthub.io/category: networking
+  artifacthub.io/changes: |
+    - kind: changed
+      description: "Bump Chart version to 0.1.0-alpha.1 and Chart AppVersion to Pangolin v1.18.3."
   artifacthub.io/images: |
     - name: pangolin-dockerhub
-      image: docker.io/fosrl/pangolin:1.18.2
+      image: docker.io/fosrl/pangolin:1.18.3
       whitelisted: false
       platforms:
         - linux/amd64
         - linux/arm64
         - linux/arm/v7
     - name: pangolin-ghcr
-      image: ghcr.io/fosrl/pangolin:1.18.2
+      image: ghcr.io/fosrl/pangolin:1.18.3
       whitelisted: false
       platforms:
         - linux/amd64
         - linux/arm64
         - linux/arm/v7
     - name: pangolin-postgresql-dockerhub
-      image: docker.io/fosrl/pangolin:postgresql-1.18.2
+      image: docker.io/fosrl/pangolin:postgresql-1.18.3
       whitelisted: false
       platforms:
         - linux/amd64
         - linux/arm64
         - linux/arm/v7
     - name: pangolin-postgresql-ghcr
-      image: ghcr.io/fosrl/pangolin:postgresql-1.18.2
+      image: ghcr.io/fosrl/pangolin:postgresql-1.18.3
       whitelisted: false
       platforms:
         - linux/amd64
