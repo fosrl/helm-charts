@@ -15,7 +15,16 @@ This changelog is chart-scoped to support multiple charts over time.
 
 ---
 
-### 0.1.0-alpha.1 - 2026-05-07
+### 0.1.0-alpha.1 - 2026-05-11
+
+#### Changed
+
+- Bumped Pangolin chart version to `0.1.0-alpha.1` and app version to `1.18.3`.
+- Updated Artifact Hub image references to Pangolin `1.18.3` (including PostgreSQL variant) for both Docker Hub and GHCR.
+
+---
+
+### 0.1.0-alpha.0 - 2026-05-08
 
 #### Added
 
@@ -31,7 +40,16 @@ This changelog is chart-scoped to support multiple charts over time.
 
 ---
 
-### 1.4.0 - 2026-05-04
+### 1.5.0 - 2026-05-11
+
+#### Changed
+
+- Bumped Newt chart version to `1.5.0` and app version to `1.12.5`.
+- Updated Artifact Hub image references to Newt `1.12.5` for both Docker Hub and GHCR.
+
+---
+
+### 1.4.0 - 2026-05-08
 
 #### Added
 
