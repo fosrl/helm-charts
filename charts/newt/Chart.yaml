@@ -1,6 +1,6 @@
 apiVersion: v2
-version: 1.4.0
-appVersion: "1.12.3"
+version: 1.5.0
+appVersion: "1.12.5"
 kubeVersion: ">=1.30.14-0"
 name: newt
 description: Helm chart to deploy Newt (fosrl/newt) client instance
@@ -24,78 +24,18 @@ annotations:
   artifacthub.io/category: networking
   artifacthub.io/changes: |
     - kind: changed
-      description: "Bump Chart version to 1.4.0 and Chart AppVersion to Newt v1.12.3."
-    - kind: added
-      description: "Add namespace creation and Pod Security Admission (PSA) label support with per-instance overrides."
-    - kind: added
-      description: "Add tests.enabled global and per-instance configuration to control tester port exposure."
-    - kind: added
-      description: "Add per-instance serviceAccount overrides (create/name/automountServiceAccountToken) when allowGlobalOverride is enabled."
-    - kind: added
-      description: "Add new helper functions for effective namespace, namespace labels, PSA labels, tests enablement, metrics enablement, and metrics admin port resolution."
-    - kind: added
-      description: "Add namespace template with deduplication to render one Namespace resource per effective target namespace."
-    - kind: added
-      description: "Add support for explicit namespace metadata on generated ConfigMaps, Secrets, Services, and ServiceAccounts in multi-namespace deployments."
-    - kind: added
-      description: "Add auth.createSecret mode to generate credential Secret resources from inline values."
-    - kind: added
-      description: "Add auth.envVarsDirect mode for direct env var injection in development/testing workflows."
-    - kind: added
-      description: "Add stricter auth validation to fail on partial inline credentials and conflicting auth modes."
-    - kind: added
-      description: "Add runtime NOTES warnings for insecure credential patterns (inline credentials and envVarsDirect)."
-    - kind: changed
-      description: "BREAKING CHANGE: Change RBAC default to disabled (rbac.create=false) for least-privilege security. Existing installations that relied on auto-created RBAC must explicitly opt in during upgrade: helm upgrade --set rbac.create=true ... otherwise RBAC resources will be removed."
-    - kind: changed
-      description: "Change tester port exposure to be disabled by default unless enabled via tests settings or explicit legacy testerPort usage."
-    - kind: changed
-      description: "Update ServiceAccount to support per-namespace creation with configurable automountToken."
-    - kind: changed
-      description: "Refactor Role/RoleBinding rendering to create one RBAC pair per unique effective namespace when clusterRole is disabled."
-    - kind: changed
-      description: "Refactor auth env rendering in helpers and deployment template for consistent behavior across existingSecret/createSecret/envVarsDirect modes."
-    - kind: changed
-      description: "Change global.metrics.adminAddr default to :2112 and align chart behavior around adminAddr-driven metrics exposure."
-    - kind: changed
-      description: "Update default metrics Service port to 2112 to match adminAddr defaults and annotations."
-    - kind: changed
-      description: "Update tests and schema to reflect new namespace/tests/auth controls and revised defaults."
-    - kind: changed
-      description: "Increase default revisionHistoryLimit from 3 to 10."
-    - kind: changed
-      description: "Update chart documentation with authentication patterns and production guidance for existing secrets."
-    - kind: changed
-      description: "Harden release workflow with tag-driven releases, expanded permissions, and improved chart signing/publishing flow."
-    - kind: changed
-      description: "Add GHCR OCI publish step for packaged chart artifacts in release automation."
-    - kind: fixed
-      description: "Fix metrics environment variables rendering to avoid YAML block sequence errors."
-    - kind: fixed
-      description: "Fix OTLP protocol enum from http/proto to http/protobuf per Newt docs."
-    - kind: fixed
-      description: "Fix container ports and Prometheus annotations to use adminAddr (default 2112) not 9090."
-    - kind: fixed
-      description: "Fix NetworkPolicy tester ingress rule generation to avoid opening tester UDP rules when tester exposure is disabled."
-    - kind: fixed
-      description: "Fix Secret generation to include endpoint/id/secret key triplet when createSecret mode is active."
-    - kind: fixed
-      description: "Fix schema descriptions and defaults for auth key mappings and secret handling semantics."
-    - kind: removed
-      description: "Remove default implicit RBAC creation; RBAC must now be explicitly enabled where required."
-    - kind: removed
-      description: "Remove broad deployment_all_env_test suite from active execution and retain as disabled fixture for reference."
-  artifacthub.io/containsSecurityUpdates: "true"
+      description: "Bump Chart version to 1.5.0 and Chart AppVersion to Newt v1.12.5."
+  artifacthub.io/containsSecurityUpdates: "false"
   artifacthub.io/images: |
     - name: newt-dockerhub
-      image: docker.io/fosrl/newt:1.12.3
+      image: docker.io/fosrl/newt:1.12.5
       whitelisted: false
       platforms:
         - linux/amd64
         - linux/arm64
         - linux/arm/v7
     - name: newt-ghcr
-      image: ghcr.io/fosrl/newt:1.12.3
+      image: ghcr.io/fosrl/newt:1.12.5
       whitelisted: false
       platforms:
         - linux/amd64
