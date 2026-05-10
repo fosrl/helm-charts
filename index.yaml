@@ -5,6 +5,63 @@ entries:
       artifacthub.io/category: networking
       artifacthub.io/changes: |
         - kind: changed
+          description: "Bump Chart version to 1.5.0 and Chart AppVersion to Newt v1.12.5."
+      artifacthub.io/containsSecurityUpdates: "false"
+      artifacthub.io/images: |
+        - name: newt-dockerhub
+          image: docker.io/fosrl/newt:1.12.5
+          whitelisted: false
+          platforms:
+            - linux/amd64
+            - linux/arm64
+            - linux/arm/v7
+        - name: newt-ghcr
+          image: ghcr.io/fosrl/newt:1.12.5
+          whitelisted: false
+          platforms:
+            - linux/amd64
+            - linux/arm64
+            - linux/arm/v7
+      artifacthub.io/license: MIT
+      artifacthub.io/links: |
+        - name: support
+          url: https://github.com/fosrl/helm-charts/issues
+        - name: documentation
+          url: https://docs.digpangolin.com/self-host/manual/kubernetes
+      artifacthub.io/prerelease: "false"
+      artifacthub.io/signKey: |
+        fingerprint: 48E7F670FCC13645FC48B08D587294B228C2EC2C
+        url: https://charts.fossorial.io/pgp_keys.asc
+    apiVersion: v2
+    appVersion: 1.12.5
+    created: "2026-05-10T22:19:14.226948528Z"
+    description: Helm chart to deploy Newt (fosrl/newt) client instance
+    digest: f1b5e81fe4e0f3022c61cc70261cd0397fd2a8e2953630718fd81734cb1ace08
+    home: https://digpangolin.com/
+    icon: https://raw.githubusercontent.com/fosrl/pangolin/refs/heads/main/public/logo/pangolin_orange.svg
+    keywords:
+    - newt
+    - pangolin
+    - vpn
+    - wireguard
+    - networking
+    kubeVersion: '>=1.30.14-0'
+    maintainers:
+    - email: info@marcschaeferger.de
+      name: marcschaeferger
+      url: https://github.com/marcschaeferger
+    name: newt
+    sources:
+    - https://github.com/fosrl/helm-charts
+    - https://github.com/fosrl/newt
+    type: application
+    urls:
+    - https://github.com/fosrl/helm-charts/releases/download/newt-1.5.0/newt-1.5.0.tgz
+    version: 1.5.0
+  - annotations:
+      artifacthub.io/category: networking
+      artifacthub.io/changes: |
+        - kind: changed
           description: "Bump Chart version to 1.4.0 and Chart AppVersion to Newt v1.12.3."
         - kind: added
           description: "Add namespace creation and Pod Security Admission (PSA) label support with per-instance overrides."
@@ -453,4 +510,4 @@ entries:
     urls:
     - pangolin-0.1.0-alpha.0.tgz
     version: 0.1.0-alpha.0
-generated: "2026-05-09T07:38:20.002458017Z"
+generated: "2026-05-10T22:19:14.226994194Z"
