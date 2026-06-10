@@ -112,6 +112,9 @@ tests:
       - equal:
           path: spec.template.spec.volumes[0].name
           value: blueprint-file
+      - matchRegex:
+          path: spec.template.metadata.annotations["checksum/blueprint"]
+          pattern: ^[a-f0-9]{64}$
 
   - it: uses default security context with root and NET_ADMIN (required for WireGuard)
     set:
