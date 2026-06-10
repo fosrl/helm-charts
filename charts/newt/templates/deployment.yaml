@@ -81,6 +81,10 @@ spec:
       {{- range $k, $v := $root.Values.global.podAnnotations }}
       {{- $_ := set $anns $k (printf "%v" $v) }}
       {{- end }}
+      {{- /* Checksum annotation to trigger pod restart when blueprint ConfigMap changes */}}
+      {{- if $inst.blueprintFile }}
+      {{- $_ := set $anns "checksum/blueprint" ($inst.blueprintData | sha256sum) }}
+      {{- end }}
       {{- /* Default Prometheus annotations if enabled and none provided */}}
       {{- if and $m.enabled (not $m.annotations) }}
       {{- $_ := set $anns "prometheus.io/scrape" "true" }}
@@ -125,15 +129,15 @@ spec:
       {{- else }}
       automountServiceAccountToken: {{ default false $root.Values.serviceAccount.automountServiceAccountToken }}
       {{- end }}
-      {{- /* 
+      {{- /*
         Security Context Logic:
-        
+
         PRIORITY ORDER:
         1. Native mode (useNativeInterface OR global.nativeMode.enabled): privileged + root
         2. Instance override (if allowGlobalOverride): user-defined securityContext
-        3. Global override: user-defined securityContext  
+        3. Global override: user-defined securityContext
         4. Default secure mode: non-root with restricted capabilities
-        
+
         VALIDATION:
         - If user sets runAsUser: 0 but also sets capabilities.drop, fail rendering
         - This prevents invalid security combinations
@@ -148,7 +152,7 @@ spec:
           {{- fail "newtInstances[].securityContext: Dropping capabilities is not supported when running as root. Either remove runAsUser: 0 or capabilities.drop from your securityContext override." }}
         {{- end }}
       {{- end }}
-      
+
       {{- /* Pod-level securityContext */ -}}
       {{- if and $canOverride $inst.podSecurityContext }}
       securityContext:
