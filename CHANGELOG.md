@@ -11,7 +11,40 @@ This changelog is chart-scoped to support multiple charts over time.
 
 ### Unreleased
 
-- No changes yet.
+#### Added
+
+- `gerbil.hostGateway.enabled` runs Gerbil with `hostNetwork` so its WireGuard interface and route are
+  created in the node network namespace, making the tunnel backends Pangolin advertises reachable from a
+  separate Traefik Pod. Applies `dnsPolicy: ClusterFirstWithHostNet` automatically, which Gerbil needs to
+  resolve the Pangolin Service for `--remoteConfig`. ([#20](https://github.com/fosrl/helm-charts/issues/20))
+- `traefik.colocateWithGerbil` pins the chart-managed Traefik onto the node running Gerbil with a required
+  `podAffinity` on `kubernetes.io/hostname`, following Gerbil dynamically instead of requiring a labelled
+  node. The equivalent snippet for an externally installed Traefik is rendered into the NOTES output.
+- `global.clusterDomain` for building in-cluster FQDNs.
+- `pangolin.config.server.badger_override` passthrough.
+- `examples/values-host-gateway.yaml` and a "Tunnel data path" README section covering the mechanism, the
+  CNI-masquerade requirement, the support matrix per `deployment.type`/`mode`, and the unsupported
+  node-route alternative.
+
+#### Fixed
+
+- badger returned `404 page not found` for every request whenever Traefik ran outside the Pangolin
+  namespace. Pangolin renders badger's `apiBaseUrl` from `server.internal_hostname`, and the chart shipped
+  the bare Service name `pangolin`, which does not resolve cross-namespace. It now defaults to the
+  in-cluster FQDN. ([#20](https://github.com/fosrl/helm-charts/issues/20))
+- `gerbil.startupMode: disabledUntilSetup` failed to render. A stale duplicate `PANGOLIN-062` check
+  rejected it before the complete check ran, contradicting the schema, NOTES and README.
+- `runtime.hostNetwork` was documented in values, schema and README but consumed by no template.
+- NOTES output recommended `hostPort`, which the chart cannot render.
+
+#### Changed
+
+- New validations `PANGOLIN-067`..`PANGOLIN-070` guard host gateway mode: `deployment.mode=multi`,
+  `gerbil.enabled=true`, `gerbil.replicaCount=1`, and PSA `enforce=privileged` for chart-created
+  namespaces.
+- `examples/README.md` lost a leftover merge-conflict marker that split it into two documents, and
+  `examples/values-e2e-kind.yaml` no longer points at the deleted `pangolin-e2e.yaml` workflow. It now
+  states that the profile keeps Gerbil at `replicas: 0` and never exercises the tunnel data path.
 
 ---
 

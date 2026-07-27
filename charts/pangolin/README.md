@@ -46,6 +46,8 @@ This chart can deploy a Pangolin control-plane plus optional components:
 - `multi`: separate workloads for Pangolin / Gerbil / Traefik.
 - `single`: one shared Pod. In `deployment.type=controller`, it runs Pangolin + optional Gerbil + controller. In `deployment.type=standalone`, it runs Pangolin + optional Gerbil + optional standalone Traefik. `deployment.mode=multi` remains the recommended production topology.
 
+> **Tunnel routing.** Whenever Traefik does not share a Pod with Gerbil - which is every combination except `standalone` + `single` - Traefik cannot reach the WireGuard addresses Pangolin advertises for Newt sites without extra configuration, and every tunnel-backed resource returns 502. Set `gerbil.hostGateway.enabled=true` and co-locate Traefik with Gerbil. See [Tunnel data path](#tunnel-data-path).
+
 ## Example install profiles
 
 Scenario-based example values files are in [`charts/pangolin/examples/`](./examples/).
@@ -264,7 +266,7 @@ pangolin:
   - **Gerbil** (`serviceAccount.gerbil.automountServiceAccountToken=false`, default): Gerbil manages WireGuard tunnels and does not require Kubernetes API access. Token automount is disabled by default.
   - All three settings are configurable via `serviceAccount.<component>.automountServiceAccountToken`.
 - **Single mode ServiceAccount trade-off:** Kubernetes ServiceAccount selection is Pod-level. In `deployment.mode=single` + `deployment.type=controller`, the shared Pod uses the controller ServiceAccount/token so Pangolin and Gerbil share that Pod-level token behavior.
-- **hostNetwork:** `runtime.hostNetwork=true` reduces network isolation. Enable it only when you understand why it’s required (some WireGuard / UDP exposure setups may need it).
+- **hostNetwork:** `gerbil.hostGateway.enabled=true` (or its alias `runtime.hostNetwork=true`) reduces network isolation and requires Pod Security Admission level `privileged`. It is required to make tunnel backends reachable from a separate Traefik Pod - see [Tunnel data path](#tunnel-data-path) for what it does and what it costs.
 - **Container security context:** `global.containerSecurityContext` is intentionally empty by default so you can choose a baseline that matches your cluster policy. Workloads merge this with their own `*.securityContext`.
 
 ## Production checklist
@@ -351,9 +353,213 @@ Use this checklist before tagging alpha/RC/stable releases. This runtime validat
 
 ## Gerbil networking model
 
+This covers **inbound** WireGuard, i.e. peers reaching Gerbil. For the forward
+path from Traefik to a tunnelled resource, see [Tunnel data path](#tunnel-data-path).
+
 - Gerbil always opens UDP ports on the Pod.
-- `gerbil.service.enabled=false` means the chart does not create a Service for those UDP ports (useful for hostNetwork/hostPort patterns or when you publish UDP another way).
+- `gerbil.service.enabled=false` means the chart does not create a Service for those UDP ports (useful when you publish UDP another way, or with `gerbil.hostGateway.enabled=true`, which binds them on the node).
 - If you need Kubernetes Service-based exposure for Gerbil UDP, set `gerbil.service.enabled=true` and pick an appropriate Service `type`.
+- The chart does not render `hostPort`.
+
+## Tunnel data path
+
+The section above covers **inbound** WireGuard (peers reaching Gerbil). This one
+covers the **forward** path: Traefik proxying a request to a resource that lives
+behind a Newt tunnel.
+
+### The problem
+
+For a Newt site, Pangolin advertises the backend as the first address of the
+site's WireGuard subnet plus the target's internal port:
+
+```json
+{"services": {"my-service": {"loadBalancer": {"servers": [{"url": "http://100.89.128.4:44602"}]}}}}
+```
+
+Gerbil creates that WireGuard interface inside its own Pod network namespace, so
+`100.89.128.4` exists only there:
+
+```bash
+# from the Gerbil Pod: works
+kubectl -n pangolin exec deploy/<release>-gerbil -- wget -qO- http://100.89.128.4:44602
+
+# from any other Pod: unreachable
+kubectl -n kube-system run t --rm -i --image=curlimages/curl -- \
+  curl -s -m 5 -o /dev/null -w '%{http_code}\n' http://100.89.128.4:44602
+```
+
+The pangolin-kube-controller materialises that raw address into a headless
+Service plus an EndpointSlice, so Traefik dials it directly and gets a
+deterministic **502 Bad Gateway** - while the dashboard still reports the router
+and middleware as `Success`. The tunnel itself is healthy and Newt is connected;
+only the route from Traefik is missing.
+
+Upstream's Docker Compose deployment avoids this by running Traefik with
+`network_mode: service:gerbil`, sharing Gerbil's network namespace. Separate
+Kubernetes Pods have no equivalent, so the path has to be created explicitly.
+
+### Support matrix
+
+| `deployment.type` | `deployment.mode` | Traefik | Tunnel backends reachable |
+|---|---|---|---|
+| `standalone` | `single` | in the same Pod as Gerbil | Yes - shared network namespace |
+| `standalone` | `multi` | separate Pod rendered by this chart | Only with `gerbil.hostGateway.enabled=true` |
+| `controller` | `single` | external | Only with `gerbil.hostGateway.enabled=true` |
+| `controller` | `multi` | external | Only with `gerbil.hostGateway.enabled=true` |
+
+Resources whose targets already run in the cluster do not need any of this - see
+"In-cluster targets" below.
+
+### Host gateway mode
+
+`gerbil.hostGateway.enabled=true` runs Gerbil with `hostNetwork`, so wg0 and its
+connected route are created in the **node** network namespace instead of the
+Pod's. Any Pod scheduled onto that node then reaches the tunnel through the
+node's routing table:
+
+```text
+Traefik Pod --veth--> node netns --forward--> wg0 --> Newt --> target
+```
+
+No manual node routes are required. Gerbil installs the route itself when it
+brings the interface up. Three things make the path work end to end, and all
+three are satisfied by default on a normal cluster:
+
+1. `net.ipv4.ip_forward=1` - always enabled on a Kubernetes node.
+2. The FORWARD chain accepts Pod-to-non-Pod traffic - Flannel, Calico and Cilium
+   all do this.
+3. **The CNI masquerades Pod egress leaving the node.** This is the load-bearing
+   one. Without SNAT the packet still carries the Traefik Pod IP as source;
+   WireGuard cryptokey routing drops it at the far end because that address is
+   outside the peer's `AllowedIPs`, and the peer would have no route for a reply
+   either. Leaving via wg0 the CNI rewrites the source to wg0's address -
+   Gerbil's tunnel IP - which is exactly what Newt expects. Enabled by default in
+   Flannel (Talos, k3s), Calico (`natOutgoing`) and Cilium
+   (`enable-ipv4-masquerade`).
+
+Traefik itself does **not** need `hostNetwork`; it stays a normal, CRD-driven,
+horizontally scalable Deployment.
+
+#### Enabling it
+
+```yaml
+gerbil:
+  hostGateway:
+    enabled: true
+  startupMode: normal   # `delayed` keeps the Deployment at replicas=0
+  replicaCount: 1       # Gerbil binds its ports on the node
+
+namespace:
+  create: true
+  podSecurity:
+    enforce: privileged # PSA `baseline` forbids hostNetwork
+```
+
+See `examples/values-host-gateway.yaml` for a complete profile. The chart rejects
+unusable combinations up front (`PANGOLIN-067` through `PANGOLIN-070`).
+
+#### Co-locating Traefik
+
+The tunnel route exists on the Gerbil node only, so Traefik has to run there.
+
+For the Traefik workload **this chart renders**
+(`deployment.type=standalone`), `traefik.colocateWithGerbil` handles it
+automatically. For an **externally installed** Traefik, run
+`helm get notes <release> -n <namespace>` to get the snippet with your real
+release name and namespace, and add it to the Traefik chart's own values:
+
+```yaml
+affinity:
+  podAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: pangolin
+            app.kubernetes.io/instance: <release>
+            app.kubernetes.io/component: gerbil
+        namespaces:
+          - <pangolin-namespace>
+        topologyKey: kubernetes.io/hostname
+```
+
+The term targets Gerbil's Pod labels rather than a node label, so Traefik follows
+Gerbil to whichever node the scheduler picks - no `pangolin-gateway=true` label
+to maintain, and a node failure moves both. A dedicated node is still available
+if you prefer one: label it and set `global.nodeSelector`.
+
+Two properties worth knowing before you rely on this:
+
+- It is `requiredDuringSchedulingIgnoredDuringExecution`. **Required** is
+  deliberate - a preferred term lets the scheduler put Traefik on a node without
+  the tunnel route, which fails as a silent 502 rather than a visible scheduling
+  error. **IgnoredDuringExecution** means running Traefik Pods are not evicted
+  when Gerbil moves; restart them so they follow:
+  `kubectl -n <traefik-ns> rollout restart deployment/<traefik>`.
+- Traefik replicas scale only *within* the gateway node. That is horizontal
+  replication, not node redundancy: the tunnel data path still depends on one
+  node.
+
+#### Verifying
+
+```bash
+# read the advertised backends
+kubectl -n <ns> exec deploy/<release>-pangolin -- \
+  wget -qO- http://localhost:3001/api/v1/traefik-config
+
+# dial one of them from a Traefik Pod
+kubectl -n <traefik-ns> exec deploy/<traefik> -- \
+  wget -qO- http://<tunnel-ip>:<internal-port>
+```
+
+A response means the path works. A hang means Traefik is not on the Gerbil node,
+or the CNI is not masquerading Pod egress.
+
+#### Operational side effects
+
+- Gerbil binds its WireGuard ports and its internal API port on the node, so only
+  one Gerbil instance can run per node and those ports must be free.
+- Gerbil manages iptables rules for its WireGuard interface (an INPUT filter and
+  MSS clamping). With `hostNetwork` these are written to the node's tables.
+- The chart's Gerbil NetworkPolicies become largely inert: most CNIs do not apply
+  Pod NetworkPolicy to `hostNetwork` Pods. Use node-level firewalling if you need
+  to restrict this traffic.
+
+### In-cluster targets
+
+If the target already runs in this cluster, skip the tunnel entirely. Create a
+`local` site and use a Kubernetes Service FQDN as the target host:
+
+```text
+http://my-app.my-namespace.svc:8080
+```
+
+The pangolin-kube-controller recognises `.svc` hosts and converts them into a
+native Kubernetes Service reference instead of materialising an EndpointSlice
+with a raw address. This needs no Gerbil, no `hostNetwork` and no co-location,
+and it is the better choice whenever it applies.
+
+### Unsupported: node routes
+
+If you can change node routing, the tunnel CIDR can be routed to the Gerbil node
+instead of co-locating Traefik. This chart does not implement it and does not
+support it, but for completeness it requires, on every node that may run Traefik:
+
+```bash
+ip route replace <gerbil.subnet_group> via <gerbil-node-ip>
+```
+
+plus IP forwarding and SNAT for Pod-CIDR traffic entering the tunnel on the
+gateway node - typically a privileged DaemonSet, static cloud/underlay routes, or
+BGP if the CNI supports it. It buys multi-node Traefik placement at the cost of
+cluster-wide privileged components and CNI-specific behaviour, and the Gerbil
+node remains a single point of failure either way.
+
+### Choosing the tunnel CIDR
+
+`pangolin.config.gerbil.subnet_group` (default `100.89.137.0/20`) must not
+overlap the Pod CIDR, the Service CIDR, the node/VPC network, or any network at a
+Newt site. An overlap does not fail loudly; it makes the route ambiguous and
+traffic is silently misrouted.
 
 ## Gerbil first-run bootstrap behavior
 
@@ -581,12 +787,14 @@ See `examples/values-blueprints.yaml` for a complete working example.
 | deployment.mode | string | `"multi"` | Pod topology for Pangolin application components. `single` runs one Pod containing Pangolin plus optional Gerbil and either pangolin-kube-controller (controller type) or standalone Traefik (standalone type). `multi` runs separate workloads (recommended for production). |
 | deployment.traefikNamespace | string | `""` | Namespace where Traefik controller resources live in controller mode. Defaults to the release namespace. |
 | deployment.type | string | `"controller"` | Pangolin deployment integration mode. `controller` uses pangolin-kube-controller and Traefik CRDs. `standalone` runs an internal Traefik Pod (not recommended for production). |
-| gerbil | object | `{"args":[],"command":[],"commonAnnotations":{},"commonLabels":{},"deployment":{"annotations":{},"labels":{},"podAnnotations":{},"podLabels":{}},"enabled":true,"extraEnv":{},"persistence":{"accessModes":["ReadWriteOnce"],"annotations":{},"enabled":true,"existingClaim":"","size":"1Gi","storageClass":""},"ports":{"internalApi":3004,"wg1":51820,"wg2":21820},"probes":{},"pvc":{"annotations":{},"labels":{}},"replicaCount":1,"resources":{"limits":{"cpu":"500m","ephemeral-storage":"128Mi","memory":"512Mi"},"requests":{"cpu":"100m","ephemeral-storage":"16Mi","memory":"128Mi"}},"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"add":["NET_ADMIN"],"drop":["ALL"]},"readOnlyRootFilesystem":false,"runAsNonRoot":false},"service":{"annotations":{},"enabled":true,"externalTrafficPolicy":"","labels":{},"loadBalancerIP":"","loadBalancerSourceRanges":[],"ports":[{"name":"wg1","port":51820,"protocol":"UDP","targetPort":"wg1"},{"name":"wg2","port":21820,"protocol":"UDP","targetPort":"wg2"},{"name":"internal-api","port":3004,"protocol":"TCP","targetPort":"internal-api"}],"type":"ClusterIP"},"serviceAccount":{"annotations":{},"labels":{}},"startupMode":"normal","waitForPangolin":{"enabled":true,"endpoint":"","image":{"pullPolicy":"IfNotPresent","registry":"docker.io","repository":"curlimages/curl","tag":"8.8.0"},"intervalSeconds":5,"stableSeconds":30,"timeoutSeconds":600}}` | --------------------------------------------------------------------------- # @section Gerbil |
+| gerbil | object | `{"args":[],"command":[],"commonAnnotations":{},"commonLabels":{},"deployment":{"annotations":{},"labels":{},"podAnnotations":{},"podLabels":{}},"enabled":true,"extraEnv":{},"hostGateway":{"dnsPolicy":"ClusterFirstWithHostNet","enabled":false},"persistence":{"accessModes":["ReadWriteOnce"],"annotations":{},"enabled":true,"existingClaim":"","size":"1Gi","storageClass":""},"ports":{"internalApi":3004,"wg1":51820,"wg2":21820},"probes":{},"pvc":{"annotations":{},"labels":{}},"replicaCount":1,"resources":{"limits":{"cpu":"500m","ephemeral-storage":"128Mi","memory":"512Mi"},"requests":{"cpu":"100m","ephemeral-storage":"16Mi","memory":"128Mi"}},"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"add":["NET_ADMIN"],"drop":["ALL"]},"readOnlyRootFilesystem":false,"runAsNonRoot":false},"service":{"annotations":{},"enabled":true,"externalTrafficPolicy":"","labels":{},"loadBalancerIP":"","loadBalancerSourceRanges":[],"ports":[{"name":"wg1","port":51820,"protocol":"UDP","targetPort":"wg1"},{"name":"wg2","port":21820,"protocol":"UDP","targetPort":"wg2"},{"name":"internal-api","port":3004,"protocol":"TCP","targetPort":"internal-api"}],"type":"ClusterIP"},"serviceAccount":{"annotations":{},"labels":{}},"startupMode":"normal","waitForPangolin":{"enabled":true,"endpoint":"","image":{"pullPolicy":"IfNotPresent","registry":"docker.io","repository":"curlimages/curl","tag":"8.8.0"},"intervalSeconds":5,"stableSeconds":30,"timeoutSeconds":600}}` | --------------------------------------------------------------------------- # @section Gerbil |
 | gerbil.args | list | `[]` | Override the Gerbil container args. When empty the chart computes the following default args:   --reachableAt=http://<gerbil-svc>:<internalApi-port>   --generateAndSaveKeyTo=/var/config/key   --remoteConfig=http://<pangolin-svc>:<internalApi-port>/api/v1/ Set this list explicitly to pass custom args to Gerbil. |
 | gerbil.command | list | `[]` | Override the Gerbil container entrypoint (command). When empty the container image's default entrypoint is used. |
 | gerbil.commonAnnotations | object | `{}` | Annotations added to all Gerbil resources rendered by this chart. |
 | gerbil.commonLabels | object | `{}` | Labels added to all Gerbil resources rendered by this chart. |
 | gerbil.enabled | bool | `true` | Enable Gerbil component. |
+| gerbil.hostGateway.dnsPolicy | string | `"ClusterFirstWithHostNet"` | DNS policy applied together with `hostNetwork`. Do not change this unless you know what you are doing: Gerbil resolves the Pangolin Service name for `--remoteConfig`, and with the default `ClusterFirst` a hostNetwork Pod uses the node resolver, where that name does not exist. |
+| gerbil.hostGateway.enabled | bool | `false` | Run Gerbil as a node-level tunnel gateway (`hostNetwork: true`). Gerbil creates its WireGuard interface in whatever network namespace it runs in. In a Pod namespace the tunnel subnet is reachable from the Gerbil Pod only, so an externally installed Traefik cannot dial the backends Pangolin advertises and every tunnel-backed resource returns 502. With `hostNetwork` the interface and its connected route are created in the node namespace, and any Pod scheduled onto that node reaches the tunnel through the node's routing table - no manual node routes required. Traefik must run on the same node; see `traefik.colocateWithGerbil` for the chart-managed Traefik and the `helm get notes` output for the snippet to apply to an externally installed Traefik. Requirements and consequences: the CNI must masquerade Pod egress leaving the node (the default for Flannel, Calico `natOutgoing` and Cilium); the namespace must allow `hostNetwork`, i.e. Pod Security Admission level `privileged`; Gerbil binds its WireGuard and internal API ports on the node, so only one Gerbil instance can run per node; and Gerbil's WireGuard iptables rules are written to the node's tables. |
 | gerbil.persistence.accessModes | list | `["ReadWriteOnce"]` | Access modes for the Gerbil PVC. |
 | gerbil.persistence.annotations | object | `{}` | Additional annotations for the Gerbil PVC. |
 | gerbil.persistence.enabled | bool | `true` | Persist Gerbil key/config data on a PVC. Enabled by default (production-recommended): Gerbil saves its WireGuard private key to /var/config/key. Without persistence the key regenerates on every restart, which forces all WireGuard peers to re-handshake and breaks connectivity until peers reconnect. Disable only for ephemeral dev/CI environments where key rotation is acceptable. |
@@ -604,7 +812,7 @@ See `examples/values-blueprints.yaml` for a complete working example.
 | gerbil.startupMode | string | `"normal"` | Gerbil first-run startup behavior. `normal`: render and start Gerbil immediately. `delayed`: render Gerbil resources but keep the multi-mode Gerbil Deployment at replicas=0. `disabledUntilSetup`: do not render Gerbil resources until switched back to `normal` (or `delayed`). |
 | gerbil.waitForPangolin.enabled | bool | `true` | Wait for Pangolin internal API before starting Gerbil. |
 | gerbil.waitForPangolin.endpoint | string | `""` | Override endpoint checked by the wait initContainer. Defaults to http://<pangolin-service>:<internal-api-port>/api/v1/ |
-| global | object | `{"additionalAnnotations":{},"additionalLabels":{},"additionalPodAnnotations":{},"additionalPodLabels":{},"additionalServiceAnnotations":{},"additionalServiceLabels":{},"affinity":{},"commonAnnotations":{},"commonLabels":{},"containerSecurityContext":{},"extraEnv":{},"fullnameOverride":"","image":{"imagePullPolicy":"IfNotPresent","imagePullSecrets":[],"registry":"docker.io"},"nameOverride":"","namespaceOverride":"","nodeSelector":{},"podSecurityContext":{"fsGroupChangePolicy":"OnRootMismatch","seccompProfile":{"type":"RuntimeDefault"}},"priorityClassName":"","revisionHistoryLimit":10,"storageClass":"","tolerations":[],"topologySpreadConstraints":[]}` | --------------------------------------------------------------------------- # @section Global settings |
+| global | object | `{"additionalAnnotations":{},"additionalLabels":{},"additionalPodAnnotations":{},"additionalPodLabels":{},"additionalServiceAnnotations":{},"additionalServiceLabels":{},"affinity":{},"clusterDomain":"cluster.local","commonAnnotations":{},"commonLabels":{},"containerSecurityContext":{},"extraEnv":{},"fullnameOverride":"","image":{"imagePullPolicy":"IfNotPresent","imagePullSecrets":[],"registry":"docker.io"},"nameOverride":"","namespaceOverride":"","nodeSelector":{},"podSecurityContext":{"fsGroupChangePolicy":"OnRootMismatch","seccompProfile":{"type":"RuntimeDefault"}},"priorityClassName":"","revisionHistoryLimit":10,"storageClass":"","tolerations":[],"topologySpreadConstraints":[]}` | --------------------------------------------------------------------------- # @section Global settings |
 | global.additionalAnnotations | object | `{}` | Common annotations applied to all resources rendered by this chart. |
 | global.additionalLabels | object | `{}` | Common labels applied to all resources rendered by this chart. |
 | global.additionalPodAnnotations | object | `{}` | Common annotations added to all Pods. |
@@ -612,6 +820,7 @@ See `examples/values-blueprints.yaml` for a complete working example.
 | global.additionalServiceAnnotations | object | `{}` | Common annotations added to all Services. |
 | global.additionalServiceLabels | object | `{}` | Common labels added to all Services. |
 | global.affinity | object | `{}` | Affinity applied to all Pods. |
+| global.clusterDomain | string | `"cluster.local"` | Kubernetes cluster DNS domain. Used to build in-cluster FQDNs such as the badger `apiBaseUrl` host, which must resolve from the Traefik namespace. |
 | global.commonAnnotations | object | `{}` | Common annotations applied to all resources rendered by this chart (preferred alias). |
 | global.commonLabels | object | `{}` | Common labels applied to all resources rendered by this chart (preferred alias). |
 | global.containerSecurityContext | object | `{}` | Default container security context. |
@@ -715,7 +924,7 @@ See `examples/values-blueprints.yaml` for a complete working example.
 | networkPolicy.pangolin.extraEgress | list | `[]` | Additional egress rules appended to the Pangolin NetworkPolicy only. Use this for Pangolin-specific outbound rules such as SMTP or OIDC provider egress. |
 | networkPolicy.pangolin.extraIngress | list | `[]` | Additional ingress rules appended to the Pangolin NetworkPolicy only. |
 | networkPolicy.pangolin.ingress.dashboard.from | list | `[]` | Optional source peers allowed to reach Pangolin public dashboard/API port. Each item supports standard NetworkPolicyPeer fields (namespaceSelector, podSelector, ipBlock). Applies only when `networkPolicy.pangolin.externalIngress.external=true`. |
-| pangolin | object | `{"blueprints":{"configMap":{"create":false,"name":""},"enabled":false,"environment":{},"environmentSecret":{"create":false,"name":""},"existingConfigMap":"","existingEnvironmentSecret":"","files":{}},"commonAnnotations":{},"commonLabels":{},"config":{"app":{"dashboard_url":"https://pangolin.example.com","log_failed_attempts":true,"log_level":"info","notifications":{"new_releases":true,"product_updates":true},"save_logs":false,"telemetry":{"anonymous_usage":true}},"domains":{"domain1":{"base_domain":"example.com","cert_resolver":"letsencrypt"}},"email":{"enabled":false,"no_reply":"","smtp_host":"","smtp_port":587,"smtp_secure":false,"smtp_tls_reject_unauthorized":true,"smtp_user":""},"extraConfig":"","flags":{"allow_raw_resources":true,"disable_basic_wireguard_sites":false,"disable_config_managed_domains":false,"disable_enterprise_features":false,"disable_local_sites":false,"disable_product_help_banners":false,"disable_signup_without_invite":true,"disable_user_create_org":false,"enable_integration_api":false,"require_email_verification":false},"gerbil":{"base_endpoint":"pangolin.example.com","block_size":24,"clients_start_port":21820,"site_block_size":30,"start_port":51820,"subnet_group":"100.89.137.0/20","use_subdomain":false},"orgs":{"block_size":24,"enabled":false,"subnet_group":"100.90.128.0/20","utility_subnet_group":"100.96.128.0/20"},"postgres":{"enabled":false,"pool":{"connection_timeout_ms":5000,"idle_timeout_ms":30000,"max_connections":20,"max_replica_connections":10}},"rate_limits":{"auth":{"max_requests":10,"window_minutes":1},"enabled":true,"global":{"max_requests":500,"window_minutes":1}},"server":{"cors":{"allowed_headers":[],"credentials":false,"methods":[],"origins":[]},"dashboard_session_length_hours":720,"internal_hostname":"pangolin","resource_access_token_headers":{"id":"P-Access-Token-Id","token":"P-Access-Token"},"resource_access_token_param":"p_token","resource_session_length_hours":720,"resource_session_request_param":"p_session_request","session_cookie_name":"p_session_token","trust_proxy":1},"traefik":{"additional_middlewares":[],"cert_resolver":"letsencrypt","enabled":true,"http_entrypoint":"web","https_entrypoint":"websecure","prefer_wildcard_cert":false}},"configFile":{"enabled":true},"configMap":{"annotations":{},"labels":{}},"databaseWait":{"enabled":true,"image":{"pullPolicy":"IfNotPresent","registry":"docker.io","repository":"postgres","tag":"17"},"intervalSeconds":5,"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":true,"runAsNonRoot":true,"runAsUser":65534},"stableSeconds":30,"timeoutSeconds":600},"deployment":{"annotations":{},"labels":{},"podAnnotations":{},"podLabels":{}},"extraEnv":{},"extraVolumeMounts":[],"extraVolumes":[],"ingressRoute":{"dashboard":{"allowCrossNamespaceServices":false,"annotations":{},"enabled":true,"entryPoints":["websecure"],"host":"","ingressClassName":"","labels":{},"name":"","namespace":"","routes":{"api":{"enabled":true,"middlewares":[],"pathPrefix":"/api/v1","priority":100,"service":{"name":"","namespace":"","port":null}},"dashboard":{"enabled":true,"middlewares":[],"priority":10,"service":{"name":"","namespace":"","port":null}}},"tls":{"certResolver":"","domains":[],"enabled":true,"options":{"name":"","namespace":""},"secretName":"","store":{"name":"","namespace":""}},"traefikSelectorLabels":{}}},"privateConfig":{"enabled":false,"existingSecretKey":"privateConfig.yml","existingSecretName":"","generatedSecret":{"create":false,"data":"","key":"privateConfig.yml","name":""}},"probes":{"liveness":{"failureThreshold":3,"httpGet":{"path":"/api/v1/traefik-config","port":"internal-api"},"initialDelaySeconds":10,"periodSeconds":10,"timeoutSeconds":5},"readiness":{"failureThreshold":3,"httpGet":{"path":"/api/v1/traefik-config","port":"internal-api"},"initialDelaySeconds":5,"periodSeconds":10,"timeoutSeconds":5},"startup":{"failureThreshold":60,"httpGet":{"path":"/api/v1/traefik-config","port":"internal-api"},"initialDelaySeconds":10,"periodSeconds":10,"timeoutSeconds":5}},"replicaCount":1,"resources":{"limits":{"cpu":"1000m","ephemeral-storage":"256Mi","memory":"1Gi"},"requests":{"cpu":"200m","ephemeral-storage":"32Mi","memory":"256Mi"}},"secret":{"existingSecretKey":"SERVER_SECRET","existingSecretName":"","generated":{"create":true,"key":"SERVER_SECRET","length":64,"name":""}},"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":false,"runAsNonRoot":false},"service":{"annotations":{},"enabled":true,"labels":{},"ports":{"external":3000,"integration":3003,"internalApi":3001,"next":3002},"type":"ClusterIP"},"serviceAccount":{"annotations":{},"labels":{}},"workloadType":"Deployment"}` | --------------------------------------------------------------------------- # @section Pangolin core application |
+| pangolin | object | `{"blueprints":{"configMap":{"create":false,"name":""},"enabled":false,"environment":{},"environmentSecret":{"create":false,"name":""},"existingConfigMap":"","existingEnvironmentSecret":"","files":{}},"commonAnnotations":{},"commonLabels":{},"config":{"app":{"dashboard_url":"https://pangolin.example.com","log_failed_attempts":true,"log_level":"info","notifications":{"new_releases":true,"product_updates":true},"save_logs":false,"telemetry":{"anonymous_usage":true}},"domains":{"domain1":{"base_domain":"example.com","cert_resolver":"letsencrypt"}},"email":{"enabled":false,"no_reply":"","smtp_host":"","smtp_port":587,"smtp_secure":false,"smtp_tls_reject_unauthorized":true,"smtp_user":""},"extraConfig":"","flags":{"allow_raw_resources":true,"disable_basic_wireguard_sites":false,"disable_config_managed_domains":false,"disable_enterprise_features":false,"disable_local_sites":false,"disable_product_help_banners":false,"disable_signup_without_invite":true,"disable_user_create_org":false,"enable_integration_api":false,"require_email_verification":false},"gerbil":{"base_endpoint":"pangolin.example.com","block_size":24,"clients_start_port":21820,"site_block_size":30,"start_port":51820,"subnet_group":"100.89.137.0/20","use_subdomain":false},"orgs":{"block_size":24,"enabled":false,"subnet_group":"100.90.128.0/20","utility_subnet_group":"100.96.128.0/20"},"postgres":{"enabled":false,"pool":{"connection_timeout_ms":5000,"idle_timeout_ms":30000,"max_connections":20,"max_replica_connections":10}},"rate_limits":{"auth":{"max_requests":10,"window_minutes":1},"enabled":true,"global":{"max_requests":500,"window_minutes":1}},"server":{"badger_override":"","cors":{"allowed_headers":[],"credentials":false,"methods":[],"origins":[]},"dashboard_session_length_hours":720,"internal_hostname":"","resource_access_token_headers":{"id":"P-Access-Token-Id","token":"P-Access-Token"},"resource_access_token_param":"p_token","resource_session_length_hours":720,"resource_session_request_param":"p_session_request","session_cookie_name":"p_session_token","trust_proxy":1},"traefik":{"additional_middlewares":[],"cert_resolver":"letsencrypt","enabled":true,"http_entrypoint":"web","https_entrypoint":"websecure","prefer_wildcard_cert":false}},"configFile":{"enabled":true},"configMap":{"annotations":{},"labels":{}},"databaseWait":{"enabled":true,"image":{"pullPolicy":"IfNotPresent","registry":"docker.io","repository":"postgres","tag":"17"},"intervalSeconds":5,"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":true,"runAsNonRoot":true,"runAsUser":65534},"stableSeconds":30,"timeoutSeconds":600},"deployment":{"annotations":{},"labels":{},"podAnnotations":{},"podLabels":{}},"extraEnv":{},"extraVolumeMounts":[],"extraVolumes":[],"ingressRoute":{"dashboard":{"allowCrossNamespaceServices":false,"annotations":{},"enabled":true,"entryPoints":["websecure"],"host":"","ingressClassName":"","labels":{},"name":"","namespace":"","routes":{"api":{"enabled":true,"middlewares":[],"pathPrefix":"/api/v1","priority":100,"service":{"name":"","namespace":"","port":null}},"dashboard":{"enabled":true,"middlewares":[],"priority":10,"service":{"name":"","namespace":"","port":null}}},"tls":{"certResolver":"","domains":[],"enabled":true,"options":{"name":"","namespace":""},"secretName":"","store":{"name":"","namespace":""}},"traefikSelectorLabels":{}}},"privateConfig":{"enabled":false,"existingSecretKey":"privateConfig.yml","existingSecretName":"","generatedSecret":{"create":false,"data":"","key":"privateConfig.yml","name":""}},"probes":{"liveness":{"failureThreshold":3,"httpGet":{"path":"/api/v1/traefik-config","port":"internal-api"},"initialDelaySeconds":10,"periodSeconds":10,"timeoutSeconds":5},"readiness":{"failureThreshold":3,"httpGet":{"path":"/api/v1/traefik-config","port":"internal-api"},"initialDelaySeconds":5,"periodSeconds":10,"timeoutSeconds":5},"startup":{"failureThreshold":60,"httpGet":{"path":"/api/v1/traefik-config","port":"internal-api"},"initialDelaySeconds":10,"periodSeconds":10,"timeoutSeconds":5}},"replicaCount":1,"resources":{"limits":{"cpu":"1000m","ephemeral-storage":"256Mi","memory":"1Gi"},"requests":{"cpu":"200m","ephemeral-storage":"32Mi","memory":"256Mi"}},"secret":{"annotations":{},"existingSecretKey":"SERVER_SECRET","existingSecretName":"","generated":{"create":true,"key":"SERVER_SECRET","length":64,"name":""},"labels":{}},"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":false,"runAsNonRoot":false},"service":{"annotations":{},"enabled":true,"labels":{},"ports":{"external":3000,"integration":3003,"internalApi":3001,"next":3002},"type":"ClusterIP"},"serviceAccount":{"annotations":{},"labels":{}},"workloadType":"Deployment"}` | --------------------------------------------------------------------------- # @section Pangolin core application |
 | pangolin.blueprints | object | `{"configMap":{"create":false,"name":""},"enabled":false,"environment":{},"environmentSecret":{"create":false,"name":""},"existingConfigMap":"","existingEnvironmentSecret":"","files":{}}` | provisioning-blueprint-file. Blueprints are NOT consumed directly by the Pangolin server. Enabling this feature stores blueprint definitions as Kubernetes ConfigMaps/Secrets within this Helm release so they can be managed declaratively alongside the rest of the chart.  Blueprint YAML supports environment variable templating using {{env.VARIABLE_NAME}} syntax. Sensitive templating values (e.g. per-site serial numbers, customer IDs) must be stored in a Secret, not a ConfigMap.  See https://docs.pangolin.net/manage/blueprints for the blueprint schema. |
 | pangolin.blueprints.configMap.create | bool | `false` | Create a chart-managed ConfigMap containing blueprint YAML file(s). Each key in `files` becomes a ConfigMap data entry. Mutually exclusive with `existingConfigMap`; setting both will cause validation to fail. |
 | pangolin.blueprints.configMap.name | string | `""` | Name override for the generated ConfigMap. Defaults to "<fullname>-blueprints" when empty. |
@@ -728,7 +937,7 @@ See `examples/values-blueprints.yaml` for a complete working example.
 | pangolin.blueprints.files | object | `{}` | Blueprint YAML file(s) keyed by filename (e.g. `site.yaml`). Each entry is rendered as a data key in the chart-managed ConfigMap. Non-sensitive blueprint definitions belong here. Example:   files:     site.yaml: |       sites:         my-site:           name: My Site           docker-socket-enabled: true |
 | pangolin.commonAnnotations | object | `{}` | Annotations added to all Pangolin resources rendered by this chart. |
 | pangolin.commonLabels | object | `{}` | Labels added to all Pangolin resources rendered by this chart. |
-| pangolin.config | object | `{"app":{"dashboard_url":"https://pangolin.example.com","log_failed_attempts":true,"log_level":"info","notifications":{"new_releases":true,"product_updates":true},"save_logs":false,"telemetry":{"anonymous_usage":true}},"domains":{"domain1":{"base_domain":"example.com","cert_resolver":"letsencrypt"}},"email":{"enabled":false,"no_reply":"","smtp_host":"","smtp_port":587,"smtp_secure":false,"smtp_tls_reject_unauthorized":true,"smtp_user":""},"extraConfig":"","flags":{"allow_raw_resources":true,"disable_basic_wireguard_sites":false,"disable_config_managed_domains":false,"disable_enterprise_features":false,"disable_local_sites":false,"disable_product_help_banners":false,"disable_signup_without_invite":true,"disable_user_create_org":false,"enable_integration_api":false,"require_email_verification":false},"gerbil":{"base_endpoint":"pangolin.example.com","block_size":24,"clients_start_port":21820,"site_block_size":30,"start_port":51820,"subnet_group":"100.89.137.0/20","use_subdomain":false},"orgs":{"block_size":24,"enabled":false,"subnet_group":"100.90.128.0/20","utility_subnet_group":"100.96.128.0/20"},"postgres":{"enabled":false,"pool":{"connection_timeout_ms":5000,"idle_timeout_ms":30000,"max_connections":20,"max_replica_connections":10}},"rate_limits":{"auth":{"max_requests":10,"window_minutes":1},"enabled":true,"global":{"max_requests":500,"window_minutes":1}},"server":{"cors":{"allowed_headers":[],"credentials":false,"methods":[],"origins":[]},"dashboard_session_length_hours":720,"internal_hostname":"pangolin","resource_access_token_headers":{"id":"P-Access-Token-Id","token":"P-Access-Token"},"resource_access_token_param":"p_token","resource_session_length_hours":720,"resource_session_request_param":"p_session_request","session_cookie_name":"p_session_token","trust_proxy":1},"traefik":{"additional_middlewares":[],"cert_resolver":"letsencrypt","enabled":true,"http_entrypoint":"web","https_entrypoint":"websecure","prefer_wildcard_cert":false}}` | Pangolin application config rendered into /app/config/config.yml. Keys and structure follow the Pangolin 1.18.x configSchema (snake_case). |
+| pangolin.config | object | `{"app":{"dashboard_url":"https://pangolin.example.com","log_failed_attempts":true,"log_level":"info","notifications":{"new_releases":true,"product_updates":true},"save_logs":false,"telemetry":{"anonymous_usage":true}},"domains":{"domain1":{"base_domain":"example.com","cert_resolver":"letsencrypt"}},"email":{"enabled":false,"no_reply":"","smtp_host":"","smtp_port":587,"smtp_secure":false,"smtp_tls_reject_unauthorized":true,"smtp_user":""},"extraConfig":"","flags":{"allow_raw_resources":true,"disable_basic_wireguard_sites":false,"disable_config_managed_domains":false,"disable_enterprise_features":false,"disable_local_sites":false,"disable_product_help_banners":false,"disable_signup_without_invite":true,"disable_user_create_org":false,"enable_integration_api":false,"require_email_verification":false},"gerbil":{"base_endpoint":"pangolin.example.com","block_size":24,"clients_start_port":21820,"site_block_size":30,"start_port":51820,"subnet_group":"100.89.137.0/20","use_subdomain":false},"orgs":{"block_size":24,"enabled":false,"subnet_group":"100.90.128.0/20","utility_subnet_group":"100.96.128.0/20"},"postgres":{"enabled":false,"pool":{"connection_timeout_ms":5000,"idle_timeout_ms":30000,"max_connections":20,"max_replica_connections":10}},"rate_limits":{"auth":{"max_requests":10,"window_minutes":1},"enabled":true,"global":{"max_requests":500,"window_minutes":1}},"server":{"badger_override":"","cors":{"allowed_headers":[],"credentials":false,"methods":[],"origins":[]},"dashboard_session_length_hours":720,"internal_hostname":"","resource_access_token_headers":{"id":"P-Access-Token-Id","token":"P-Access-Token"},"resource_access_token_param":"p_token","resource_session_length_hours":720,"resource_session_request_param":"p_session_request","session_cookie_name":"p_session_token","trust_proxy":1},"traefik":{"additional_middlewares":[],"cert_resolver":"letsencrypt","enabled":true,"http_entrypoint":"web","https_entrypoint":"websecure","prefer_wildcard_cert":false}}` | Pangolin application config rendered into /app/config/config.yml. Keys and structure follow the Pangolin 1.18.x configSchema (snake_case). |
 | pangolin.config.app.dashboard_url | string | `"https://pangolin.example.com"` | Public dashboard URL exposed to end users (required by Pangolin at startup). Set this to your real public dashboard URL for production. |
 | pangolin.config.app.log_failed_attempts | bool | `true` | Log failed authentication / access attempts. Enabled by default for audit and attack-detection purposes. Upstream OSS default is false; the chart overrides it to true for a security-hardened baseline. Disable if log volume or storage is a concern. |
 | pangolin.config.app.log_level | string | `"info"` | Pangolin application log level. |
@@ -776,12 +985,13 @@ See `examples/values-blueprints.yaml` for a complete working example.
 | pangolin.config.rate_limits.enabled | bool | `true` | Include the rate_limits section in the rendered config.yml. Enabled by default for a security-hardened baseline. Upstream does not enable rate limits by default; the chart enables them to protect against brute-force and denial-of-service attacks. |
 | pangolin.config.rate_limits.global.max_requests | int | `500` | Maximum requests per window per client for the global bucket. 500 req/min is a permissive ceiling suitable for most API consumers; tighten if you observe abuse patterns. |
 | pangolin.config.rate_limits.global.window_minutes | int | `1` | Window size in minutes for the global rate limit bucket. |
+| pangolin.config.server.badger_override | string | `""` | Overrides the badger middleware `apiBaseUrl` verbatim, bypassing `internal_hostname`/`internal_port`. Only needed when badger must reach Pangolin through a different address than Pangolin's own internal API (for example via an external ingress). Empty keeps the derived value. |
 | pangolin.config.server.cors.allowed_headers | list | `[]` | Allowed CORS request headers. |
 | pangolin.config.server.cors.credentials | bool | `false` | Allow credentials in CORS requests. |
 | pangolin.config.server.cors.methods | list | `[]` | Allowed CORS methods. Empty list falls back to Pangolin defaults. |
 | pangolin.config.server.cors.origins | list | `[]` | Allowed CORS origins. Empty list disables CORS origin restriction. |
 | pangolin.config.server.dashboard_session_length_hours | int | `720` | Dashboard session lifetime in hours. Upstream default is 720 (30 days). For production environments with stricter security requirements, consider reducing to 168 (7 days) or 336 (14 days) to limit session exposure. |
-| pangolin.config.server.internal_hostname | string | `"pangolin"` | Internal hostname used by Pangolin when communicating with Gerbil. |
+| pangolin.config.server.internal_hostname | string | `""` | Host Pangolin advertises for its own internal API. This is NOT only an intra-Pangolin setting: Pangolin renders the badger middleware into the Traefik config as `apiBaseUrl: http://<internal_hostname>:<internal_port>/api/v1`, and badger resolves that name from inside the **Traefik** Pod. A bare name like `pangolin` therefore does not resolve when Traefik runs in another namespace, and badger answers every request with `404 page not found` while the Traefik dashboard still reports the router as healthy. Leave empty to let the chart render the in-cluster FQDN `<fullname>.<namespace>.svc.<global.clusterDomain>`, which resolves from any namespace. Set explicitly only if you need a different host. |
 | pangolin.config.server.resource_access_token_headers.id | string | `"P-Access-Token-Id"` | Header name for resource identifier. |
 | pangolin.config.server.resource_access_token_headers.token | string | `"P-Access-Token"` | Header name for resource access token. |
 | pangolin.config.server.resource_access_token_param | string | `"p_token"` | Request parameter name for resource access tokens. |
@@ -876,7 +1086,7 @@ See `examples/values-blueprints.yaml` for a complete working example.
 | runtime.dependencyWait.intervalSeconds | int | `5` | Default interval between dependency wait probes. |
 | runtime.dependencyWait.stableSeconds | int | `30` | Required consecutive successful seconds before a dependency is treated as stable. |
 | runtime.dependencyWait.timeoutSeconds | int | `300` | Default timeout for dependency wait probes. |
-| runtime.hostNetwork | bool | `false` | Enable hostNetwork on workloads that support it. |
+| runtime.hostNetwork | bool | `false` | Enable hostNetwork on workloads that support it. Gerbil is the only such workload today; this is an alias for `gerbil.hostGateway.enabled`, which is the preferred switch because it also applies the required DNS policy and the Traefik co-location contract. Either value being true enables host gateway mode. |
 | runtime.minReadySeconds | int | `0` | Min ready seconds for Deployments. |
 | runtime.terminationGracePeriodSeconds | int | `30` | Grace period in seconds before Pod termination. |
 | runtime.updateStrategy | object | `{"rollingUpdate":{"maxSurge":1,"maxUnavailable":0},"type":"RollingUpdate"}` | Default update strategy for Deployments managed by this chart. |
@@ -896,7 +1106,7 @@ See `examples/values-blueprints.yaml` for a complete working example.
 | serviceAccount.pangolin.create | bool | `true` | Create a ServiceAccount for Pangolin Pods. |
 | serviceAccount.pangolin.labels | object | `{}` | Extra labels added to the Pangolin ServiceAccount. |
 | serviceAccount.pangolin.name | string | `""` | Existing ServiceAccount name. When empty and create=true, a name is generated. |
-| traefik | object | `{"cloudflare":{"existingSecretName":"","generatedSecret":{"apiToken":"","create":false,"dnsApiToken":"","email":"","name":"","zoneApiToken":""},"keys":{"dnsApiToken":"dnsApiToken","email":"email","zoneApiToken":"zoneApiToken"}},"commonAnnotations":{},"commonLabels":{},"config":{"acmeCaServer":"https://acme-v02.api.letsencrypt.org/directory","acmeDelayBeforeCheck":0,"adminPort":8085,"certResolver":"letsencrypt","dashboard":false,"dashboardDeclareContainerPort":false,"dynamicRouters":{"host":"example.com"},"httpEntrypoint":"web","httpsEntrypoint":"websecure","insecureSkipVerify":false,"letsencryptEmail":"","logLevel":"INFO"},"deployment":{"annotations":{},"labels":{},"podAnnotations":{},"podLabels":{}},"enabled":false,"persistence":{"accessModes":["ReadWriteOnce"],"enabled":false,"existingClaim":"","size":"1Gi","storageClass":""},"probes":{"liveness":{"failureThreshold":3,"httpGet":{"path":"/ping","port":8085},"initialDelaySeconds":10,"periodSeconds":30,"timeoutSeconds":5},"readiness":{"failureThreshold":3,"httpGet":{"path":"/ping","port":8085},"initialDelaySeconds":5,"periodSeconds":10,"timeoutSeconds":3},"startup":{"failureThreshold":20,"httpGet":{"path":"/ping","port":8085},"initialDelaySeconds":5,"periodSeconds":5,"timeoutSeconds":3}},"replicaCount":1,"resources":{"limits":{"cpu":"500m","ephemeral-storage":"128Mi","memory":"512Mi"},"requests":{"cpu":"100m","ephemeral-storage":"16Mi","memory":"128Mi"}},"securityContext":{"allowPrivilegeEscalation":true,"readOnlyRootFilesystem":false,"runAsNonRoot":false},"service":{"annotations":{},"enabled":true,"externalTrafficPolicy":"","labels":{},"loadBalancerSourceRanges":[],"type":"LoadBalancer"}}` | --------------------------------------------------------------------------- # @section Standalone Traefik mode |
+| traefik | object | `{"cloudflare":{"existingSecretName":"","generatedSecret":{"apiToken":"","create":false,"dnsApiToken":"","email":"","name":"","zoneApiToken":""},"keys":{"dnsApiToken":"dnsApiToken","email":"email","zoneApiToken":"zoneApiToken"}},"colocateWithGerbil":"auto","commonAnnotations":{},"commonLabels":{},"config":{"acmeCaServer":"https://acme-v02.api.letsencrypt.org/directory","acmeDelayBeforeCheck":0,"adminPort":8085,"certResolver":"letsencrypt","dashboard":false,"dashboardDeclareContainerPort":false,"dynamicRouters":{"host":"example.com"},"httpEntrypoint":"web","httpsEntrypoint":"websecure","insecureSkipVerify":false,"letsencryptEmail":"","logLevel":"INFO"},"deployment":{"annotations":{},"labels":{},"podAnnotations":{},"podLabels":{}},"enabled":false,"persistence":{"accessModes":["ReadWriteOnce"],"enabled":false,"existingClaim":"","size":"1Gi","storageClass":""},"probes":{"liveness":{"failureThreshold":3,"httpGet":{"path":"/ping","port":8085},"initialDelaySeconds":10,"periodSeconds":30,"timeoutSeconds":5},"readiness":{"failureThreshold":3,"httpGet":{"path":"/ping","port":8085},"initialDelaySeconds":5,"periodSeconds":10,"timeoutSeconds":3},"startup":{"failureThreshold":20,"httpGet":{"path":"/ping","port":8085},"initialDelaySeconds":5,"periodSeconds":5,"timeoutSeconds":3}},"replicaCount":1,"resources":{"limits":{"cpu":"500m","ephemeral-storage":"128Mi","memory":"512Mi"},"requests":{"cpu":"100m","ephemeral-storage":"16Mi","memory":"128Mi"}},"securityContext":{"allowPrivilegeEscalation":true,"readOnlyRootFilesystem":false,"runAsNonRoot":false},"service":{"annotations":{},"enabled":true,"externalTrafficPolicy":"","labels":{},"loadBalancerSourceRanges":[],"type":"LoadBalancer"}}` | --------------------------------------------------------------------------- # @section Standalone Traefik mode |
 | traefik.cloudflare.existingSecretName | string | `""` | Existing Secret name with Cloudflare credentials. |
 | traefik.cloudflare.generatedSecret.apiToken | string | `""` | One token reused for both DNS and zone scopes when the app supports it. |
 | traefik.cloudflare.generatedSecret.create | bool | `false` | Create a chart-managed Cloudflare Secret. |
@@ -907,6 +1117,7 @@ See `examples/values-blueprints.yaml` for a complete working example.
 | traefik.cloudflare.keys.dnsApiToken | string | `"dnsApiToken"` | Key inside the existing Secret containing DNS API token. |
 | traefik.cloudflare.keys.email | string | `"email"` | Key inside the existing Secret containing Cloudflare email. |
 | traefik.cloudflare.keys.zoneApiToken | string | `"zoneApiToken"` | Key inside the existing Secret containing zone API token. |
+| traefik.colocateWithGerbil | string | `"auto"` | Pin the chart-managed Traefik Pods onto the node that currently runs Gerbil, using a required podAffinity on `kubernetes.io/hostname`. Only relevant together with `gerbil.hostGateway.enabled`: the tunnel route exists on the Gerbil node only, so Traefik reaches tunnel backends from that node and nowhere else. The affinity follows Gerbil dynamically - no node label needed - so if Gerbil is rescheduled the next Traefik Pod lands on the new node too. `auto` enables it whenever host gateway mode is on, `required` always enables it, `disabled` never does. It is suppressed automatically when it could not be satisfied (single mode, Gerbil disabled, or `gerbil.startupMode: delayed`), because a required affinity against a workload that never schedules would leave Traefik Pending. The term is `IgnoredDuringExecution`: if Gerbil moves, running Traefik Pods stay where they are and keep returning 502 until you restart them with `kubectl rollout restart`. Only applies to the Traefik workload this chart renders (`deployment.type=standalone`). For an externally installed Traefik apply the snippet from `helm get notes` to its own values. |
 | traefik.commonAnnotations | object | `{}` | Annotations added to all standalone Traefik resources rendered by this chart. |
 | traefik.commonLabels | object | `{}` | Labels added to all standalone Traefik resources rendered by this chart. |
 | traefik.config.acmeCaServer | string | `"https://acme-v02.api.letsencrypt.org/directory"` | ACME CA directory URL. |
