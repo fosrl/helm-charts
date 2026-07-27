@@ -710,12 +710,6 @@ limits:
 {{- fail "PANGOLIN-016: deployment.mode=single with deployment.type=controller requires controller.enabled=true." -}}
 {{- end -}}
 
-{{- $gerbilVals := default (dict) $root.Values.gerbil -}}
-{{- $gerbilStartupMode := default "normal" (get $gerbilVals "startupMode") -}}
-{{- if not (has $gerbilStartupMode (list "normal" "delayed")) -}}
-{{- fail "PANGOLIN-062: gerbil.startupMode must be one of [normal, delayed]." -}}
-{{- end -}}
-
 {{- $db := default (dict) $root.Values.database -}}
 {{- $gerbil := default (dict) $root.Values.gerbil -}}
 {{- $gerbilStartupMode := default "normal" (get $gerbil "startupMode") -}}
