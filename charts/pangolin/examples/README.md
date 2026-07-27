@@ -21,6 +21,7 @@ These values files are intended to be copy/pasteable starting points.
 | Controller + SQLite (dev/test only) | `values-controller-sqlite-dev.yaml` | Local/dev/test only, non-production | **No** (uses `namespace.create=true`) |
 | Standalone + Traefik | `values-standalone-traefik.yaml` | Standalone topology close to installer style; less recommended for K8s production | **No** (uses `namespace.create=true`) |
 | Gerbil LoadBalancer | `values-gerbil-loadbalancer.yaml` | Expose Gerbil WireGuard ports via Kubernetes LoadBalancer | **No** (uses `namespace.create=true`) |
+| Gerbil host gateway | `values-host-gateway.yaml` | Make tunnel backends reachable from an externally installed Traefik in controller + multi mode | **No** (uses `namespace.create=true`) |
 | Single mode controller | `values-single-controller.yaml` | Demonstrate `deployment.mode=single` in controller mode (trade-off profile) | **No** (uses `namespace.create=true`) |
 | Single mode standalone | `values-single-standalone.yaml` | Demonstrate `deployment.mode=single` in standalone mode (trade-off profile) | **No** (uses `namespace.create=true`) |
 
@@ -42,6 +43,18 @@ If your selected values file does **not** set `namespace.create=true`, add `--cr
 - External DB profile uses placeholders only (`<REPLACE_WITH_ACTUAL_PASSWORD>`, `*.example.test`) and demonstrates `sslMode` guidance:
   - internal/self-signed testing: `sslMode=disable`
   - production external DB: `sslMode=require` / `verify-ca` / `verify-full`
+
+## Tunnel data path
+
+Pangolin advertises Newt-site backends as WireGuard peer addresses, and Gerbil
+creates that interface inside its own Pod network namespace. In
+`deployment.type=controller` + `deployment.mode=multi` an externally installed
+Traefik therefore cannot reach those backends and returns 502 for every
+tunnel-backed resource, while still reporting the router as healthy.
+
+Use `values-host-gateway.yaml` to run Gerbil as a node-level gateway
+(`hostNetwork`) and co-locate Traefik with it. See the "Tunnel data path"
+section of the chart README for the full mechanism, requirements and limits.
 
 ## First-run behavior and Gerbil notes
 
@@ -89,10 +102,6 @@ If the namespace was chart-managed and is no longer needed:
 ```bash
 kubectl delete namespace <namespace>
 ```
-=======
-# Pangolin chart examples
-
-These files are install-ready value profiles for common deployments.
 
 ## Gerbil LoadBalancer annotations
 

@@ -1,0 +1,171 @@
+# Example: Gerbil host gateway - make tunnel backends reachable from Traefik
+#
+# Topology: deployment.type=controller + deployment.mode=multi
+# Database:  database.mode=cloudnativepg (default)
+#
+# THE PROBLEM
+#
+# Pangolin advertises Newt-site backends to Traefik as WireGuard peer addresses,
+# for example http://100.89.128.4:44602. Gerbil creates that WireGuard interface
+# inside its own Pod network namespace, so the address exists only there. An
+# externally installed Traefik has no route to it and returns a deterministic
+# 502 for every tunnel-backed resource - while the Traefik dashboard still shows
+# the router and middleware as healthy, which makes it look like a Pangolin
+# problem rather than a routing one.
+#
+# Upstream's Docker Compose deployment sidesteps this by running Traefik with
+# `network_mode: service:gerbil`, sharing Gerbil's network namespace. Separate
+# Kubernetes Pods have no equivalent.
+#
+# THE FIX IN THIS PROFILE
+#
+# Run Gerbil with hostNetwork so wg0 and its connected route are created in the
+# node network namespace instead, and keep Traefik on that same node:
+#
+#   Traefik Pod --veth--> node netns --forward--> wg0 --> Newt --> target
+#
+# No manual node routes are needed. Gerbil installs the route itself when it
+# brings the interface up, and the CNI's standard outbound masquerade rule
+# rewrites the source address to Gerbil's tunnel IP on the way out - which is
+# what the remote WireGuard peer expects to see.
+#
+# REQUIREMENTS
+#
+#   * The CNI must masquerade Pod egress leaving the node. This is the default
+#     for Flannel (Talos, k3s), Calico (natOutgoing) and Cilium. Without it the
+#     packet keeps the Traefik Pod IP as source; WireGuard cryptokey routing
+#     drops it and the peer has no route for a reply.
+#   * The namespace must allow hostNetwork, i.e. PSA level `privileged`.
+#   * Only one Gerbil per node - it binds its WireGuard and internal API ports
+#     on the node itself.
+#   * Traefik must run on the Gerbil node. See below.
+#
+# LIMITS
+#
+# The tunnel data path lives on a single node. Traefik still scales
+# horizontally, but only within that node, so this is node-level redundancy
+# short of full HA. The portable alternative that removes the node dependency is
+# tracked separately.
+#
+# Usage:
+#   helm install pangolin charts/pangolin \
+#     -f examples/values-host-gateway.yaml \
+#     --namespace pangolin
+
+deployment:
+  type: controller
+  mode: multi
+  # Where the externally installed Traefik lives. The controller writes Traefik
+  # CRs here.
+  traefikNamespace: traefik-system
+
+namespace:
+  create: true
+  name: pangolin
+  podSecurity:
+    # `privileged` is required: PSA level `baseline` forbids hostNetwork.
+    enforce: privileged
+    warn: baseline
+    audit: baseline
+
+# ---------------------------------------------------------------------------
+# Database - CloudNativePG (default; adjust to your environment)
+# ---------------------------------------------------------------------------
+database:
+  mode: cloudnativepg
+  cloudnativepg:
+    cluster:
+      name: pangolin-db
+
+cnpg-operator:
+  enabled: false
+cnpg-cluster:
+  enabled: true
+
+# ---------------------------------------------------------------------------
+# Gerbil - node-level tunnel gateway
+# ---------------------------------------------------------------------------
+gerbil:
+  enabled: true
+  # Must be `normal`. With `delayed` the Deployment stays at replicas=0, so
+  # there is no Gerbil Pod for Traefik to be co-located with.
+  startupMode: normal
+  # Only one replica can bind the node ports.
+  replicaCount: 1
+  hostGateway:
+    enabled: true
+  # Keep the WireGuard private key across restarts, otherwise every peer has to
+  # re-handshake after a reschedule.
+  persistence:
+    enabled: true
+  service:
+    # With hostNetwork the WireGuard ports are already published on the node.
+    # Switch to LoadBalancer only if you want a stable external endpoint in
+    # front of them.
+    type: ClusterIP
+
+pangolin:
+  config:
+    gerbil:
+      # Public endpoint Newt uses to reach Gerbil. With hostNetwork this is the
+      # node's own reachable address or a DNS name pointing at it.
+      base_endpoint: pangolin.example.com
+      # Must not overlap the Pod CIDR, Service CIDR, node/VPC network, or any
+      # network at a Newt site. An overlap makes the route ambiguous and traffic
+      # is silently misrouted.
+      subnet_group: 100.89.137.0/20
+    app:
+      dashboard_url: https://pangolin.example.com
+    domains:
+      domain1:
+        base_domain: example.com
+        cert_resolver: letsencrypt
+
+# ---------------------------------------------------------------------------
+# Traefik co-location
+# ---------------------------------------------------------------------------
+#
+# The tunnel route exists on the Gerbil node only, so Traefik has to run there.
+#
+# This chart does not manage an externally installed Traefik. Run
+# `helm get notes <release> -n pangolin` after installing to get this snippet
+# with your real release name and namespace filled in, then add it to the
+# Traefik chart's own values:
+#
+#   affinity:
+#     podAffinity:
+#       requiredDuringSchedulingIgnoredDuringExecution:
+#         - labelSelector:
+#             matchLabels:
+#               app.kubernetes.io/name: pangolin
+#               app.kubernetes.io/instance: pangolin
+#               app.kubernetes.io/component: gerbil
+#           namespaces:
+#             - pangolin
+#           topologyKey: kubernetes.io/hostname
+#
+# The affinity targets Gerbil's Pod labels rather than a node label, so Traefik
+# follows Gerbil to whichever node the scheduler picks. It is
+# IgnoredDuringExecution: if Gerbil is rescheduled, restart Traefik so it
+# follows:
+#
+#   kubectl -n traefik-system rollout restart deployment/traefik
+#
+# When this chart renders Traefik itself (deployment.type=standalone) the
+# affinity is applied automatically via traefik.colocateWithGerbil.
+
+# ---------------------------------------------------------------------------
+# Verification
+# ---------------------------------------------------------------------------
+#
+# From a Traefik Pod, dial a tunnel backend directly. Take the address from
+# Pangolin's Traefik config output:
+#
+#   kubectl -n pangolin exec deploy/pangolin -- \
+#     wget -qO- http://localhost:3001/api/v1/traefik-config
+#
+#   kubectl -n traefik-system exec deploy/traefik -- \
+#     wget -qO- http://<tunnel-ip>:<internal-port>
+#
+# A response means the path works. A hang or "bad address" means Traefik is not
+# on the Gerbil node, or the CNI is not masquerading Pod egress.
