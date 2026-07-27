@@ -1,0 +1,70 @@
+suite: badger apiBaseUrl host resolution
+templates:
+  - templates/configmap-pangolin.yaml
+tests:
+  # Pangolin renders the badger middleware as
+  #   apiBaseUrl: http://<internal_hostname>:<internal_port>/api/v1
+  # and badger resolves that host from inside the Traefik Pod. A bare Service
+  # name only resolves in Pangolin's own namespace, so the default has to be the
+  # in-cluster FQDN. See fosrl/helm-charts#20.
+  - it: defaults internal_hostname to the in-cluster Pangolin FQDN
+    release:
+      name: t
+      namespace: pangolin
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: 'internal_hostname: "t-pangolin\.pangolin\.svc\.cluster\.local"'
+
+  - it: never renders a bare Service name that fails to resolve cross-namespace
+    release:
+      name: t
+      namespace: pangolin
+    asserts:
+      - notMatchRegex:
+          path: data["config.yml"]
+          pattern: 'internal_hostname: "pangolin"'
+
+  - it: honours global.namespaceOverride in the derived FQDN
+    release:
+      name: t
+      namespace: pangolin
+    set:
+      global.namespaceOverride: pangolin-system
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: 'internal_hostname: "t-pangolin\.pangolin-system\.svc\.cluster\.local"'
+
+  - it: honours global.clusterDomain in the derived FQDN
+    release:
+      name: t
+      namespace: pangolin
+    set:
+      global.clusterDomain: k8s.internal
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: 'internal_hostname: "t-pangolin\.pangolin\.svc\.k8s\.internal"'
+
+  - it: keeps an explicitly configured internal_hostname
+    set:
+      pangolin.config.server.internal_hostname: pangolin.example.internal
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: 'internal_hostname: "pangolin\.example\.internal"'
+
+  - it: omits badger_override unless it is set
+    asserts:
+      - notMatchRegex:
+          path: data["config.yml"]
+          pattern: "badger_override"
+
+  - it: renders badger_override when set
+    set:
+      pangolin.config.server.badger_override: https://pangolin.example.com/api/v1
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: 'badger_override: "https://pangolin\.example\.com/api/v1"'

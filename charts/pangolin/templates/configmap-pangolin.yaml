@@ -35,7 +35,10 @@ data:
     domains:
       {{- toYaml ($cfg.domains | default dict) | nindent 6 }}
     server:
-      internal_hostname: {{ $server.internal_hostname | default "pangolin" | quote }}
+      internal_hostname: {{ include "pangolin.server.internalHostname" $root | quote }}
+      {{- with $server.badger_override }}
+      badger_override: {{ . | quote }}
+      {{- end }}
       session_cookie_name: {{ $server.session_cookie_name | default "p_session_token" | quote }}
       resource_access_token_param: {{ $server.resource_access_token_param | default "p_token" | quote }}
       resource_access_token_headers:

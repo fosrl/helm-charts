@@ -58,6 +58,9 @@ global:
   fullnameOverride: "" # @schema type: string
   # -- Override namespace for rendered resources.
   namespaceOverride: "" # @schema type: string
+  # -- Kubernetes cluster DNS domain. Used to build in-cluster FQDNs such as the
+  # badger `apiBaseUrl` host, which must resolve from the Traefik namespace.
+  clusterDomain: cluster.local # @schema type: string
   # -- Common labels applied to all resources rendered by this chart.
   additionalLabels: {} # @schema type: object ; additionalProperties: {type: string}
   # -- Common labels applied to all resources rendered by this chart (preferred alias).
@@ -610,8 +613,23 @@ pangolin:
 
     # ---------- server section ----------
     server:
-      # -- Internal hostname used by Pangolin when communicating with Gerbil.
-      internal_hostname: pangolin # @schema type: string
+      # -- Host Pangolin advertises for its own internal API.
+      # This is NOT only an intra-Pangolin setting: Pangolin renders the badger
+      # middleware into the Traefik config as
+      # `apiBaseUrl: http://<internal_hostname>:<internal_port>/api/v1`, and badger
+      # resolves that name from inside the **Traefik** Pod. A bare name like
+      # `pangolin` therefore does not resolve when Traefik runs in another
+      # namespace, and badger answers every request with `404 page not found`
+      # while the Traefik dashboard still reports the router as healthy.
+      # Leave empty to let the chart render the in-cluster FQDN
+      # `<fullname>.<namespace>.svc.<global.clusterDomain>`, which resolves from
+      # any namespace. Set explicitly only if you need a different host.
+      internal_hostname: "" # @schema type: string
+      # -- Overrides the badger middleware `apiBaseUrl` verbatim, bypassing
+      # `internal_hostname`/`internal_port`. Only needed when badger must reach
+      # Pangolin through a different address than Pangolin's own internal API
+      # (for example via an external ingress). Empty keeps the derived value.
+      badger_override: "" # @schema type: string
       # -- Session cookie name.
       session_cookie_name: p_session_token # @schema type: string
       # -- Request parameter name for resource access tokens.

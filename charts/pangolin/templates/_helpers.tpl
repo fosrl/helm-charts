@@ -23,6 +23,37 @@
 {{- default .Release.Namespace .Values.global.namespaceOverride -}}
 {{- end -}}
 
+{{- define "pangolin.clusterDomain" -}}
+{{- default "cluster.local" .Values.global.clusterDomain -}}
+{{- end -}}
+
+{{- /*
+pangolin.pangolin.serviceFQDN renders the fully qualified in-cluster name of the
+Pangolin Service. Unlike the bare Service name this resolves from every
+namespace, which matters because badger runs inside the Traefik Pod and that Pod
+is frequently deployed to `deployment.traefikNamespace`.
+*/ -}}
+{{- define "pangolin.pangolin.serviceFQDN" -}}
+{{- printf "%s.%s.svc.%s" (include "pangolin.fullname" .) (include "pangolin.namespace" .) (include "pangolin.clusterDomain" .) -}}
+{{- end -}}
+
+{{- /*
+pangolin.server.internalHostname resolves `pangolin.config.server.internal_hostname`.
+Pangolin renders this host into the badger middleware as
+`apiBaseUrl: http://<host>:<internal_port>/api/v1`, so it has to be resolvable
+from the Traefik Pod. When the user leaves it empty the chart falls back to the
+in-cluster FQDN instead of a bare Service name.
+*/ -}}
+{{- define "pangolin.server.internalHostname" -}}
+{{- $server := (.Values.pangolin.config).server | default dict -}}
+{{- $explicit := get $server "internal_hostname" | default "" -}}
+{{- if $explicit -}}
+{{- $explicit -}}
+{{- else -}}
+{{- include "pangolin.pangolin.serviceFQDN" . -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "pangolin.serviceAccountName" -}}
 {{- if .Values.serviceAccount.pangolin.name -}}
 {{- .Values.serviceAccount.pangolin.name -}}
