@@ -99,6 +99,113 @@ false
 {{- end -}}
 {{- end -}}
 
+{{- /*
+pangolin.gerbil.hostGateway.enabled reports whether Gerbil runs as a node-level
+tunnel gateway.
+
+Gerbil creates its WireGuard interface in whatever network namespace it runs in.
+In a Pod namespace the tunnel subnet is reachable from that Pod only, so an
+externally installed Traefik gets a deterministic 502 for every tunnel-backed
+resource. With hostNetwork the interface and its connected route land in the
+node namespace instead, and any Pod scheduled onto that node reaches the tunnel
+through the node's routing table.
+
+`runtime.hostNetwork` is honoured as well: it was documented as "enable
+hostNetwork on workloads that support it" but was never consumed by a template.
+
+include() returns strings, so callers compare this helper output to "true".
+*/ -}}
+{{- define "pangolin.gerbil.hostGateway.enabled" -}}
+{{- $hostGateway := (.Values.gerbil).hostGateway | default dict -}}
+{{- if or ($hostGateway.enabled | default false) ((.Values.runtime).hostNetwork | default false) -}}
+true
+{{- else -}}
+false
+{{- end -}}
+{{- end -}}
+
+{{- /*
+pangolin.gerbil.hostGateway.dnsPolicy is only meaningful with hostNetwork.
+`ClusterFirstWithHostNet` is required rather than merely recommended: Gerbil
+resolves the Pangolin Service name for its `--remoteConfig` endpoint, and with
+hostNetwork plus the default `ClusterFirst` a Pod uses the node's resolver, so
+that name never resolves and Gerbil retries forever without ever configuring
+WireGuard.
+*/ -}}
+{{- define "pangolin.gerbil.hostGateway.dnsPolicy" -}}
+{{- $hostGateway := (.Values.gerbil).hostGateway | default dict -}}
+{{- $hostGateway.dnsPolicy | default "ClusterFirstWithHostNet" -}}
+{{- end -}}
+
+{{- /*
+pangolin.gerbil.colocationSupported reports whether pinning another workload to
+the Gerbil node is meaningful. A required podAffinity against a workload that
+never schedules would leave the dependent Pods Pending forever, so this excludes
+single mode (no separate Gerbil Pod), a disabled Gerbil, and `startupMode:
+delayed` (Deployment kept at replicas=0 during first-run bootstrap).
+*/ -}}
+{{- define "pangolin.gerbil.colocationSupported" -}}
+{{- if and (eq (include "pangolin.gerbil.resourcesEnabled" .) "true") (eq .Values.deployment.mode "multi") (eq (include "pangolin.gerbil.startupMode" .) "normal") -}}
+true
+{{- else -}}
+false
+{{- end -}}
+{{- end -}}
+
+{{- /*
+pangolin.gerbil.colocationTerm renders a podAffinity term that pins a workload
+onto whichever node currently runs Gerbil.
+
+Deliberately `required...`, not `preferred...`: a preferred term lets the
+scheduler place Traefik on a node without the tunnel route, which fails as a
+silent 502 rather than a visible scheduling error. `namespaces` is explicit
+because Traefik commonly lives in `deployment.traefikNamespace` while Gerbil
+stays in the release namespace, and podAffinity defaults to the Pod's own
+namespace.
+
+Note this is `IgnoredDuringExecution`: if Gerbil moves to another node, running
+Traefik Pods are not evicted and must be restarted to follow it.
+*/ -}}
+{{- define "pangolin.gerbil.colocationTerm" -}}
+labelSelector:
+  matchLabels:
+    {{- include "pangolin.gerbil.selectorLabels" . | nindent 4 }}
+namespaces:
+  - {{ include "pangolin.namespace" . }}
+topologyKey: kubernetes.io/hostname
+{{- end -}}
+
+{{- define "pangolin.traefik.colocateWithGerbil" -}}
+{{- $mode := (.Values.traefik).colocateWithGerbil | default "auto" -}}
+{{- if eq (include "pangolin.gerbil.colocationSupported" .) "false" -}}
+false
+{{- else if eq $mode "required" -}}
+true
+{{- else if eq $mode "disabled" -}}
+false
+{{- else -}}
+{{- include "pangolin.gerbil.hostGateway.enabled" . -}}
+{{- end -}}
+{{- end -}}
+
+{{- /*
+pangolin.traefik.affinity merges the Gerbil co-location term into
+`global.affinity` instead of replacing it, so operators keep their own affinity
+rules while Traefik still follows Gerbil.
+*/ -}}
+{{- define "pangolin.traefik.affinity" -}}
+{{- $affinity := deepCopy (.Values.global.affinity | default dict) -}}
+{{- if eq (include "pangolin.traefik.colocateWithGerbil" .) "true" -}}
+{{- $podAffinity := deepCopy (get $affinity "podAffinity" | default dict) -}}
+{{- $required := concat (get $podAffinity "requiredDuringSchedulingIgnoredDuringExecution" | default list) (list (include "pangolin.gerbil.colocationTerm" . | fromYaml)) -}}
+{{- $_ := set $podAffinity "requiredDuringSchedulingIgnoredDuringExecution" $required -}}
+{{- $_ := set $affinity "podAffinity" $podAffinity -}}
+{{- end -}}
+{{- if gt (len $affinity) 0 -}}
+{{- toYaml $affinity -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "pangolin.db.mode" -}}
 {{- default "cloudnativepg" ((.Values.database).mode) -}}
 {{- end -}}
@@ -715,6 +822,23 @@ limits:
 {{- $gerbilStartupMode := default "normal" (get $gerbil "startupMode") -}}
 {{- if not (has $gerbilStartupMode (list "normal" "delayed" "disabledUntilSetup")) -}}
 {{- fail (printf "PANGOLIN-062: gerbil.startupMode must be one of [normal, delayed, disabledUntilSetup], got %q" $gerbilStartupMode) -}}
+{{- end -}}
+
+{{- if eq (include "pangolin.gerbil.hostGateway.enabled" $root) "true" -}}
+{{- if ne $root.Values.deployment.mode "multi" -}}
+{{- fail "PANGOLIN-067: gerbil.hostGateway.enabled=true requires deployment.mode=multi. In single mode Gerbil shares a Pod with Pangolin, so hostNetwork would bind every component's ports on the node." -}}
+{{- end -}}
+{{- if not (default false (get $gerbil "enabled")) -}}
+{{- fail "PANGOLIN-068: gerbil.hostGateway.enabled=true requires gerbil.enabled=true." -}}
+{{- end -}}
+{{- if gt (int (default 1 (get $gerbil "replicaCount"))) 1 -}}
+{{- fail "PANGOLIN-069: gerbil.hostGateway.enabled=true requires gerbil.replicaCount=1. Gerbil binds its WireGuard and internal API ports on the node, so a second replica cannot start on the same node." -}}
+{{- end -}}
+{{- $namespaceVals := default (dict) $root.Values.namespace -}}
+{{- $podSecurity := default (dict) (get $namespaceVals "podSecurity") -}}
+{{- if and (default false (get $namespaceVals "create")) (ne (default "" (get $podSecurity "enforce")) "privileged") -}}
+{{- fail "PANGOLIN-070: gerbil.hostGateway.enabled=true requires namespace.podSecurity.enforce=privileged when the chart creates the namespace. Pod Security Admission level baseline forbids hostNetwork." -}}
+{{- end -}}
 {{- end -}}
 
 {{- $cnpg := default (dict) (get $db "cloudnativepg") -}}

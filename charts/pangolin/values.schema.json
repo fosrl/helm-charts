@@ -1369,6 +1369,25 @@
                         "type": "string"
                     }
                 },
+                "hostGateway": {
+                    "type": "object",
+                    "properties": {
+                        "dnsPolicy": {
+                            "description": "DNS policy applied together with `hostNetwork`. Do not change this unless you know what you are doing: Gerbil resolves the Pangolin Service name for `--remoteConfig`, and with the default `ClusterFirst` a hostNetwork Pod uses the node resolver, where that name does not exist.",
+                            "type": "string",
+                            "enum": [
+                                "ClusterFirstWithHostNet",
+                                "ClusterFirst",
+                                "Default",
+                                "None"
+                            ]
+                        },
+                        "enabled": {
+                            "description": "Run Gerbil as a node-level tunnel gateway (`hostNetwork: true`). Gerbil creates its WireGuard interface in whatever network namespace it runs in. In a Pod namespace the tunnel subnet is reachable from the Gerbil Pod only, so an externally installed Traefik cannot dial the backends Pangolin advertises and every tunnel-backed resource returns 502. With `hostNetwork` the interface and its connected route are created in the node namespace, and any Pod scheduled onto that node reaches the tunnel through the node's routing table - no manual node routes required. Traefik must run on the same node; see `traefik.colocateWithGerbil` for the chart-managed Traefik and the `helm get notes` output for the snippet to apply to an externally installed Traefik. Requirements and consequences: the CNI must masquerade Pod egress leaving the node (the default for Flannel, Calico `natOutgoing` and Cilium); the namespace must allow `hostNetwork`, i.e. Pod Security Admission level `privileged`; Gerbil binds its WireGuard and internal API ports on the node, so only one Gerbil instance can run per node; and Gerbil's WireGuard iptables rules are written to the node's tables.",
+                            "type": "boolean"
+                        }
+                    }
+                },
                 "persistence": {
                     "type": "object",
                     "properties": {
@@ -3957,7 +3976,7 @@
                     }
                 },
                 "hostNetwork": {
-                    "description": "Enable hostNetwork on workloads that support it.",
+                    "description": "Enable hostNetwork on workloads that support it. Gerbil is the only such workload today; this is an alias for `gerbil.hostGateway.enabled`, which is the preferred switch because it also applies the required DNS policy and the Traefik co-location contract. Either value being true enables host gateway mode.",
                     "type": "boolean"
                 },
                 "minReadySeconds": {
@@ -4158,6 +4177,15 @@
                             }
                         }
                     }
+                },
+                "colocateWithGerbil": {
+                    "description": "Pin the chart-managed Traefik Pods onto the node that currently runs Gerbil, using a required podAffinity on `kubernetes.io/hostname`. Only relevant together with `gerbil.hostGateway.enabled`: the tunnel route exists on the Gerbil node only, so Traefik reaches tunnel backends from that node and nowhere else. The affinity follows Gerbil dynamically - no node label needed - so if Gerbil is rescheduled the next Traefik Pod lands on the new node too. `auto` enables it whenever host gateway mode is on, `required` always enables it, `disabled` never does. It is suppressed automatically when it could not be satisfied (single mode, Gerbil disabled, or `gerbil.startupMode: delayed`), because a required affinity against a workload that never schedules would leave Traefik Pending. The term is `IgnoredDuringExecution`: if Gerbil moves, running Traefik Pods stay where they are and keep returning 502 until you restart them with `kubectl rollout restart`. Only applies to the Traefik workload this chart renders (`deployment.type=standalone`). For an externally installed Traefik apply the snippet from `helm get notes` to its own values.",
+                    "type": "string",
+                    "enum": [
+                        "auto",
+                        "required",
+                        "disabled"
+                    ]
                 },
                 "commonAnnotations": {
                     "description": "Annotations added to all standalone Traefik resources rendered by this chart.",

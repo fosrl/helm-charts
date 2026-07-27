@@ -179,7 +179,11 @@ rbac:
 # -----------------------------------------------------------------------------
 ## @section Common runtime settings
 runtime:
-  # -- Enable hostNetwork on workloads that support it.
+  # -- Enable hostNetwork on workloads that support it. Gerbil is the only such
+  # workload today; this is an alias for `gerbil.hostGateway.enabled`, which is
+  # the preferred switch because it also applies the required DNS policy and the
+  # Traefik co-location contract. Either value being true enables host gateway
+  # mode.
   hostNetwork: false # @schema type: boolean
   # -- Grace period in seconds before Pod termination.
   terminationGracePeriodSeconds: 30 # @schema type: integer ; minimum: 0
@@ -1152,6 +1156,29 @@ traefik:
   enabled: false # @schema type: boolean
   # -- Number of standalone Traefik replicas in multi mode.
   replicaCount: 1 # @schema type: integer ; minimum: 1
+  # -- Pin the chart-managed Traefik Pods onto the node that currently runs
+  # Gerbil, using a required podAffinity on `kubernetes.io/hostname`.
+  #
+  # Only relevant together with `gerbil.hostGateway.enabled`: the tunnel route
+  # exists on the Gerbil node only, so Traefik reaches tunnel backends from that
+  # node and nowhere else. The affinity follows Gerbil dynamically - no node
+  # label needed - so if Gerbil is rescheduled the next Traefik Pod lands on the
+  # new node too.
+  #
+  # `auto` enables it whenever host gateway mode is on, `required` always
+  # enables it, `disabled` never does. It is suppressed automatically when it
+  # could not be satisfied (single mode, Gerbil disabled, or
+  # `gerbil.startupMode: delayed`), because a required affinity against a
+  # workload that never schedules would leave Traefik Pending.
+  #
+  # The term is `IgnoredDuringExecution`: if Gerbil moves, running Traefik Pods
+  # stay where they are and keep returning 502 until you restart them with
+  # `kubectl rollout restart`.
+  #
+  # Only applies to the Traefik workload this chart renders
+  # (`deployment.type=standalone`). For an externally installed Traefik apply
+  # the snippet from `helm get notes` to its own values.
+  colocateWithGerbil: auto # @schema type: string ; enum: [auto, required, disabled]
   deployment:
     labels: {} # @schema type: object ; additionalProperties: { type: string }
     annotations: {} # @schema type: object ; additionalProperties: { type: string }
@@ -1297,6 +1324,38 @@ gerbil:
   # `delayed`: render Gerbil resources but keep the multi-mode Gerbil Deployment at replicas=0.
   # `disabledUntilSetup`: do not render Gerbil resources until switched back to `normal` (or `delayed`).
   startupMode: normal # @schema type: string ; enum: [normal, delayed, disabledUntilSetup]
+  hostGateway:
+    # -- Run Gerbil as a node-level tunnel gateway (`hostNetwork: true`).
+    #
+    # Gerbil creates its WireGuard interface in whatever network namespace it
+    # runs in. In a Pod namespace the tunnel subnet is reachable from the Gerbil
+    # Pod only, so an externally installed Traefik cannot dial the backends
+    # Pangolin advertises and every tunnel-backed resource returns 502. With
+    # `hostNetwork` the interface and its connected route are created in the
+    # node namespace, and any Pod scheduled onto that node reaches the tunnel
+    # through the node's routing table - no manual node routes required.
+    #
+    # Traefik must run on the same node; see `traefik.colocateWithGerbil` for
+    # the chart-managed Traefik and the `helm get notes` output for the snippet
+    # to apply to an externally installed Traefik.
+    #
+    # Requirements and consequences:
+    # - The CNI must masquerade Pod egress leaving the node (the default for
+    #   Flannel, Calico `natOutgoing` and Cilium). Without it the packet keeps
+    #   the Traefik Pod IP as source, which the remote WireGuard peer drops and
+    #   cannot route a reply to.
+    # - The namespace must allow `hostNetwork`, i.e. Pod Security Admission
+    #   level `privileged` (`baseline` forbids it).
+    # - Gerbil binds its WireGuard and internal API ports on the node, so only
+    #   one Gerbil instance can run per node.
+    # - Gerbil manages iptables rules for the WireGuard interface; with
+    #   `hostNetwork` those rules are written to the node's tables.
+    enabled: false # @schema type: boolean
+    # -- DNS policy applied together with `hostNetwork`. Do not change this
+    # unless you know what you are doing: Gerbil resolves the Pangolin Service
+    # name for `--remoteConfig`, and with the default `ClusterFirst` a
+    # hostNetwork Pod uses the node resolver, where that name does not exist.
+    dnsPolicy: ClusterFirstWithHostNet # @schema type: string ; enum: [ClusterFirstWithHostNet, ClusterFirst, Default, None]
   waitForPangolin:
     # -- Wait for Pangolin internal API before starting Gerbil.
     enabled: true # @schema type: boolean

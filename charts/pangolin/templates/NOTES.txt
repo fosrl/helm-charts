@@ -148,8 +148,54 @@ Or scale once for immediate start:
   kubectl scale deployment/{{ include "pangolin.fullname" . }}-gerbil -n {{ include "pangolin.namespace" . }} --replicas=1
 If logs include `Created new exit node ...`, Pangolin has created the local exit node and Gerbil can be enabled/started.
 {{- end }}
+{{- $hostGateway := eq (include "pangolin.gerbil.hostGateway.enabled" .) "true" }}
+{{- $externalTraefik := and (eq .Values.deployment.type "controller") (eq .Values.deployment.mode "multi") }}
+{{- $traefikNs := .Values.deployment.traefikNamespace | default (include "pangolin.namespace" .) }}
+{{- if $hostGateway }}
+
+Tunnel data path: Gerbil runs in host gateway mode (hostNetwork=true).
+wg0 and its route are created in the node network namespace, so only Pods on the
+SAME node can reach tunnel backends. Traefik must be co-located with Gerbil.
+{{- if $externalTraefik }}
+Traefik is external to this chart. Add to its Helm values so it follows Gerbil:
+
+  affinity:
+    podAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ include "pangolin.name" . }}
+              app.kubernetes.io/instance: {{ .Release.Name }}
+              app.kubernetes.io/component: gerbil
+          namespaces:
+            - {{ include "pangolin.namespace" . }}
+          topologyKey: kubernetes.io/hostname
+
+Verify the path from a Traefik Pod (expect a response, not a timeout):
+  kubectl -n {{ $traefikNs }} exec deploy/<traefik-deployment> -- wget -qO- http://<tunnel-ip>:<internal-port>
+{{- else if eq (include "pangolin.traefik.colocateWithGerbil" .) "true" }}
+The chart-managed Traefik is pinned to the Gerbil node automatically
+(traefik.colocateWithGerbil).
+{{- end }}
+This requires your CNI to masquerade Pod egress leaving the node, which is the
+default for Flannel, Calico (natOutgoing) and Cilium. Without it the remote
+WireGuard peer drops the traffic because the source is still the Traefik Pod IP.
+The affinity is IgnoredDuringExecution: if Gerbil is rescheduled to another node,
+restart Traefik so it follows.
+{{- else if $externalTraefik }}
+
+WARNING: tunnel backends are not reachable in this configuration.
+Pangolin advertises Newt-site backends as WireGuard peer addresses that exist
+only inside the Gerbil Pod network namespace, so an externally installed Traefik
+returns 502 for every tunnel-backed resource while reporting the router healthy.
+Enable host gateway mode and co-locate Traefik with Gerbil:
+  --set gerbil.hostGateway.enabled=true
+See the "Tunnel data path" section of the chart README. Resources whose targets
+live in this cluster can instead use a `local` site with a Kubernetes Service
+FQDN (<name>.<namespace>.svc) as the target host, which needs no tunnel at all.
+{{- end }}
 {{- if and (not .Values.namespace.create) (ne (default "" .Values.namespace.podSecurity.enforce) "privileged") }}
-PSA note: If Pod Security Admission is enforced, ensure the target namespace allows NET_ADMIN.
+PSA note: If Pod Security Admission is enforced, ensure the target namespace allows NET_ADMIN{{ if $hostGateway }} and hostNetwork{{ end }}.
 `--create-namespace` alone does not add PSA labels. Either set:
   namespace.create=true
   namespace.podSecurity.enforce=privileged
@@ -165,10 +211,11 @@ gerbil.persistence.existingClaim) for any non-ephemeral environment.
 {{- if and .Values.gerbil.service.enabled (eq (.Values.gerbil.service.type | default "ClusterIP") "ClusterIP") }}
 WARNING: gerbil.service.type=ClusterIP. External WireGuard clients CANNOT reach Gerbil
 through a ClusterIP service. For external connectivity set gerbil.service.type to
-LoadBalancer or NodePort, or use hostNetwork/hostPort on the Gerbil Pod.
+LoadBalancer or NodePort, or enable gerbil.hostGateway.enabled=true to bind the
+WireGuard ports directly on the node.
 {{- end }}
 {{- if not .Values.gerbil.service.enabled }}
-Gerbil Service is disabled (gerbil.service.enabled=false). UDP ports are still opened on the Pod; ensure your exposure model (hostNetwork/hostPorts/Service/LoadBalancer) matches your environment.
+Gerbil Service is disabled (gerbil.service.enabled=false). UDP ports are still opened on the Pod; ensure your exposure model (gerbil.hostGateway.enabled/Service/LoadBalancer/NodePort) matches your environment. The chart does not render hostPort.
 {{- end }}
 {{- end }}
 {{- if and .Values.gerbil.enabled (eq (include "pangolin.gerbil.startupMode" .) "disabledUntilSetup") }}

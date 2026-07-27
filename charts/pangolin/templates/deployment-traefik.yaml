@@ -59,9 +59,10 @@ spec:
       {{- if $ips }}
     {{ $ips | nindent 6 }}
       {{- end }}
-      {{- if $root.Values.global.affinity }}
+      {{- $affinity := include "pangolin.traefik.affinity" $root }}
+      {{- if $affinity }}
       affinity:
-        {{- toYaml $root.Values.global.affinity | nindent 8 }}
+        {{- $affinity | nindent 8 }}
       {{- end }}
       {{- if $root.Values.global.nodeSelector }}
       nodeSelector:

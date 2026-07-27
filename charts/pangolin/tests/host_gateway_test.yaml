@@ -1,0 +1,189 @@
+suite: gerbil host gateway mode and Traefik co-location
+templates:
+  - templates/deployment-gerbil.yaml
+  - templates/deployment-traefik.yaml
+# Gerbil creates wg0 in its own network namespace, so tunnel backends are
+# unreachable from an externally installed Traefik. Host gateway mode moves the
+# interface and its route into the node namespace; Traefik then has to run on
+# that node. See fosrl/helm-charts#20.
+tests:
+  - it: does not set hostNetwork on Gerbil by default
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - isNull:
+          path: spec.template.spec.hostNetwork
+      - isNull:
+          path: spec.template.spec.dnsPolicy
+
+  - it: enables hostNetwork with the required DNS policy in host gateway mode
+    template: templates/deployment-gerbil.yaml
+    set:
+      gerbil.hostGateway.enabled: true
+    asserts:
+      - equal:
+          path: spec.template.spec.hostNetwork
+          value: true
+      # ClusterFirst would make Gerbil use the node resolver, where the Pangolin
+      # Service name for --remoteConfig does not exist.
+      - equal:
+          path: spec.template.spec.dnsPolicy
+          value: ClusterFirstWithHostNet
+
+  - it: honours runtime.hostNetwork as an alias
+    template: templates/deployment-gerbil.yaml
+    set:
+      runtime.hostNetwork: true
+    asserts:
+      - equal:
+          path: spec.template.spec.hostNetwork
+          value: true
+      - equal:
+          path: spec.template.spec.dnsPolicy
+          value: ClusterFirstWithHostNet
+
+  - it: allows overriding the DNS policy
+    template: templates/deployment-gerbil.yaml
+    set:
+      gerbil.hostGateway.enabled: true
+      gerbil.hostGateway.dnsPolicy: ClusterFirst
+    asserts:
+      - equal:
+          path: spec.template.spec.dnsPolicy
+          value: ClusterFirst
+
+  - it: pins standalone Traefik to the Gerbil node in host gateway mode
+    template: templates/deployment-traefik.yaml
+    set:
+      deployment.type: standalone
+      traefik.enabled: true
+      traefik.config.letsencryptEmail: admin@example.com
+      traefik.config.dynamicRouters.host: traefik.example.com
+      gerbil.hostGateway.enabled: true
+    asserts:
+      - equal:
+          path: spec.template.spec.affinity.podAffinity.requiredDuringSchedulingIgnoredDuringExecution[0].topologyKey
+          value: kubernetes.io/hostname
+      - equal:
+          path: spec.template.spec.affinity.podAffinity.requiredDuringSchedulingIgnoredDuringExecution[0].labelSelector.matchLabels["app.kubernetes.io/component"]
+          value: gerbil
+      # podAffinity defaults to the Pod's own namespace, but Traefik commonly
+      # lives in deployment.traefikNamespace while Gerbil stays in the release
+      # namespace.
+      - equal:
+          path: spec.template.spec.affinity.podAffinity.requiredDuringSchedulingIgnoredDuringExecution[0].namespaces[0]
+          value: NAMESPACE
+
+  - it: does not pin Traefik when host gateway mode is off
+    template: templates/deployment-traefik.yaml
+    set:
+      deployment.type: standalone
+      traefik.enabled: true
+      traefik.config.letsencryptEmail: admin@example.com
+      traefik.config.dynamicRouters.host: traefik.example.com
+    asserts:
+      - isNull:
+          path: spec.template.spec.affinity
+
+  - it: suppresses the pin when Gerbil is kept at replicas=0
+    # A required affinity against a workload that never schedules would leave
+    # Traefik Pending forever.
+    template: templates/deployment-traefik.yaml
+    set:
+      deployment.type: standalone
+      traefik.enabled: true
+      traefik.config.letsencryptEmail: admin@example.com
+      traefik.config.dynamicRouters.host: traefik.example.com
+      gerbil.hostGateway.enabled: true
+      gerbil.startupMode: delayed
+    asserts:
+      - isNull:
+          path: spec.template.spec.affinity
+
+  - it: suppresses the pin when Gerbil is disabled even if explicitly required
+    template: templates/deployment-traefik.yaml
+    set:
+      deployment.type: standalone
+      traefik.enabled: true
+      traefik.config.letsencryptEmail: admin@example.com
+      traefik.config.dynamicRouters.host: traefik.example.com
+      traefik.colocateWithGerbil: required
+      gerbil.enabled: false
+    asserts:
+      - isNull:
+          path: spec.template.spec.affinity
+
+  - it: honours colocateWithGerbil=disabled in host gateway mode
+    template: templates/deployment-traefik.yaml
+    set:
+      deployment.type: standalone
+      traefik.enabled: true
+      traefik.config.letsencryptEmail: admin@example.com
+      traefik.config.dynamicRouters.host: traefik.example.com
+      gerbil.hostGateway.enabled: true
+      traefik.colocateWithGerbil: disabled
+    asserts:
+      - isNull:
+          path: spec.template.spec.affinity
+
+  - it: honours colocateWithGerbil=required without host gateway mode
+    template: templates/deployment-traefik.yaml
+    set:
+      deployment.type: standalone
+      traefik.enabled: true
+      traefik.config.letsencryptEmail: admin@example.com
+      traefik.config.dynamicRouters.host: traefik.example.com
+      traefik.colocateWithGerbil: required
+    asserts:
+      - equal:
+          path: spec.template.spec.affinity.podAffinity.requiredDuringSchedulingIgnoredDuringExecution[0].topologyKey
+          value: kubernetes.io/hostname
+
+  - it: merges the pin with a user-supplied global affinity instead of replacing it
+    template: templates/deployment-traefik.yaml
+    set:
+      deployment.type: standalone
+      traefik.enabled: true
+      traefik.config.letsencryptEmail: admin@example.com
+      traefik.config.dynamicRouters.host: traefik.example.com
+      gerbil.hostGateway.enabled: true
+      global.affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/os
+                    operator: In
+                    values: [linux]
+    asserts:
+      - equal:
+          path: spec.template.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions[0].key
+          value: kubernetes.io/os
+      - equal:
+          path: spec.template.spec.affinity.podAffinity.requiredDuringSchedulingIgnoredDuringExecution[0].topologyKey
+          value: kubernetes.io/hostname
+
+  - it: appends the pin to a user-supplied podAffinity
+    template: templates/deployment-traefik.yaml
+    set:
+      deployment.type: standalone
+      traefik.enabled: true
+      traefik.config.letsencryptEmail: admin@example.com
+      traefik.config.dynamicRouters.host: traefik.example.com
+      gerbil.hostGateway.enabled: true
+      global.affinity:
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: custom
+              topologyKey: kubernetes.io/hostname
+    asserts:
+      - lengthEqual:
+          path: spec.template.spec.affinity.podAffinity.requiredDuringSchedulingIgnoredDuringExecution
+          count: 2
+      - equal:
+          path: spec.template.spec.affinity.podAffinity.requiredDuringSchedulingIgnoredDuringExecution[0].labelSelector.matchLabels.app
+          value: custom
+      - equal:
+          path: spec.template.spec.affinity.podAffinity.requiredDuringSchedulingIgnoredDuringExecution[1].labelSelector.matchLabels["app.kubernetes.io/component"]
+          value: gerbil
