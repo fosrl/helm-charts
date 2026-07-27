@@ -1,13 +1,19 @@
 # GitHub Actions install smoke-test values for the Pangolin chart.
 #
 # This file targets a deterministic kind-based install smoke test.
-# NOTE: it does NOT exercise the tunnel data path - `gerbil.startupMode: delayed`
-# below keeps the Gerbil Deployment at replicas=0 for the whole run. Use
-# `values-host-gateway.yaml` for a profile that actually routes tunnel traffic.
-# Talos remains the preferred real-world
-# target for Pangolin, and a separate Talos-Docker workflow can be added later.
-# This workflow intentionally avoids Talos VM-style testing on GitHub-hosted
-# runners.
+#
+# NOTE: on its own it does NOT exercise the tunnel data path -
+# `gerbil.startupMode: delayed` below keeps the Gerbil Deployment at replicas=0
+# for the whole run, and `kubectl rollout status` reports success on a 0-replica
+# Deployment. That combination is why fosrl/helm-charts#20 shipped undetected.
+# The `install-cnpg` leg of .github/workflows/pangolin-e2e.yaml therefore
+# installs this profile with `--set gerbil.startupMode=normal` and asserts a
+# real ready replica. Use `values-host-gateway.yaml` for a profile that actually
+# routes tunnel traffic.
+#
+# Talos remains the preferred real-world target for Pangolin, and a separate
+# Talos-Docker workflow can be added later. The kind workflow intentionally
+# avoids Talos VM-style testing on GitHub-hosted runners.
 #
 # Topology:
 #   - deployment.type=controller

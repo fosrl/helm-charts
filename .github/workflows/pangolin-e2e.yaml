@@ -1,0 +1,433 @@
+# Cluster-level E2E for the Pangolin chart, focused on the tunnel data path.
+#
+# This replaces the install smoke test that was removed in f52097e. That
+# workflow ran Gerbil with `startupMode: delayed`, which keeps the Deployment at
+# replicas=0 - and `kubectl rollout status` reports success on a 0-replica
+# Deployment. It therefore reported green while never starting Gerbil and never
+# touching a backend address, which is how fosrl/helm-charts#20 shipped.
+#
+# The legs below install the chart into a three-node kind cluster and assert the
+# tunnel-backend invariant (scripts/e2e/assert-tunnel-backends.sh) in every
+# supported configuration, including the unconfigured one where the invariant is
+# expected to be violated.
+#
+# Deliberately NOT covered: a real Newt tunnel carrying real traffic. Pangolin
+# hands Gerbil no WireGuard config until initial setup is completed, and the
+# chart exposes no admin-bootstrap values, so that would mean driving Pangolin's
+# HTTP API from CI. The synthetic config server in .github/e2e/ reproduces the
+# controller's output exactly without any of that.
+name: Pangolin Tunnel Data Path E2E
+
+on:
+  pull_request:
+    paths:
+      - 'charts/pangolin/**'
+      - '.github/workflows/pangolin-e2e.yaml'
+      - '.github/e2e/**'
+      - 'scripts/e2e/**'
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pangolin-e2e-${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+env:
+  E2E_NAMESPACE: pangolin-e2e
+  TRAEFIK_NAMESPACE: traefik-system
+  E2E_CNPG_NAMESPACE: cnpg-system
+  E2E_RELEASE: demo
+  E2E_TRAEFIK_RELEASE: e2e-traefik
+  E2E_CNPG_OPERATOR_RELEASE: e2e-cnpg-operator
+  KIND_VERSION: v0.31.0
+  KIND_NODE_IMAGE: kindest/node:v1.31.4
+  MANAGED_LABEL: app.kubernetes.io/managed-by=pangolin-kube-controller
+
+jobs:
+  tunnel-data-path:
+    name: ${{ matrix.leg }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Install smoke test: the coverage the deleted workflow provided, with
+          # the one change that makes it meaningful - Gerbil actually starts.
+          - leg: install-cnpg
+            values: charts/pangolin/examples/values-e2e-kind.yaml
+            values_overlay: ''
+            extra_args: --set gerbil.startupMode=normal
+            needs_traefik: 'true'
+            needs_cnpg: 'true'
+            needs_fake_pangolin: 'false'
+            chart_creates_namespace: 'true'
+            gate_mode: ''
+            gate_expect: ''
+            assert_host_network: 'false'
+            assert_colocation: 'false'
+
+          # Chart defaults, no data path. The gate is expected to REPORT A
+          # VIOLATION here: this is the #20 signature, and asserting it fires is
+          # what proves the other legs mean something.
+          - leg: baseline
+            values: .github/e2e/values-datapath.yaml
+            values_overlay: ''
+            extra_args: ''
+            needs_traefik: 'true'
+            needs_cnpg: 'false'
+            needs_fake_pangolin: 'true'
+            chart_creates_namespace: 'false'
+            gate_mode: none
+            gate_expect: fail
+            assert_host_network: 'false'
+            assert_colocation: 'false'
+
+          # Phase 1 fix: wg0 in the node netns, so tunnel addresses are the
+          # correct thing to publish.
+          - leg: host-gateway
+            values: .github/e2e/values-datapath.yaml
+            values_overlay: ''
+            extra_args: --set gerbil.hostGateway.enabled=true
+            needs_traefik: 'true'
+            needs_cnpg: 'false'
+            needs_fake_pangolin: 'true'
+            chart_creates_namespace: 'false'
+            gate_mode: host-gateway
+            gate_expect: pass
+            assert_host_network: 'true'
+            assert_colocation: 'false'
+
+          # The scheduling half of the Phase 1 fix. Standalone mode is the only
+          # topology where this chart renders Traefik itself.
+          - leg: colocation
+            values: .github/e2e/values-datapath.yaml
+            values_overlay: .github/e2e/values-colocation.yaml
+            extra_args: ''
+            needs_traefik: 'false'
+            needs_cnpg: 'false'
+            needs_fake_pangolin: 'false'
+            chart_creates_namespace: 'false'
+            gate_mode: ''
+            gate_expect: ''
+            assert_host_network: 'true'
+            assert_colocation: 'true'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Helm
+        uses: Azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5.0.0
+        with:
+          version: v3.20.2
+
+      - name: Show tool versions
+        run: |
+          helm version
+          kubectl version --client
+          docker version
+
+      - name: Compose Helm arguments for this leg
+        run: |
+          set -euo pipefail
+          args="-f ${{ matrix.values }}"
+          if [ -n "${{ matrix.values_overlay }}" ]; then
+            args="${args} -f ${{ matrix.values_overlay }}"
+          fi
+          if [ -n "${{ matrix.extra_args }}" ]; then
+            args="${args} ${{ matrix.extra_args }}"
+          fi
+          echo "HELM_ARGS=${args}" >> "$GITHUB_ENV"
+          echo "helm arguments: ${args}"
+
+      - name: Install kind
+        run: |
+          set -euo pipefail
+          curl -fsSL -o "${RUNNER_TEMP}/kind" \
+            "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
+          curl -fsSL -o "${RUNNER_TEMP}/kind.sha256sum" \
+            "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64.sha256sum"
+          # The published checksum file names the release asset; check against
+          # the downloaded path instead.
+          expected="$(awk '{print $1}' "${RUNNER_TEMP}/kind.sha256sum")"
+          echo "${expected}  ${RUNNER_TEMP}/kind" | sha256sum -c -
+          chmod +x "${RUNNER_TEMP}/kind"
+          echo "${RUNNER_TEMP}" >> "$GITHUB_PATH"
+          "${RUNNER_TEMP}/kind" --version
+
+      - name: Create kind cluster
+        run: |
+          set -euo pipefail
+          kind create cluster \
+            --name "${E2E_RELEASE}" \
+            --image "${KIND_NODE_IMAGE}" \
+            --config .github/e2e/kind-cluster.yaml \
+            --wait 5m
+          kubectl get nodes -o wide
+
+      - name: Add Helm dependency repositories
+        run: |
+          helm repo add cloudnative-pg https://cloudnative-pg.github.io/charts
+          helm repo add traefik https://traefik.github.io/charts
+          helm repo update
+
+      - name: Build chart dependencies
+        run: helm dependency build charts/pangolin
+
+      - name: Lint chart with E2E values
+        run: helm lint charts/pangolin ${HELM_ARGS}
+
+      - name: Install Traefik CRDs and controller
+        if: matrix.needs_traefik == 'true'
+        run: |
+          set -euo pipefail
+          helm upgrade --install "${E2E_TRAEFIK_RELEASE}" traefik/traefik \
+            --version 40.0.0 \
+            --namespace "${TRAEFIK_NAMESPACE}" \
+            --create-namespace \
+            --timeout 10m \
+            --set service.type=ClusterIP \
+            --set ingressRoute.dashboard.enabled=false \
+            --set providers.kubernetesCRD.enabled=true
+          # Not `helm --wait`: some chart versions leave the Service as
+          # LoadBalancer, and on kind that never gets an ingress IP, so --wait
+          # would sit there until the timeout.
+          kubectl rollout status deployment/"${E2E_TRAEFIK_RELEASE}" \
+            -n "${TRAEFIK_NAMESPACE}" --timeout=600s
+          kubectl wait --for=condition=Established \
+            crd/ingressroutes.traefik.io crd/traefikservices.traefik.io --timeout=300s
+
+      - name: Install CloudNativePG operator
+        if: matrix.needs_cnpg == 'true'
+        run: |
+          set -euo pipefail
+          helm upgrade --install "${E2E_CNPG_OPERATOR_RELEASE}" cloudnative-pg/cloudnative-pg \
+            --namespace "${E2E_CNPG_NAMESPACE}" \
+            --create-namespace \
+            --wait \
+            --timeout 10m \
+            --set crds.create=true
+          kubectl wait --for=condition=Established crd/clusters.postgresql.cnpg.io --timeout=300s
+
+      - name: Create namespace and synthetic Pangolin config server
+        if: matrix.chart_creates_namespace == 'false'
+        run: |
+          set -euo pipefail
+          kubectl create namespace "${E2E_NAMESPACE}"
+          # hostNetwork requires the privileged Pod Security Admission level;
+          # `baseline` rejects it outright.
+          kubectl label namespace "${E2E_NAMESPACE}" \
+            pod-security.kubernetes.io/enforce=privileged \
+            pod-security.kubernetes.io/warn=baseline \
+            pod-security.kubernetes.io/audit=baseline
+
+          if [ "${{ matrix.needs_fake_pangolin }}" = "true" ]; then
+            kubectl -n "${E2E_NAMESPACE}" create configmap fake-pangolin-config \
+              --from-file=traefik-config=.github/e2e/traefik-config.json
+            kubectl -n "${E2E_NAMESPACE}" apply -f .github/e2e/fake-pangolin.yaml
+            kubectl -n "${E2E_NAMESPACE}" rollout status deployment/fake-pangolin --timeout=300s
+          fi
+
+      - name: Render manifests for diagnostics
+        run: |
+          set -euo pipefail
+          mkdir -p rendered
+          helm template "${E2E_RELEASE}" charts/pangolin \
+            --namespace "${E2E_NAMESPACE}" ${HELM_ARGS} \
+            > "rendered/${{ matrix.leg }}.yaml"
+
+      - name: Install Pangolin chart
+        run: |
+          set -euo pipefail
+          helm upgrade --install "${E2E_RELEASE}" charts/pangolin \
+            --namespace "${E2E_NAMESPACE}" \
+            --create-namespace ${HELM_ARGS} \
+            --timeout 15m
+
+      - name: Wait for CloudNativePG cluster
+        if: matrix.needs_cnpg == 'true'
+        run: |
+          set -euo pipefail
+          kubectl wait --for=condition=Ready cluster.postgresql.cnpg.io/pangolin-db \
+            -n "${E2E_NAMESPACE}" --timeout=900s
+          pending="$(kubectl get pvc -n "${E2E_NAMESPACE}" --field-selector=status.phase!=Bound -o name || true)"
+          if [ -n "${pending}" ]; then
+            echo "::error::PVCs are not Bound: ${pending}"
+            kubectl describe pvc -n "${E2E_NAMESPACE}"
+            exit 1
+          fi
+
+      - name: Wait for Pangolin workloads
+        run: |
+          set -euo pipefail
+          kubectl rollout status deployment/"${E2E_RELEASE}"-pangolin \
+            -n "${E2E_NAMESPACE}" --timeout=600s
+          kubectl rollout status deployment/"${E2E_RELEASE}"-pangolin-gerbil \
+            -n "${E2E_NAMESPACE}" --timeout=600s
+
+          # rollout status is satisfied by a 0-replica Deployment, which is
+          # exactly how the previous workflow reported green while Gerbil never
+          # ran. Assert a real ready replica.
+          ready="$(kubectl -n "${E2E_NAMESPACE}" get deployment "${E2E_RELEASE}"-pangolin-gerbil \
+            -o jsonpath='{.status.readyReplicas}')"
+          if [ "${ready:-0}" -lt 1 ]; then
+            echo "::error::Gerbil has ${ready:-0} ready replicas; the tunnel path was never exercised"
+            kubectl -n "${E2E_NAMESPACE}" describe deployment "${E2E_RELEASE}"-pangolin-gerbil
+            exit 1
+          fi
+          echo "Gerbil ready replicas: ${ready}"
+
+      - name: Wait for controller
+        if: matrix.needs_fake_pangolin == 'true' || matrix.needs_cnpg == 'true'
+        run: |
+          set -euo pipefail
+          kubectl rollout status deployment/"${E2E_RELEASE}"-pangolin-controller \
+            -n "${E2E_NAMESPACE}" --timeout=600s
+
+      - name: Wait for the controller to reconcile the synthetic config
+        if: matrix.needs_fake_pangolin == 'true'
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 90); do
+            count="$(kubectl -n "${E2E_NAMESPACE}" get endpointslices \
+              -l "${MANAGED_LABEL}" -o name 2>/dev/null | wc -l)"
+            if [ "${count}" -gt 0 ]; then
+              echo "controller wrote ${count} EndpointSlice(s) after ${i} poll(s)"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::the controller never materialised a backend; the gate below would be meaningless"
+          kubectl -n "${E2E_NAMESPACE}" logs deployment/"${E2E_RELEASE}"-pangolin-controller --tail=200
+          exit 1
+
+      - name: Assert Gerbil host gateway wiring
+        if: matrix.assert_host_network == 'true'
+        run: |
+          set -euo pipefail
+          pod="$(kubectl -n "${E2E_NAMESPACE}" get pods \
+            -l app.kubernetes.io/component=gerbil \
+            -o jsonpath='{.items[0].metadata.name}')"
+          host_network="$(kubectl -n "${E2E_NAMESPACE}" get pod "${pod}" -o jsonpath='{.spec.hostNetwork}')"
+          dns_policy="$(kubectl -n "${E2E_NAMESPACE}" get pod "${pod}" -o jsonpath='{.spec.dnsPolicy}')"
+          pod_ip="$(kubectl -n "${E2E_NAMESPACE}" get pod "${pod}" -o jsonpath='{.status.podIP}')"
+          host_ip="$(kubectl -n "${E2E_NAMESPACE}" get pod "${pod}" -o jsonpath='{.status.hostIP}')"
+          echo "pod=${pod} hostNetwork=${host_network} dnsPolicy=${dns_policy} podIP=${pod_ip} hostIP=${host_ip}"
+
+          [ "${host_network}" = "true" ] || { echo "::error::hostNetwork is not true"; exit 1; }
+          # Without ClusterFirstWithHostNet a hostNetwork Pod uses the node
+          # resolver, where the Pangolin Service name does not exist, and Gerbil
+          # never gets its config from --remoteConfig.
+          [ "${dns_policy}" = "ClusterFirstWithHostNet" ] || { echo "::error::dnsPolicy is ${dns_policy}"; exit 1; }
+          # The definitive check that the Pod really shares the node netns.
+          [ "${pod_ip}" = "${host_ip}" ] || { echo "::error::podIP ${pod_ip} != hostIP ${host_ip}"; exit 1; }
+
+      - name: Assert Traefik is co-located with Gerbil
+        if: matrix.assert_colocation == 'true'
+        run: |
+          set -euo pipefail
+          kubectl rollout status deployment/"${E2E_RELEASE}"-pangolin-traefik \
+            -n "${E2E_NAMESPACE}" --timeout=600s
+          gerbil_node="$(kubectl -n "${E2E_NAMESPACE}" get pods \
+            -l app.kubernetes.io/component=gerbil -o jsonpath='{.items[0].spec.nodeName}')"
+          traefik_node="$(kubectl -n "${E2E_NAMESPACE}" get pods \
+            -l app.kubernetes.io/component=traefik-standalone -o jsonpath='{.items[0].spec.nodeName}')"
+          echo "gerbil node:  ${gerbil_node}"
+          echo "traefik node: ${traefik_node}"
+          nodes="$(kubectl get nodes -o name | wc -l)"
+          if [ "${nodes}" -lt 3 ]; then
+            echo "::error::expected a multi-node cluster; co-location is trivially true on one node"
+            exit 1
+          fi
+          if [ "${gerbil_node}" != "${traefik_node}" ]; then
+            echo "::error::Traefik is not on the Gerbil node; tunnel backends would 502"
+            kubectl -n "${E2E_NAMESPACE}" get pods -o wide
+            exit 1
+          fi
+
+      - name: Assert the NOTES co-location snippet targets the right workload
+        if: matrix.gate_mode == 'host-gateway'
+        run: |
+          set -euo pipefail
+          helm get notes "${E2E_RELEASE}" -n "${E2E_NAMESPACE}" > notes.txt
+          # An externally installed Traefik can only be co-located by the
+          # operator pasting this snippet, so its contents are part of the fix.
+          for needle in \
+            'app.kubernetes.io/component: gerbil' \
+            "app.kubernetes.io/instance: ${E2E_RELEASE}" \
+            'topologyKey: kubernetes.io/hostname' \
+            "- ${E2E_NAMESPACE}"; do
+            # `--` matters: the namespace needle starts with a dash.
+            if ! grep -qF -- "${needle}" notes.txt; then
+              echo "::error::NOTES output is missing: ${needle}"
+              cat notes.txt
+              exit 1
+            fi
+          done
+          echo "NOTES co-location snippet is complete"
+
+      - name: Assert the tunnel-backend invariant
+        if: matrix.gate_mode != ''
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.gate_expect }}" = "fail" ]; then
+            # With no data path configured, publishing a tunnel address IS the
+            # bug. If the gate passes here it has stopped detecting anything.
+            if bash scripts/e2e/assert-tunnel-backends.sh \
+                 --namespace "${E2E_NAMESPACE}" \
+                 --release "${E2E_RELEASE}" \
+                 --mode "${{ matrix.gate_mode }}"; then
+              echo "::error::the gate reported no violation on an unconfigured release; it can no longer detect #20"
+              exit 1
+            fi
+            echo "gate correctly reported the violation for an unconfigured release"
+          else
+            bash scripts/e2e/assert-tunnel-backends.sh \
+              --namespace "${E2E_NAMESPACE}" \
+              --release "${E2E_RELEASE}" \
+              --mode "${{ matrix.gate_mode }}"
+          fi
+
+      - name: Collect diagnostics
+        if: always()
+        run: |
+          mkdir -p diagnostics
+          helm list -A > diagnostics/helm-list.txt || true
+          helm status "${E2E_RELEASE}" -n "${E2E_NAMESPACE}" > diagnostics/helm-status-pangolin.txt || true
+          kubectl get nodes -o wide > diagnostics/nodes.txt || true
+          kubectl get all -A -o wide > diagnostics/all.txt || true
+          kubectl get endpointslices -A -o yaml > diagnostics/endpointslices.yaml || true
+          kubectl get svc -A -o wide > diagnostics/services.txt || true
+          kubectl get events -A --sort-by=.lastTimestamp > diagnostics/events.txt || true
+          kubectl describe pods -n "${E2E_NAMESPACE}" > diagnostics/describe-pods.txt || true
+          kubectl get ingressroutes,traefikservices,middlewares -A -o yaml \
+            > diagnostics/traefik-crs.yaml 2>/dev/null || true
+          for d in pangolin pangolin-gerbil pangolin-controller pangolin-traefik; do
+            kubectl logs -n "${E2E_NAMESPACE}" deployment/"${E2E_RELEASE}"-"${d}" \
+              --all-containers=true > "diagnostics/${d}.log" 2>/dev/null || true
+          done
+          kubectl logs -n "${E2E_NAMESPACE}" deployment/fake-pangolin \
+            > diagnostics/fake-pangolin.log 2>/dev/null || true
+          kubectl logs -n "${TRAEFIK_NAMESPACE}" deployment/"${E2E_TRAEFIK_RELEASE}" \
+            > diagnostics/traefik.log 2>/dev/null || true
+          kind export logs diagnostics/kind-logs --name "${E2E_RELEASE}" || true
+
+      - name: Upload diagnostics
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pangolin-e2e-diagnostics-${{ matrix.leg }}
+          path: |
+            diagnostics/**
+            rendered/**
+          if-no-files-found: ignore
+
+      - name: Delete kind cluster
+        if: always()
+        run: kind delete cluster --name "${E2E_RELEASE}"

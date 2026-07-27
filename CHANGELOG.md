@@ -25,6 +25,14 @@ This changelog is chart-scoped to support multiple charts over time.
 - `examples/values-host-gateway.yaml` and a "Tunnel data path" README section covering the mechanism, the
   CNI-masquerade requirement, the support matrix per `deployment.type`/`mode`, and the unsupported
   node-route alternative.
+- A cluster-level E2E workflow (`.github/workflows/pangolin-e2e.yaml`) replacing the install smoke test
+  removed in `f52097e`. It installs the chart into a three-node kind cluster and runs
+  `scripts/e2e/assert-tunnel-backends.sh`, which fails when the controller publishes an EndpointSlice
+  address inside the tunnel CIDR with no data path to reach it. A synthetic Pangolin config server
+  (`.github/e2e/`) produces that backend deterministically, so the check needs no Pangolin setup and no
+  Newt site. The unconfigured leg asserts the check *does* report the violation, and the co-location leg
+  asserts Traefik lands on Gerbil's node — which only means something because the cluster has three nodes.
+  ([#20](https://github.com/fosrl/helm-charts/issues/20))
 
 #### Fixed
 

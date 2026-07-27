@@ -1,0 +1,59 @@
+# Values for the Traefik/Gerbil co-location E2E leg. Layered on top of
+# values-datapath.yaml.
+#
+# `deployment.type=standalone` + `mode=multi` is the only topology where this
+# chart renders the Traefik workload itself, so it is the only one where
+# `traefik.colocateWithGerbil` has anything to act on. In controller mode
+# Traefik is installed separately and the chart can only emit the podAffinity
+# snippet in NOTES for the operator to apply.
+#
+# The point of this leg is the scheduling decision: with host gateway mode on,
+# the tunnel route exists on the Gerbil node and nowhere else, so a Traefik Pod
+# that lands anywhere else answers 502. On the three-node kind cluster the
+# scheduler has a real choice, so `spec.nodeName` equality is a genuine
+# assertion rather than a tautology.
+
+deployment:
+  type: standalone
+  mode: multi
+  # Standalone renders Traefik into the release namespace.
+  traefikNamespace: ""
+
+# No pangolin-kube-controller in standalone mode, so nothing polls a config
+# endpoint and the synthetic config server is not involved.
+controller:
+  enabled: false
+
+traefik:
+  enabled: true
+  replicaCount: 1
+  colocateWithGerbil: auto
+  persistence:
+    enabled: false
+  config:
+    letsencryptEmail: e2e@example.test
+    dynamicRouters:
+      host: pangolin.e2e.test
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+
+pangolin:
+  config:
+    traefik:
+      enabled: true
+      http_entrypoint: web
+      https_entrypoint: websecure
+      cert_resolver: letsencrypt
+    domains:
+      e2e:
+        base_domain: e2e.test
+        cert_resolver: letsencrypt
+
+gerbil:
+  hostGateway:
+    enabled: true

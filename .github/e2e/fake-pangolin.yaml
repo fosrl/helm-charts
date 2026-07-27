@@ -1,0 +1,75 @@
+# Synthetic Pangolin config server for the tunnel data-path E2E.
+#
+# The real Pangolin hands Gerbil no WireGuard config until initial setup has
+# been completed through the dashboard/API ("Exit node not found"), and the
+# chart exposes no admin-bootstrap values. Provisioning a real Newt site in CI
+# would therefore mean driving Pangolin's HTTP API.
+#
+# This serves a static /traefik-config response instead. The controller cannot
+# tell the difference: it fetches the document, materialises the backends, and
+# writes exactly the Services/EndpointSlices that issue #20 is about - with no
+# Pangolin state at all, in seconds, deterministically.
+#
+# nginx is used rather than a bare file server because it emits an ETag, which
+# also exercises the controller's conditional-request path.
+#
+# The ConfigMap is created by the workflow from .github/e2e/traefik-config.json
+# so the fixture lives in exactly one place.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fake-pangolin
+  labels:
+    app.kubernetes.io/name: fake-pangolin
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fake-pangolin
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: fake-pangolin
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.29-alpine
+          ports:
+            - name: http
+              containerPort: 80
+          volumeMounts:
+            - name: config
+              mountPath: /usr/share/nginx/html
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /traefik-config
+              port: http
+            initialDelaySeconds: 1
+            periodSeconds: 2
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+      volumes:
+        - name: config
+          configMap:
+            name: fake-pangolin-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fake-pangolin
+  labels:
+    app.kubernetes.io/name: fake-pangolin
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: fake-pangolin
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

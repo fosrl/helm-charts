@@ -1,0 +1,13 @@
+# Multi-node kind cluster for the Pangolin tunnel data-path E2E.
+#
+# Three nodes are deliberate, not incidental. The Phase 1 fix pins Traefik onto
+# the node running Gerbil with a required podAffinity; on a single-node cluster
+# that constraint is trivially satisfied, so a broken affinity would still pass.
+# kind taints the control-plane with NoSchedule, so workloads land on the two
+# workers and the scheduler has a real choice to get wrong.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+  - role: worker
+  - role: worker

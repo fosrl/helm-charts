@@ -1,0 +1,88 @@
+# Values for the tunnel data-path E2E legs.
+#
+# Deliberately NOT under charts/pangolin/examples/ - this is a CI fixture, not a
+# profile anyone should copy. It differs from a real deployment in two ways that
+# only make sense in CI:
+#
+#   - controller.config.configEndpoint points at the synthetic config server in
+#     .github/e2e/fake-pangolin.yaml instead of Pangolin, so the controller
+#     materialises a known tunnel backend without any Pangolin setup.
+#   - namespace.create is false because the workflow creates the namespace first,
+#     so the synthetic config server exists before the controller starts polling.
+#
+# SQLite keeps the leg fast; the CloudNativePG path is covered by the separate
+# install smoke leg, which uses examples/values-e2e-kind.yaml unchanged.
+
+deployment:
+  type: controller
+  mode: multi
+  traefikNamespace: traefik-system
+
+namespace:
+  create: false
+
+networkPolicy:
+  enabled: false
+
+database:
+  mode: sqlite
+  sqlite:
+    path: /app/data/pangolin.db
+    persistence:
+      enabled: false
+
+cnpg-operator:
+  enabled: false
+cnpg-cluster:
+  enabled: false
+
+pangolin:
+  replicaCount: 1
+  config:
+    app:
+      dashboard_url: "http://pangolin.e2e.test"
+      log_level: debug
+      save_logs: false
+    gerbil:
+      base_endpoint: "gerbil.e2e.test"
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+controller:
+  enabled: true
+  replicaCount: 1
+  config:
+    targetNamespace: pangolin-e2e
+    configEndpoint: "http://fake-pangolin.pangolin-e2e.svc.cluster.local:8080/traefik-config"
+    allowInsecureHttp: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+gerbil:
+  enabled: true
+  # `normal` is the whole point: the deleted workflow ran Gerbil at replicas=0,
+  # and `kubectl rollout status` reports success on a 0-replica Deployment, so
+  # nothing about Gerbil was ever actually exercised.
+  startupMode: normal
+  replicaCount: 1
+  persistence:
+    enabled: false
+  service:
+    type: ClusterIP
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi

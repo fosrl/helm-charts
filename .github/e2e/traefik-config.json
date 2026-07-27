@@ -1,0 +1,41 @@
+{
+  "http": {
+    "routers": {
+      "tunnel-router": {
+        "rule": "Host(`tunnel.e2e.test`)",
+        "service": "tunnel-svc",
+        "entryPoints": [
+          "web"
+        ]
+      },
+      "incluster-router": {
+        "rule": "Host(`incluster.e2e.test`)",
+        "service": "incluster-svc",
+        "entryPoints": [
+          "web"
+        ]
+      }
+    },
+    "services": {
+      "tunnel-svc": {
+        "loadBalancer": {
+          "servers": [
+            {
+              "url": "http://100.89.128.4:44602"
+            }
+          ],
+          "passHostHeader": true
+        }
+      },
+      "incluster-svc": {
+        "loadBalancer": {
+          "servers": [
+            {
+              "url": "http://fake-pangolin.pangolin-e2e.svc.cluster.local:8080"
+            }
+          ]
+        }
+      }
+    }
+  }
+}
