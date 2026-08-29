@@ -947,6 +947,11 @@
                     },
                     "additionalProperties": false
                 },
+                "strategy": {
+                    "description": "Deployment strategy (e.g., RollingUpdate or Recreate)",
+                    "type": "object",
+                    "additionalProperties": false
+                },
                 "updownScripts": {
                     "description": "Map of filename -\u003e script content (mounted when updown.enabled=true)",
                     "type": "object",
@@ -1901,6 +1906,11 @@
                         "items": {
                             "type": "object"
                         }
+                    },
+                    "strategy": {
+                        "description": "Deployment strategy (e.g., RollingUpdate or Recreate)",
+                        "type": "object",
+                        "additionalProperties": false
                     },
                     "updown": {
                         "type": "object",

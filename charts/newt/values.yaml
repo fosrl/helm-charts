@@ -221,6 +221,8 @@ global:
     podAntiAffinity: {} # @schema type: object
   # -- Pod topology spread constraints (applied to all Pods)
   topologySpreadConstraints: [] # @schema type: array ; item: object ; additionalProperties: false
+  # -- Deployment strategy (e.g., RollingUpdate or Recreate)
+  strategy: {} # @schema type: object ; additionalProperties: false
 
   # -----------------------------------------------------------------------------
   # Pod Disruption Budget
@@ -977,6 +979,8 @@ newtInstances:
     podDisruptionBudget: {}
     # -- Pod topology spread constraints
     topologySpreadConstraints: [] # @schema type: array ; item: object
+    # -- Deployment strategy (e.g., RollingUpdate or Recreate)
+    strategy: {} # @schema type: object ; additionalProperties: false
     # -- Node selection constraints
     nodeSelector: {}
     # -- Pod tolerations
