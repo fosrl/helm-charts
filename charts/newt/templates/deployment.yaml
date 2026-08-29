@@ -58,6 +58,14 @@ metadata:
 spec:
   revisionHistoryLimit: {{ $root.Values.global.revisionHistoryLimit | default 3 }}
   replicas: {{ $inst.replicas | default 1 }}
+  {{- /* Deployment update strategy: instance overrides global */ -}}
+  {{- $gStrategy := (default (dict) $root.Values.global.strategy) -}}
+  {{- $iStrategy := (default (dict) $inst.strategy) -}}
+  {{- $strategy := mergeOverwrite (deepCopy $gStrategy) $iStrategy -}}
+  {{- if $strategy }}
+  strategy:
+    {{- toYaml $strategy | nindent 4 }}
+  {{- end }}
   selector:
     matchLabels:
       app.kubernetes.io/instance: {{ $root.Release.Name }}
