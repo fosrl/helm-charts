@@ -16,6 +16,10 @@
 #                     script additionally verifies Gerbil and Traefik share a node.
 # Without it, any tunnel-CIDR address is a failure.
 #
+# --min-endpoints N   fail unless at least N addresses were inspected (default 1), so a run
+#                     that checked nothing cannot report success. Pass 0 when an empty set
+#                     is genuinely expected.
+#
 # --file lets the address logic be exercised against a fixture without a cluster.
 
 set -euo pipefail
@@ -25,6 +29,10 @@ TRAEFIK_NAMESPACE=""
 TUNNEL_CIDR=""
 INPUT_FILE=""
 EXPECT_DATA_PATH="false"
+# A run that inspected nothing proves nothing. An empty EndpointSlice set is the normal
+# shape of a wrong namespace, a crash-looping controller, or RBAC returning an empty list,
+# and it used to produce the same "OK" as a genuinely clean cluster.
+MIN_ENDPOINTS="1"
 
 die() { echo "ERROR: $*" >&2; exit 2; }
 
@@ -35,13 +43,17 @@ while [ $# -gt 0 ]; do
     -c|--tunnel-cidr) TUNNEL_CIDR="$2"; shift 2 ;;
     -f|--file) INPUT_FILE="$2"; shift 2 ;;
     --expect-data-path) EXPECT_DATA_PATH="true"; shift ;;
-    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
+    --min-endpoints) MIN_ENDPOINTS="$2"; shift 2 ;;
+    -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
 done
 
 [ -n "$TUNNEL_CIDR" ] || die "--tunnel-cidr is required"
 [ -n "$INPUT_FILE" ] || [ -n "$NAMESPACE" ] || die "--namespace or --file is required"
+case "$MIN_ENDPOINTS" in
+  *[!0-9]*|"") die "--min-endpoints must be a non-negative integer, got: $MIN_ENDPOINTS" ;;
+esac
 
 if [ -n "$INPUT_FILE" ]; then
   [ -f "$INPUT_FILE" ] || die "no such file: $INPUT_FILE"
@@ -51,7 +63,11 @@ else
 fi
 
 # Collect every published address together with the slice that carries it.
-mapfile -t entries < <(
+# The parser runs into a file first: inside a process substitution its exit status is
+# discarded, so a crash there would look exactly like "no addresses published".
+parsed="$(mktemp)"
+trap 'rm -f "$parsed"' EXIT
+if ! {
   printf '%s' "$slices_json" |
     python3 -c '
 import json, sys
@@ -62,7 +78,10 @@ for item in doc.get("items", []):
         for address in endpoint.get("addresses", []) or []:
             print("%s\t%s" % (name, address))
 '
-)
+} > "$parsed"; then
+  die "could not parse the EndpointSlice JSON"
+fi
+mapfile -t entries < "$parsed"
 
 in_cidr() {
   # Values are stripped: a CR survives here when the JSON was produced on a platform
@@ -89,6 +108,9 @@ for entry in "${entries[@]:-}"; do
 done
 
 echo "Published endpoint addresses: ${#entries[@]}"
+if [ "${#entries[@]}" -lt "$MIN_ENDPOINTS" ]; then
+  die "only ${#entries[@]} endpoint address(es) found, expected at least ${MIN_ENDPOINTS}. Nothing was actually checked: verify the namespace and that the controller is publishing EndpointSlices, or pass --min-endpoints 0 when an empty set is genuinely expected."
+fi
 echo "Inside the tunnel CIDR ($TUNNEL_CIDR): ${#tunnel_hits[@]}"
 for hit in "${tunnel_hits[@]:-}"; do
   [ -n "$hit" ] && echo "  $hit"

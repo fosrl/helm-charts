@@ -3,8 +3,9 @@ name: Pangolin tunnel data path
 # What this covers, and what it does not.
 #
 # The tunnel-gate job is deterministic and always runs: it proves the guard in
-# scripts/e2e/assert-tunnel-backends.sh actually detects an unroutable tunnel address
-# rather than passing vacuously.
+# scripts/e2e/assert-tunnel-backends.sh actually detects an unroutable tunnel address,
+# and that it refuses to report success when it inspected nothing or could not parse its
+# input - the two ways a check like this passes without checking anything.
 #
 # The host-gateway job needs a cluster and is therefore label-gated. It verifies the parts
 # of the data path a cluster can confirm without a live Pangolin/Newt pair: that Gerbil
@@ -49,12 +50,36 @@ jobs:
             --file scripts/e2e/testdata/endpointslices-routable.json \
             --tunnel-cidr 100.89.128.0/20
 
-      - name: An empty endpoint set must pass
+      - name: An empty endpoint set must fail, because it checked nothing
+        run: |
+          set -euo pipefail
+          if bash scripts/e2e/assert-tunnel-backends.sh \
+               --file scripts/e2e/testdata/endpointslices-empty.json \
+               --tunnel-cidr 100.89.128.0/20; then
+            echo "ERROR: the guard reported success without inspecting a single address"
+            exit 1
+          fi
+          echo "Guard correctly refused to pass on an empty endpoint set."
+
+      - name: An empty endpoint set passes only when explicitly expected
         run: |
           set -euo pipefail
           bash scripts/e2e/assert-tunnel-backends.sh \
             --file scripts/e2e/testdata/endpointslices-empty.json \
-            --tunnel-cidr 100.89.128.0/20
+            --tunnel-cidr 100.89.128.0/20 \
+            --min-endpoints 0
+
+      - name: Unparseable input must fail, not read as empty
+        run: |
+          set -euo pipefail
+          printf %s "not json" > /tmp/broken.json
+          if bash scripts/e2e/assert-tunnel-backends.sh \
+               --file /tmp/broken.json \
+               --tunnel-cidr 100.89.128.0/20; then
+            echo "ERROR: the guard passed on input it could not parse"
+            exit 1
+          fi
+          echo "Guard correctly failed on unparseable input."
 
   host-gateway:
     name: Host gateway data path (kind)
