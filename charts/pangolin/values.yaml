@@ -1613,8 +1613,9 @@ database:
   # -- SQLite backend configuration.
   # Recommended only for development or very small test deployments.
   sqlite:
-    enabled: false # @schema type: boolean
-    # -- SQLite database file path used by Pangolin.
+    # -- SQLite database file path used by Pangolin. Its parent directory is what gets
+    # mounted when persistence is enabled, because SQLite writes -wal/-shm/journal
+    # siblings next to the database file.
     path: /app/data/pangolin.db # @schema type: string ; minLength: 1
     persistence:
       # -- Persist the SQLite database file on a PersistentVolumeClaim.
@@ -1631,6 +1632,8 @@ database:
         - ReadWriteOnce
       # -- Additional annotations for the SQLite PVC.
       annotations: {} # @schema type: object ; additionalProperties: { type: string }
+      # -- Additional labels for the SQLite PVC.
+      labels: {} # @schema type: object ; additionalProperties: { type: string }
 
   # -- CloudNativePG-backed database configuration.
   # This is the recommended production backend model for Pangolin on Kubernetes.

@@ -157,8 +157,12 @@ spec:
                   name: {{ include "pangolin.database.connectionSecretName" $root }}
                   key: {{ include "pangolin.db.connectionSecretKey" $root }}
               {{- end }}
-          {{- if or $pangolin.configFile.enabled $pangolin.privateConfig.enabled $pangolin.extraVolumeMounts }}
+          {{- if or $pangolin.configFile.enabled $pangolin.privateConfig.enabled $pangolin.extraVolumeMounts (eq (include "pangolin.sqlite.persistenceEnabled" $root) "true") }}
           volumeMounts:
+            {{- if eq (include "pangolin.sqlite.persistenceEnabled" $root) "true" }}
+            - name: pangolin-sqlite
+              mountPath: {{ include "pangolin.sqlite.mountPath" $root | quote }}
+            {{- end }}
             {{- if $pangolin.configFile.enabled }}
             - name: pangolin-config
               mountPath: /app/config/config.yml
@@ -466,8 +470,13 @@ spec:
           securityContext:
             {{- toYaml (mergeOverwrite (deepCopy $root.Values.global.containerSecurityContext) ($tf.securityContext | default dict)) | nindent 12 }}
         {{- end }}
-      {{- if or $pangolin.configFile.enabled $pangolin.privateConfig.enabled $pangolin.extraVolumes $renderGerbil $renderController (and $renderTraefik $tf.persistence.enabled) }}
+      {{- if or $pangolin.configFile.enabled $pangolin.privateConfig.enabled $pangolin.extraVolumes $renderGerbil $renderController (and $renderTraefik $tf.persistence.enabled) (eq (include "pangolin.sqlite.persistenceEnabled" $root) "true") }}
       volumes:
+        {{- if eq (include "pangolin.sqlite.persistenceEnabled" $root) "true" }}
+        - name: pangolin-sqlite
+          persistentVolumeClaim:
+            claimName: {{ include "pangolin.sqlite.claimName" $root }}
+        {{- end }}
         {{- if $pangolin.configFile.enabled }}
         - name: pangolin-config
           configMap:

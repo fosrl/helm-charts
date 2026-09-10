@@ -672,6 +672,36 @@ limits:
 {{- default .defaultPort (get $service "port") -}}
 {{- end -}}
 
+{{- /*
+SQLite persistence helpers. `database.mode` is the single source of truth for
+whether SQLite is in use; the old `database.sqlite.enabled` toggle was never read
+by any template and is gone.
+*/ -}}
+{{- define "pangolin.sqlite.claimName" -}}
+{{- $persistence := ((.Values.database).sqlite | default dict).persistence | default dict -}}
+{{- $persistence.existingClaim | default (printf "%s-sqlite" (include "pangolin.fullname" .)) -}}
+{{- end -}}
+
+{{- define "pangolin.sqlite.persistenceEnabled" -}}
+{{- $persistence := ((.Values.database).sqlite | default dict).persistence | default dict -}}
+{{- if and (eq (include "pangolin.db.mode" .) "sqlite") ($persistence.enabled | default false) -}}
+true{{- else -}}false{{- end -}}
+{{- end -}}
+
+{{- /*
+Mount the DIRECTORY holding the database file, not the file itself: SQLite writes
+-wal, -shm and journal siblings next to it, and a subPath file mount would leave
+those on the container filesystem.
+*/ -}}
+{{- define "pangolin.sqlite.mountPath" -}}
+{{- $path := ((.Values.database).sqlite | default dict).path | default "/app/data/pangolin.db" -}}
+{{- $dir := dir $path -}}
+{{- if or (eq $dir ".") (eq $dir "/") -}}
+{{- fail (printf "PANGOLIN-068: database.sqlite.path must be an absolute file path inside a directory that can be mounted, got %q." $path) -}}
+{{- end -}}
+{{- $dir -}}
+{{- end -}}
+
 {{- define "pangolin.validate" -}}
 {{- $root := . -}}
 

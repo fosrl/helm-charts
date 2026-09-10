@@ -1213,11 +1213,8 @@
                     "description": "SQLite backend configuration. Recommended only for development or very small test deployments.",
                     "type": "object",
                     "properties": {
-                        "enabled": {
-                            "type": "boolean"
-                        },
                         "path": {
-                            "description": "SQLite database file path used by Pangolin.",
+                            "description": "SQLite database file path used by Pangolin. Its parent directory is what gets mounted when persistence is enabled, because SQLite writes -wal/-shm/journal siblings next to the database file.",
                             "type": "string",
                             "minLength": 1
                         },
@@ -1245,6 +1242,13 @@
                                 "existingClaim": {
                                     "description": "Existing PVC name to use for SQLite.",
                                     "type": "string"
+                                },
+                                "labels": {
+                                    "description": "Additional labels for the SQLite PVC.",
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "type": "string"
+                                    }
                                 },
                                 "size": {
                                     "description": "PVC size for SQLite data.",

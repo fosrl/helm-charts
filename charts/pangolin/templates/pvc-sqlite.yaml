@@ -1,0 +1,32 @@
+{{- if eq (include "pangolin.db.mode" .) "sqlite" }}
+{{- $sqlite := .Values.database.sqlite | default dict -}}
+{{- $persistence := $sqlite.persistence | default dict -}}
+{{- if and $persistence.enabled (not $persistence.existingClaim) }}
+{{- $root := . -}}
+{{- $storageClass := $persistence.storageClass | default $root.Values.global.storageClass -}}
+{{- $metaAnns := mergeOverwrite (dict) (include "pangolin.global.commonAnnotations" $root | fromYaml) (include "pangolin.component.commonAnnotations" (dict "root" $root "component" "pangolin") | fromYaml) ($persistence.annotations | default dict) -}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "pangolin.sqlite.claimName" $root }}
+  namespace: {{ include "pangolin.namespace" $root }}
+  labels:
+    {{- include "pangolin.labels" $root | nindent 4 }}
+    {{- include "pangolin.component.commonLabels" (dict "root" $root "component" "pangolin") | nindent 4 }}
+    {{- include "pangolin.renderNonSelectorLabels" (dict "labels" ($persistence.labels | default dict)) | nindent 4 }}
+    app.kubernetes.io/component: pangolin
+  {{- if gt (len $metaAnns) 0 }}
+  annotations:
+    {{- toYaml $metaAnns | nindent 4 }}
+  {{- end }}
+spec:
+  accessModes:
+    {{- toYaml ($persistence.accessModes | default (list "ReadWriteOnce")) | nindent 4 }}
+  {{- if $storageClass }}
+  storageClassName: {{ $storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ $persistence.size | default "1Gi" }}
+{{- end }}
+{{- end }}
