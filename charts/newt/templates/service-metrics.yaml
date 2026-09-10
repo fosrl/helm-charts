@@ -43,11 +43,9 @@ spec:
   ports:
       - name: {{ $m.service.portName | default "metrics" }}
         port: {{ $m.service.port | default 9090 }}
-        {{- if $m.targetPortName }}
-        targetPort: {{ $m.targetPortName }}
-        {{- else }}
-        targetPort: {{ $m.port | default 9090 }}
-        {{- end }}
+        {{- /* Target the container port by name so it can never drift from the
+               address Newt binds (#16). */}}
+        targetPort: {{ default ($m.portName | default "metrics") $m.targetPortName }}
         protocol: TCP
     {{- else }}
     {{- $m := $gm -}}
@@ -88,11 +86,9 @@ spec:
   ports:
     - name: {{ $m.service.portName | default "metrics" }}
       port: {{ $m.service.port | default 9090 }}
-      {{- if $m.targetPortName }}
-      targetPort: {{ $m.targetPortName }}
-      {{- else }}
-      targetPort: {{ $m.port | default 9090 }}
-      {{- end }}
+      {{- /* Target the container port by name so it can never drift from the
+             address Newt binds (#16). */}}
+      targetPort: {{ default ($m.portName | default "metrics") $m.targetPortName }}
       protocol: TCP
     {{- end }}
   {{- end }}

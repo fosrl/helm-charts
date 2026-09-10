@@ -258,7 +258,7 @@ spec:
               protocol: UDP
             {{- if $m.enabled }}
             - name: {{ $m.portName | default "metrics" }}
-              containerPort: {{ $m.port | default 9090 }}
+              containerPort: {{ include "newt.metrics.listenPort" $m }}
               protocol: TCP
             {{- end }}
           {{- /* Emit volumeMounts only if we have any */}}
