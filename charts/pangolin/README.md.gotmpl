@@ -304,7 +304,7 @@ Use this checklist before tagging alpha/RC/stable releases. This runtime validat
 - [ ] `yamllint -d '{extends: relaxed, rules: {line-length: {max: 200}, indentation: {spaces: consistent, indent-sequences: whatever}, trailing-spaces: disable}}' /tmp/pangolin-*.yaml`
 - [ ] `for f in /tmp/pangolin-*.yaml; do kubeconform -strict -summary -ignore-missing-schemas "$f"; done`
 - [ ] Validate image/app versions and ArtifactHub image annotations in `charts/pangolin/Chart.yaml` and `charts/pangolin/values.yaml` are consistent.
-- [ ] Bump chart version from `0.1.0-alpha.0` to the next alpha in `charts/pangolin/Chart.yaml`.
+- [ ] Bump the chart version to the next alpha in `charts/pangolin/Chart.yaml`.
 - [ ] Do **not** change `kubeVersion`; current value is intentional.
 
 ### Before RC
