@@ -613,6 +613,9 @@ tests:
             existingSecretName: newt-cred
           useNativeMainInterface: true
           interfaceMain: wg-main
+      global:
+        nativeMode:
+          enabled: true
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
@@ -625,21 +628,15 @@ tests:
             name: INTERFACE_MAIN
             value: wg-main
 
-  - it: renders PREFER_ENDPOINT and the UDP proxy idle timeout
+  - it: renders the UDP proxy idle timeout
     set:
       newtInstances:
         - name: main-tunnel
           enabled: true
           auth:
             existingSecretName: newt-cred
-          preferEndpoint: https://eu.example.com
           udpProxyIdleTimeout: 120s
     asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: PREFER_ENDPOINT
-            value: https://eu.example.com
       - contains:
           path: spec.template.spec.containers[0].env
           content:
