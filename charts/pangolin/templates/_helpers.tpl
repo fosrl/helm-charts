@@ -880,4 +880,38 @@ limits:
 {{- fail "PANGOLIN-061: database.mode=external requires a database connection Secret. Either set database.connection.existingSecretName (user-managed Secret) or set database.external.generatedSecret.create=true with database.external.generatedSecret.connectionString or host/username/password/port/database values (chart-managed Secret)." -}}
 {{- end -}}
 {{- end -}}
+
+{{- /* PANGOLIN-067: the controller cannot reconcile Traefik CRDs without egress to the
+       Kubernetes API. Only the contradictory state fails - asking for the rule while
+       leaving it no destination - because that is the one case the chart cannot resolve
+       and the one that used to surface as a controller crash-loop instead. */ -}}
+{{- $np := default (dict) $root.Values.networkPolicy -}}
+{{- $npEnabled := true -}}
+{{- if hasKey $np "enabled" -}}
+{{- $npEnabled = get $np "enabled" -}}
+{{- end -}}
+{{- if and $npEnabled (eq $root.Values.deployment.type "controller") (default false (get (default (dict) $root.Values.controller) "enabled")) -}}
+{{- $npControllerEgress := default (dict) (get (default (dict) (get $np "controller")) "egress") -}}
+{{- $npKubeApi := default (dict) (get $npControllerEgress "kubernetesApi") -}}
+{{- $npControllerEgressEnabled := true -}}
+{{- if hasKey $npControllerEgress "enabled" -}}
+{{- $npControllerEgressEnabled = get $npControllerEgress "enabled" -}}
+{{- end -}}
+{{- $npKubeApiEnabled := true -}}
+{{- if hasKey $npKubeApi "enabled" -}}
+{{- $npKubeApiEnabled = get $npKubeApi "enabled" -}}
+{{- end -}}
+{{- if and $npControllerEgressEnabled $npKubeApiEnabled -}}
+{{- $hasLegacyKubeApi := or (ne (default "" (get $npKubeApi "cidr")) "") (gt (len (default list (get $np "kubernetesApiCIDRs"))) 0) -}}
+{{- $hasKubeApiEndpoints := false -}}
+{{- range $endpoint := (default list (get $npKubeApi "endpoints")) -}}
+{{- if gt (len (default list (get $endpoint "cidrs"))) 0 -}}
+{{- $hasKubeApiEndpoints = true -}}
+{{- end -}}
+{{- end -}}
+{{- if not (or $hasLegacyKubeApi $hasKubeApiEndpoints) -}}
+{{- fail "PANGOLIN-067: networkPolicy.controller.egress.kubernetesApi.enabled=true but no destination is configured, which would leave the controller unable to reach the Kubernetes API. Populate networkPolicy.controller.egress.kubernetesApi.endpoints[].cidrs (the chart default covers RFC1918/CGNAT/link-local on TCP 443 and 6443), or set kubernetesApi.enabled=false and supply the rule yourself via networkPolicy.controller.extraEgress." -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}
