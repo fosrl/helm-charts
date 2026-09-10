@@ -264,7 +264,6 @@ pangolin:
   - **Gerbil** (`serviceAccount.gerbil.automountServiceAccountToken=false`, default): Gerbil manages WireGuard tunnels and does not require Kubernetes API access. Token automount is disabled by default.
   - All three settings are configurable via `serviceAccount.<component>.automountServiceAccountToken`.
 - **Single mode ServiceAccount trade-off:** Kubernetes ServiceAccount selection is Pod-level. In `deployment.mode=single` + `deployment.type=controller`, the shared Pod uses the controller ServiceAccount/token so Pangolin and Gerbil share that Pod-level token behavior.
-- **hostNetwork:** `runtime.hostNetwork=true` reduces network isolation. Enable it only when you understand why it’s required (some WireGuard / UDP exposure setups may need it).
 - **Container security context:** `global.containerSecurityContext` is intentionally empty by default so you can choose a baseline that matches your cluster policy. Workloads merge this with their own `*.securityContext`.
 
 ## Production checklist

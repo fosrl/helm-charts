@@ -2428,7 +2428,7 @@
                             "type": "object",
                             "properties": {
                                 "aiGateway": {
-                                    "description": "Allow external ingress on the Pangolin AI gateway port. Off by default: the gateway is reached through Traefik, not directly.",
+                                    "description": "Allow ingress on the Pangolin AI gateway port. On by default, like the external (3000) and dashboard (3002) ports: Traefik reaches the gateway by connecting to this port on the Pangolin Pod, so closing it makes every AI gateway route fail even though the port is published on the Service.",
                                     "type": "boolean"
                                 },
                                 "external": {
@@ -2564,7 +2564,7 @@
                     }
                 },
                 "config": {
-                    "description": "Pangolin application config rendered into /app/config/config.yml. Keys and structure follow the Pangolin 1.18.x configSchema (snake_case).",
+                    "description": "Pangolin application config rendered into /app/config/config.yml. Keys and structure follow the Pangolin 1.22.x configSchema (snake_case).",
                     "type": "object",
                     "properties": {
                         "app": {
@@ -2765,7 +2765,7 @@
                                     "minimum": 1
                                 },
                                 "subnet_group": {
-                                    "description": "Use subdomain-based resource endpoints.",
+                                    "description": "Supernet for WireGuard address allocation.",
                                     "type": "string"
                                 }
                             }

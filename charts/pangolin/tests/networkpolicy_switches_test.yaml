@@ -114,3 +114,36 @@ tests:
               - podSelector:
                   matchLabels:
                     cnpg.io/cluster: pangolin-db
+
+  - it: allows the AI gateway port by default so Traefik can reach it
+    set:
+      networkPolicy:
+        enabled: true
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-pangolin-ingress
+    asserts:
+      - contains:
+          path: spec.ingress
+          content:
+            ports:
+              - port: 3005
+                protocol: TCP
+
+  - it: aiGateway false closes the AI gateway port
+    set:
+      networkPolicy:
+        enabled: true
+        pangolin:
+          externalIngress:
+            aiGateway: false
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-pangolin-ingress
+    asserts:
+      - notContains:
+          path: spec.ingress
+          content:
+            ports:
+              - port: 3005
+                protocol: TCP
