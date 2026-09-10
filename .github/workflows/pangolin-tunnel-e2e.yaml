@@ -1,0 +1,178 @@
+name: Pangolin tunnel data path
+
+# What this covers, and what it does not.
+#
+# The tunnel-gate job is deterministic and always runs: it proves the guard in
+# scripts/e2e/assert-tunnel-backends.sh actually detects an unroutable tunnel address
+# rather than passing vacuously.
+#
+# The host-gateway job needs a cluster and is therefore label-gated. It verifies the parts
+# of the data path a cluster can confirm without a live Pangolin/Newt pair: that Gerbil
+# really lands in the node network namespace, that the WireGuard route exists there, and
+# that Traefik is scheduled onto the same node.
+#
+# It does NOT verify a request traversing the tunnel. That needs a real Newt credential
+# and a registered site, so the 502 -> 200 assertion behind fosrl/helm-charts#20 is not
+# covered here. Do not read a green run as proof the tunnel works.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  tunnel-gate:
+    name: Tunnel backend guard self-test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: An unroutable tunnel address must fail the guard
+        run: |
+          set -euo pipefail
+          if bash scripts/e2e/assert-tunnel-backends.sh \
+               --file scripts/e2e/testdata/endpointslices-tunnel.json \
+               --tunnel-cidr 100.89.128.0/20; then
+            echo "ERROR: the guard passed on an address inside the tunnel subnet"
+            exit 1
+          fi
+          echo "Guard correctly rejected the unroutable address."
+
+      - name: Routable addresses must pass
+        run: |
+          set -euo pipefail
+          bash scripts/e2e/assert-tunnel-backends.sh \
+            --file scripts/e2e/testdata/endpointslices-routable.json \
+            --tunnel-cidr 100.89.128.0/20
+
+      - name: An empty endpoint set must pass
+        run: |
+          set -euo pipefail
+          bash scripts/e2e/assert-tunnel-backends.sh \
+            --file scripts/e2e/testdata/endpointslices-empty.json \
+            --tunnel-cidr 100.89.128.0/20
+
+  host-gateway:
+    name: Host gateway data path (kind)
+    # Cluster-backed and slow, so it runs on main and on demand via the label.
+    if: >-
+      github.event_name == 'push' ||
+      contains(github.event.pull_request.labels.*.name, 'e2e')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Helm
+        uses: Azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5.0.0
+        with:
+          version: v3.20.2
+
+      - name: Create a multi-node kind cluster
+        uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3 # v1.12.0
+        with:
+          cluster_name: pangolin-e2e
+          # More than one node, so "Traefik landed on the Gerbil node" is a real
+          # assertion rather than the only possible outcome.
+          config: .github/e2e/kind-cluster.yaml
+
+      - name: Add Helm dependency repositories
+        run: |
+          helm repo add cloudnative-pg https://cloudnative-pg.github.io/charts
+          helm repo update
+
+      - name: Build chart dependencies
+        run: helm dependency build charts/pangolin
+
+      - name: Install the chart in host gateway mode
+        run: |
+          set -euo pipefail
+          kubectl create namespace pangolin-e2e
+          kubectl label namespace pangolin-e2e pod-security.kubernetes.io/enforce=privileged --overwrite
+          helm install pangolin charts/pangolin \
+            --namespace pangolin-e2e \
+            -f .github/e2e/values-host-gateway.yaml \
+            --wait --timeout 10m
+
+      - name: Gerbil must run in the node network namespace
+        run: |
+          set -euo pipefail
+          kubectl -n pangolin-e2e rollout status deploy/pangolin-gerbil --timeout=5m
+          gerbil_pods=$(kubectl -n pangolin-e2e get pods -l app.kubernetes.io/component=gerbil \
+            -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')
+          if [ -z "${gerbil_pods}" ]; then
+            echo "ERROR: no Gerbil Pods matched the selector - this check would prove nothing"
+            exit 1
+          fi
+          host_network=$(kubectl -n pangolin-e2e get pods -l app.kubernetes.io/component=gerbil \
+            -o jsonpath='{.items[0].spec.hostNetwork}')
+          if [ "$host_network" != "true" ]; then
+            echo "ERROR: Gerbil is not using hostNetwork (got '${host_network}')"
+            exit 1
+          fi
+          dns_policy=$(kubectl -n pangolin-e2e get pods -l app.kubernetes.io/component=gerbil \
+            -o jsonpath='{.items[0].spec.dnsPolicy}')
+          if [ "$dns_policy" != "ClusterFirstWithHostNet" ]; then
+            echo "ERROR: dnsPolicy is '${dns_policy}'; Gerbil could not resolve the Pangolin Service"
+            exit 1
+          fi
+          echo "Gerbil: hostNetwork=true dnsPolicy=${dns_policy}"
+
+      - name: The WireGuard interface must exist on the node, not in a Pod namespace
+        run: |
+          set -euo pipefail
+          node=$(kubectl -n pangolin-e2e get pods -l app.kubernetes.io/component=gerbil \
+            -o jsonpath='{.items[0].spec.nodeName}')
+          echo "Gerbil node: ${node}"
+          # kind nodes are containers, so the node network namespace is inspectable directly.
+          if ! docker exec "${node}" ip link show wg0; then
+            echo "ERROR: wg0 is absent from the node network namespace - the whole point of this mode"
+            exit 1
+          fi
+          docker exec "${node}" ip route show | tee /tmp/node-routes.txt
+          if ! grep -q "wg0" /tmp/node-routes.txt; then
+            echo "ERROR: no route via wg0 in the node routing table"
+            exit 1
+          fi
+
+      - name: Traefik must be co-located with Gerbil
+        run: |
+          set -euo pipefail
+          gerbil_node=$(kubectl -n pangolin-e2e get pods -l app.kubernetes.io/component=gerbil \
+            -o jsonpath='{.items[0].spec.nodeName}')
+          # The chart labels its own Traefik `traefik-standalone`; a wrong selector here
+          # would make this check pass without comparing anything.
+          traefik_nodes=$(kubectl -n pangolin-e2e get pods -l app.kubernetes.io/component=traefik-standalone \
+            -o jsonpath='{range .items[*]}{.spec.nodeName}{"\n"}{end}' | sort -u)
+          echo "Gerbil: ${gerbil_node}"
+          echo "Traefik: ${traefik_nodes}"
+          if [ -z "${traefik_nodes}" ]; then
+            echo "ERROR: no Traefik Pods matched - the selector is wrong and this check proved nothing"
+            exit 1
+          fi
+          for node in ${traefik_nodes}; do
+            if [ "${node}" != "${gerbil_node}" ]; then
+              echo "ERROR: Traefik on ${node} cannot reach tunnel backends held by ${gerbil_node}"
+              exit 1
+            fi
+          done
+
+      - name: No unroutable tunnel address may be published
+        run: |
+          set -euo pipefail
+          bash scripts/e2e/assert-tunnel-backends.sh \
+            --namespace pangolin-e2e \
+            --tunnel-cidr 100.89.128.0/20 \
+            --expect-data-path
+
+      - name: Collect diagnostics
+        if: failure()
+        run: |
+          kubectl -n pangolin-e2e get pods -o wide || true
+          kubectl -n pangolin-e2e get endpointslices -o yaml || true
+          kubectl -n pangolin-e2e describe pods || true
+          kubectl -n pangolin-e2e logs -l app.kubernetes.io/component=gerbil --tail=200 || true
