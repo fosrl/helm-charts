@@ -51,6 +51,19 @@ This changelog is chart-scoped to support multiple charts over time.
   is never widened by an upgrade.
 - `networkPolicy.pangolin.externalIngress.next` defaults to `null` (derive from the
   dashboard route). An explicit boolean still wins.
+- `newtInstances[].updown.enabled=true` is rejected when `updown.script` does not name an
+  entry in `global.updownScripts`. The chart used to mount a ConfigMap it never rendered,
+  which left the Pod in `ContainerCreating` with no explanation.
+- Newt health probes now get a writable `emptyDir` at the health file's directory. The
+  default container runs with `readOnlyRootFilesystem: true`, so `global.health.enabled`
+  previously produced probes for a file Newt could never create.
+- `global.podDisruptionBudget.maxUnavailable` is now rendered, and `minAvailable: 0` is no
+  longer discarded. Both were documented; only a hardcoded `minAvailable` was emitted.
+- The Prometheus scrape annotation advertises the port Newt binds instead of the
+  deprecated `metrics.port`.
+- **BREAKING:** the per-instance `<release>-<instance>-env` ConfigMap is no longer created.
+  Nothing mounted it - `extraEnv` is and was rendered directly into the container - so it
+  was a dead object holding a second copy of every value. Remove any external reference to it.
 
 ---
 
