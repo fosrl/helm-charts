@@ -952,7 +952,10 @@ See `examples/values-blueprints.yaml` for a complete working example.
 | traefik.persistence.enabled | bool | `false` | Persist Traefik ACME state on a PVC. Strongly recommended when using ACME; required when enabling the dashboard (traefik.config.dashboard=true). |
 | traefik.replicaCount | int | `1` | Number of standalone Traefik replicas in multi mode. |
 | traefik.service.enabled | bool | `true` | Create the public Traefik Service. |
-| traefikController | object | `{}` | Values passed to the Traefik dependency chart (only used when `deployment.installTraefikController=true`). |
+| traefikController | object | `{"experimental":{"plugins":{"badger":{"moduleName":"github.com/fosrl/badger","version":"v1.7.0"}}},"ingressClass":{"isDefaultClass":false},"nameOverride":"traefik"}` | Values passed to the bundled Traefik chart, which is installed only when `deployment.installTraefikController=true`. Everything the official chart accepts can be set here; the defaults below are the ones this chart cannot leave to the subchart.  In controller mode pangolin-kube-controller reads Pangolin's generated configuration and materialises it as Traefik CRDs, so the bundled Traefik needs the Kubernetes providers rather than an HTTP provider. It still needs the Badger plugin declared statically, because the middleware the controller writes into every router references it by alias. |
+| traefikController.experimental.plugins.badger | object | `{"moduleName":"github.com/fosrl/badger","version":"v1.7.0"}` | The alias must be `badger`: Pangolin hardcodes that string as the plugin type in the middleware it generates, and Traefik resolves it against this map. |
+| traefikController.ingressClass.isDefaultClass | bool | `false` | Off by default: an externally installed Traefik is an explicitly supported topology and two default IngressClasses in one cluster is an ambiguous configuration. |
+| traefikController.nameOverride | string | `"traefik"` | Required. The alias makes Helm name subchart resources after it, and `pangolin-traefikController` is not a valid DNS-1123 name, so the API server rejects every object on install. Do not remove this. |
 
 ## Maintainers
 

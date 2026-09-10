@@ -90,6 +90,15 @@ This changelog is chart-scoped to support multiple charts over time.
   (`traefik.config.httpProvider.*`), gets the RBAC its Kubernetes providers need, and is
   allowed through the chart's own NetworkPolicy to Pangolin's internal API. Without these
   the mode started healthy and served nothing Pangolin created.
+- `deployment.installTraefikController=true` now installs a Traefik. The value and
+  `traefikController` were documented as installing a bundled subchart, but `Chart.yaml`
+  declared no such dependency, so both were inert. The official Traefik chart 41.5.0 is now
+  an optional, pinned dependency gated on that switch. It ships three defaults the subchart
+  cannot get right on its own: `nameOverride: traefik` (the alias would otherwise produce
+  the invalid DNS-1123 name `<release>-traefikController`), `ingressClass.isDefaultClass:
+  false` (an externally installed Traefik is a supported topology and two default
+  IngressClasses are ambiguous), and the Badger plugin declaration. An externally installed
+  Traefik remains fully supported and is unaffected while the switch stays `false`.
 - `newtInstances[].useNativeMainInterface` and `useNativeInterface` now both require
   `global.nativeMode.enabled=true` and are rejected without it. `global.nativeMode.enabled`
   on its own no longer makes a Pod root and privileged: it is a permission gate, and an
