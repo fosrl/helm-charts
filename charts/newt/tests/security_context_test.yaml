@@ -32,7 +32,9 @@ tests:
       - notExists:
           path: spec.template.spec.containers[0].securityContext.capabilities.drop
 
-  - it: global native mode enables privileged security context
+  # The gate is a permission, not an instruction: an instance that asks for no native
+  # operation must not be handed root, privileged, NET_ADMIN and SYS_MODULE for nothing.
+  - it: global native mode alone grants no privilege
     set:
       global:
         nativeMode:
@@ -45,10 +47,68 @@ tests:
     asserts:
       - equal:
           path: spec.template.spec.containers[0].securityContext.runAsUser
+          value: 65534
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsNonRoot
+          value: true
+      - notExists:
+          path: spec.template.spec.containers[0].securityContext.privileged
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: USE_NATIVE_INTERFACE
+            value: "true"
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: USE_NATIVE_MAIN_INTERFACE
+            value: "true"
+
+  - it: native main interface receives the same privilege as the native interface
+    set:
+      global:
+        nativeMode:
+          enabled: true
+      newtInstances:
+        - name: native-main
+          enabled: true
+          useNativeMainInterface: true
+          auth:
+            existingSecretName: newt-auth
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsUser
           value: 0
       - equal:
           path: spec.template.spec.containers[0].securityContext.privileged
           value: true
+      - contains:
+          path: spec.template.spec.containers[0].securityContext.capabilities.add
+          content: NET_ADMIN
+
+  - it: rejects a native interface without the permission gate
+    set:
+      newtInstances:
+        - name: ungated
+          enabled: true
+          useNativeInterface: true
+          auth:
+            existingSecretName: newt-auth
+    asserts:
+      - failedTemplate:
+          errorPattern: "useNativeInterface requires global.nativeMode.enabled=true"
+
+  - it: rejects a native main interface without the permission gate
+    set:
+      newtInstances:
+        - name: ungated-main
+          enabled: true
+          useNativeMainInterface: true
+          auth:
+            existingSecretName: newt-auth
+    asserts:
+      - failedTemplate:
+          errorPattern: "useNativeMainInterface requires global.nativeMode.enabled=true"
 
   - it: instance override with allowGlobalOverride uses custom securityContext
     set:

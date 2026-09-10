@@ -497,7 +497,7 @@
                     "type": "object",
                     "properties": {
                         "enabled": {
-                            "description": "Enable native WireGuard interface (requires privileged container)",
+                            "description": "Permission gate for native WireGuard interfaces. This grants nothing on its own: an instance becomes root and privileged only when it also sets useNativeInterface or useNativeMainInterface. Those settings are rejected while this is false.",
                             "type": "boolean"
                         }
                     }
@@ -846,7 +846,7 @@
                     "minimum": 0
                 },
                 "securityContext": {
-                    "description": "Container-level securityContext override SECURITY NOTE: By default (when nativeMode is disabled), Newt runs as non-root: runAsUser: 65534 runAsNonRoot: true allowPrivilegeEscalation: false readOnlyRootFilesystem: true capabilities.drop: [\"ALL\"]  When nativeMode.enabled=true OR useNativeInterface=true: runAsUser: 0 (root) allowPrivilegeEscalation: true privileged: true capabilities.add: [NET_ADMIN, SYS_MODULE]  IMPORTANT: Do NOT set capabilities.drop when running as root - this is invalid.",
+                    "description": "Container-level securityContext override SECURITY NOTE: By default (when nativeMode is disabled), Newt runs as non-root: runAsUser: 65534 runAsNonRoot: true allowPrivilegeEscalation: false readOnlyRootFilesystem: true capabilities.drop: [\"ALL\"]  When global.nativeMode.enabled=true AND the instance requests a native interface: runAsUser: 0 (root) allowPrivilegeEscalation: true privileged: true capabilities.add: [NET_ADMIN, SYS_MODULE]  IMPORTANT: Do NOT set capabilities.drop when running as root - this is invalid.",
                     "type": "object"
                 },
                 "statefulsetAnnotations": {
@@ -1804,7 +1804,7 @@
                         "type": "string"
                     },
                     "preferEndpoint": {
-                        "description": "Prefer this endpoint when several are advertised (PREFER_ENDPOINT).",
+                        "description": "Prefer this endpoint when several are advertised (--prefer-endpoint). Newt reads this only from the CLI, so it requires useCommandArgs: true on this instance; the chart rejects the combination rather than letting it no-op.",
                         "type": "string"
                     },
                     "provisioningBlueprintData": {
@@ -1852,7 +1852,7 @@
                         "pattern": "^$|^[a-zA-Z0-9_-]+$"
                     },
                     "securityContext": {
-                        "description": "Container-level securityContext override SECURITY NOTE: By default (when nativeMode is disabled), Newt runs as non-root. When nativeMode.enabled=true OR useNativeInterface=true, Newt runs as root with privileges. IMPORTANT: Do NOT set capabilities.drop when running as root - this is invalid.",
+                        "description": "Container-level securityContext override SECURITY NOTE: By default Newt runs as non-root. Newt runs as root with privileges only when global.nativeMode.enabled=true AND the instance sets useNativeInterface or useNativeMainInterface. IMPORTANT: Do NOT set capabilities.drop when running as root - this is invalid.",
                         "type": "object"
                     },
                     "service": {
@@ -2006,11 +2006,11 @@
                         "type": "boolean"
                     },
                     "useNativeInterface": {
-                        "description": "Use native WireGuard kernel interface (requires nativeMode.enabled=true and privileged)",
+                        "description": "Use the native WireGuard kernel interface (USE_NATIVE_INTERFACE). Requires global.nativeMode.enabled=true; the chart then runs this instance as root with NET_ADMIN and SYS_MODULE.",
                         "type": "boolean"
                     },
                     "useNativeMainInterface": {
-                        "description": "Create the main WireGuard interface natively on the host instead of in netstack (USE_NATIVE_MAIN_INTERFACE). Requires Newt \u003e= 1.14.0 and a privileged container.",
+                        "description": "Create the main WireGuard interface natively on the host instead of in netstack (USE_NATIVE_MAIN_INTERFACE). Requires Newt \u003e= 1.14.0 and global.nativeMode.enabled=true; the chart then grants this instance the same privileges as useNativeInterface.",
                         "type": "boolean"
                     }
                 }

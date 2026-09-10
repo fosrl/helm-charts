@@ -72,6 +72,18 @@ This changelog is chart-scoped to support multiple charts over time.
 - `networkPolicy.pangolin.externalIngress.aiGateway` defaults to `true`. Traefik reaches
   the AI gateway by connecting to port 3005 on the Pangolin Pod, so the previous `false`
   blocked every AI gateway route while the port was published on the Service.
+- `newtInstances[].useNativeMainInterface` and `useNativeInterface` now both require
+  `global.nativeMode.enabled=true` and are rejected without it. `global.nativeMode.enabled`
+  on its own no longer makes a Pod root and privileged: it is a permission gate, and an
+  instance is only privileged when it also requests a native interface. If you relied on
+  the gate alone to obtain privilege, set `useNativeInterface: true` on the instances that
+  need it.
+- `--secret-env=NEWT_SECRET` is no longer passed in `useCommandArgs` mode. No Newt release
+  defines that flag, and Newt exits 2 on an unknown flag; it reads `NEWT_SECRET` from the
+  environment, which the chart still injects.
+- `newtInstances[].preferEndpoint` now requires `useCommandArgs: true` and is rejected
+  otherwise. Newt has no `PREFER_ENDPOINT` environment variable, so the default env path
+  silently did nothing.
 
 ---
 
