@@ -182,3 +182,77 @@ tests:
       database.external.generatedSecret.connectionString: "postgresql://u:p@h:5432/db"
     asserts:
       - notFailedTemplate: {}
+
+  - it: fails when Kubernetes API egress is enabled with no destination
+    set:
+      database:
+        mode: sqlite
+      deployment:
+        type: controller
+        mode: multi
+      networkPolicy:
+        controller:
+          egress:
+            kubernetesApi:
+              endpoints: []
+    asserts:
+      - failedTemplate:
+          errorPattern: "PANGOLIN-067"
+
+  - it: fails when Kubernetes API egress endpoints carry no CIDRs
+    set:
+      database:
+        mode: sqlite
+      deployment:
+        type: controller
+        mode: multi
+      networkPolicy:
+        controller:
+          egress:
+            kubernetesApi:
+              endpoints:
+                - ports: [443]
+    asserts:
+      - failedTemplate:
+          errorPattern: "PANGOLIN-067"
+
+  - it: passes when Kubernetes API egress is explicitly opted out
+    set:
+      database:
+        mode: sqlite
+      deployment:
+        type: controller
+        mode: multi
+      networkPolicy:
+        controller:
+          egress:
+            kubernetesApi:
+              enabled: false
+              endpoints: []
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: passes when only the deprecated Kubernetes API cidr is configured
+    set:
+      database:
+        mode: sqlite
+      deployment:
+        type: controller
+        mode: multi
+      networkPolicy:
+        controller:
+          egress:
+            kubernetesApi:
+              endpoints: []
+              cidr: 10.43.0.1/32
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: accepts every documented gerbil startupMode
+    set:
+      database:
+        mode: sqlite
+      gerbil:
+        startupMode: disabledUntilSetup
+    asserts:
+      - notFailedTemplate: {}

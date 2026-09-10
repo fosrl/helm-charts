@@ -91,9 +91,12 @@ tests:
     template: templates/networkpolicy.yaml
     documentIndex: 0
     asserts:
-      - equal:
-          path: spec.ingress[3].ports[0].port
-          value: 9999
+      - contains:
+          path: spec.ingress
+          content:
+            ports:
+              - protocol: TCP
+                port: 9999
 
   - it: controller egress is rendered by default with dns and pangolin peer
     set:
@@ -416,8 +419,12 @@ tests:
       - equal:
           path: metadata.name
           value: RELEASE-NAME-pangolin-controller-egress
-      - notExists:
-          path: spec.egress[2]
+      - notContains:
+          path: spec.egress
+          content:
+            ports:
+              - protocol: TCP
+                port: 587
 
   - it: pangolin-only extraEgress does not apply to gerbil egress policy
     set:
@@ -455,9 +462,15 @@ tests:
       - equal:
           path: metadata.name
           value: RELEASE-NAME-pangolin-controller-egress
-      - equal:
-          path: spec.egress[2].ports[0].port
-          value: 8080
+      - contains:
+          path: spec.egress
+          content:
+            ports:
+              - protocol: TCP
+                port: 8080
+            to:
+              - ipBlock:
+                  cidr: 192.168.1.0/24
 
   - it: controller-only extraEgress does not apply to pangolin egress policy
     set:
@@ -595,9 +608,12 @@ tests:
       - equal:
           path: metadata.name
           value: RELEASE-NAME-pangolin-pangolin-ingress
-      - equal:
-          path: spec.ingress[3].ports[0].port
-          value: 8888
+      - contains:
+          path: spec.ingress
+          content:
+            ports:
+              - protocol: TCP
+                port: 8888
 
   - it: controller-only extraIngress applies only to controller ingress policy
     set:
@@ -792,3 +808,322 @@ tests:
       - equal:
           path: spec.ports[1].protocol
           value: UDP
+
+  # --- #22: controller Kubernetes API egress must work out of the box -------------
+  - it: renders Kubernetes API egress by default so controller mode does not crash-loop
+    set:
+      deployment:
+        type: controller
+        mode: multi
+    template: templates/networkpolicy.yaml
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-controller-egress
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            ports:
+              - protocol: TCP
+                port: 443
+              - protocol: TCP
+                port: 6443
+            to:
+              - ipBlock:
+                  cidr: 10.0.0.0/8
+              - ipBlock:
+                  cidr: 172.16.0.0/12
+              - ipBlock:
+                  cidr: 192.168.0.0/16
+              - ipBlock:
+                  cidr: 100.64.0.0/10
+              - ipBlock:
+                  cidr: 169.254.0.0/16
+
+  - it: renders one rule per configured Kubernetes API endpoint
+    set:
+      networkPolicy:
+        controller:
+          egress:
+            kubernetesApi:
+              endpoints:
+                - cidrs: ["10.43.0.1/32"]
+                  ports: [443]
+                - cidrs: ["192.168.1.10/32", "192.168.1.11/32"]
+                  ports: [6443]
+    template: templates/networkpolicy.yaml
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-controller-egress
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            ports:
+              - protocol: TCP
+                port: 443
+            to:
+              - ipBlock:
+                  cidr: 10.43.0.1/32
+      - contains:
+          path: spec.egress
+          content:
+            ports:
+              - protocol: TCP
+                port: 6443
+            to:
+              - ipBlock:
+                  cidr: 192.168.1.10/32
+              - ipBlock:
+                  cidr: 192.168.1.11/32
+
+  - it: honours ipBlock except on a Kubernetes API endpoint
+    set:
+      networkPolicy:
+        controller:
+          egress:
+            kubernetesApi:
+              endpoints:
+                - cidrs: ["10.0.0.0/8"]
+                  ports: [443]
+                  except: ["10.1.0.0/16"]
+    template: templates/networkpolicy.yaml
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-controller-egress
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            ports:
+              - protocol: TCP
+                port: 443
+            to:
+              - ipBlock:
+                  cidr: 10.0.0.0/8
+                  except:
+                    - 10.1.0.0/16
+
+  # An operator-scoped legacy allow-list must never be widened by an upgrade.
+  - it: lets the deprecated cidr win over the default endpoints
+    set:
+      networkPolicy:
+        controller:
+          egress:
+            kubernetesApi:
+              cidr: 10.43.0.1/32
+    template: templates/networkpolicy.yaml
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-controller-egress
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            ports:
+              - protocol: TCP
+                port: 443
+            to:
+              - ipBlock:
+                  cidr: 10.43.0.1/32
+      - notContains:
+          path: spec.egress
+          content:
+            ports:
+              - protocol: TCP
+                port: 443
+              - protocol: TCP
+                port: 6443
+            to:
+              - ipBlock:
+                  cidr: 10.0.0.0/8
+              - ipBlock:
+                  cidr: 172.16.0.0/12
+              - ipBlock:
+                  cidr: 192.168.0.0/16
+              - ipBlock:
+                  cidr: 100.64.0.0/10
+              - ipBlock:
+                  cidr: 169.254.0.0/16
+
+  - it: lets the deprecated kubernetesApiCIDRs list win with its own port
+    set:
+      networkPolicy:
+        kubernetesApiCIDRs:
+          - 10.43.0.1/32
+          - 192.168.1.10/32
+        controller:
+          egress:
+            kubernetesApi:
+              port: 6443
+    template: templates/networkpolicy.yaml
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-controller-egress
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            ports:
+              - protocol: TCP
+                port: 6443
+            to:
+              - ipBlock:
+                  cidr: 10.43.0.1/32
+              - ipBlock:
+                  cidr: 192.168.1.10/32
+
+  - it: renders no Kubernetes API egress when explicitly disabled
+    set:
+      networkPolicy:
+        controller:
+          egress:
+            kubernetesApi:
+              enabled: false
+    template: templates/networkpolicy.yaml
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-controller-egress
+    asserts:
+      - notContains:
+          path: spec.egress
+          content:
+            ports:
+              - protocol: TCP
+                port: 443
+              - protocol: TCP
+                port: 6443
+            to:
+              - ipBlock:
+                  cidr: 10.0.0.0/8
+              - ipBlock:
+                  cidr: 172.16.0.0/12
+              - ipBlock:
+                  cidr: 192.168.0.0/16
+              - ipBlock:
+                  cidr: 100.64.0.0/10
+              - ipBlock:
+                  cidr: 169.254.0.0/16
+
+  # --- #22: the default dashboard route must not be blocked ----------------------
+  - it: allows the dashboard next port when the dashboard IngressRoute targets it
+    set:
+      deployment:
+        type: controller
+    template: templates/networkpolicy.yaml
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-pangolin-ingress
+    asserts:
+      - contains:
+          path: spec.ingress
+          content:
+            ports:
+              - protocol: TCP
+                port: 3002
+
+  - it: keeps the next port closed when the dashboard route is disabled
+    set:
+      deployment:
+        type: controller
+      pangolin:
+        ingressRoute:
+          dashboard:
+            routes:
+              dashboard:
+                enabled: false
+    template: templates/networkpolicy.yaml
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-pangolin-ingress
+    asserts:
+      - notContains:
+          path: spec.ingress
+          content:
+            ports:
+              - protocol: TCP
+                port: 3002
+
+  - it: keeps the next port closed in standalone mode
+    set:
+      deployment:
+        type: standalone
+    template: templates/networkpolicy.yaml
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-pangolin-ingress
+    asserts:
+      - notContains:
+          path: spec.ingress
+          content:
+            ports:
+              - protocol: TCP
+                port: 3002
+
+  - it: lets an explicit next override win over the derivation
+    set:
+      deployment:
+        type: standalone
+      networkPolicy:
+        pangolin:
+          externalIngress:
+            next: true
+    template: templates/networkpolicy.yaml
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-pangolin-ingress
+    asserts:
+      - contains:
+          path: spec.ingress
+          content:
+            ports:
+              - protocol: TCP
+                port: 3002
+
+  - it: lets an explicit next=false close the port the dashboard route would open
+    set:
+      deployment:
+        type: controller
+      networkPolicy:
+        pangolin:
+          externalIngress:
+            next: false
+    template: templates/networkpolicy.yaml
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-pangolin-ingress
+    asserts:
+      - notContains:
+          path: spec.ingress
+          content:
+            ports:
+              - protocol: TCP
+                port: 3002
+
+  - it: scopes the next port to the configured dashboard peers
+    set:
+      deployment:
+        type: controller
+      networkPolicy:
+        pangolin:
+          ingress:
+            dashboard:
+              from:
+                - namespaceSelector:
+                    matchLabels:
+                      kubernetes.io/metadata.name: traefik-system
+    template: templates/networkpolicy.yaml
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-pangolin-ingress
+    asserts:
+      - contains:
+          path: spec.ingress
+          content:
+            from:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: traefik-system
+            ports:
+              - protocol: TCP
+                port: 3002
