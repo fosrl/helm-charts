@@ -11,7 +11,46 @@ This changelog is chart-scoped to support multiple charts over time.
 
 ### Unreleased
 
-- No changes yet.
+#### Fixed
+
+- `pangolin.extraVolumes` / `pangolin.extraVolumeMounts` no longer abort `helm template`.
+  The `- {{- toYaml . | nindent N }}` pattern let the whitespace strip eat the list dash
+  ([#25](https://github.com/fosrl/helm-charts/issues/25)).
+- `networkPolicy.controller.egress.kubernetesApi` now renders a rule by default, so
+  `deployment.type=controller` no longer ships with the controller unable to reach the
+  Kubernetes API ([#22](https://github.com/fosrl/helm-charts/issues/22)).
+- The dashboard `next` port (3002) is now allowed whenever the chart-managed dashboard
+  IngressRoute targets it, instead of being blocked by a default that could drift
+  ([#22](https://github.com/fosrl/helm-charts/issues/22)).
+- `gerbil.startupMode=disabledUntilSetup` is accepted again. A duplicate PANGOLIN-062
+  check rejected the value its own schema enum advertised.
+- Explicit `false` and `0` now stick for `pangolin.config.app.telemetry.anonymous_usage`,
+  `pangolin.config.app.notifications.*`, `pangolin.config.server.trust_proxy` and
+  `pangolin.config.email.smtp_tls_reject_unauthorized`. `| default` collapsed them back
+  onto the default, so telemetry could not be turned off.
+
+#### Added
+
+- `database.sqlite.persistence.*` is implemented: it renders a PVC and mounts the
+  directory holding `database.sqlite.path` in both `multi` and `single` mode. The values
+  existed and were documented but no template read them
+  ([#25](https://github.com/fosrl/helm-charts/issues/25)).
+- `networkPolicy.controller.egress.kubernetesApi.endpoints` accepts CIDR groups with
+  their own port lists, covering both pre-DNAT (Service ClusterIP:443) and post-DNAT
+  (node IP:6443) CNI behaviour.
+- `PANGOLIN-067` fails the render when Kubernetes API egress is enabled with no
+  destination configured.
+
+#### Changed
+
+- **BREAKING:** `database.sqlite.enabled` is removed. It was never read by any template;
+  `database.mode=sqlite` is and remains the only switch.
+- `networkPolicy.controller.egress.kubernetesApi.cidr` and
+  `networkPolicy.kubernetesApiCIDRs` are deprecated in favour of `endpoints`. Both are
+  still honoured and take precedence over `endpoints`, so an existing scoped allow-list
+  is never widened by an upgrade.
+- `networkPolicy.pangolin.externalIngress.next` defaults to `null` (derive from the
+  dashboard route). An explicit boolean still wins.
 
 ---
 
@@ -36,7 +75,32 @@ This changelog is chart-scoped to support multiple charts over time.
 
 ### Unreleased
 
-- No changes yet.
+#### Fixed
+
+- Enabling metrics now actually exposes them. The chart never emitted
+  `NEWT_METRICS_PROMETHEUS_ENABLED`, the Service published 2112 while targeting 9090, and
+  `newt.effectiveMetrics` returned Go's map-print form instead of JSON so the metrics
+  container port was never declared and per-instance metrics overrides were inert
+  ([#16](https://github.com/fosrl/helm-charts/issues/16)).
+- `newtInstances[].resources` is honoured again. It was gated behind
+  `allowGlobalOverride` while `global.resources` shipped non-empty, so the documented
+  per-instance key was a no-op on every default install
+  ([#23](https://github.com/fosrl/helm-charts/issues/23)).
+- `newtInstances[].extraVolumes` / `extraVolumeMounts` no longer render stray bare list
+  dashes ([#25](https://github.com/fosrl/helm-charts/issues/25)).
+
+#### Changed
+
+- `global.resources` and `newtInstances[].resources` default to `{}`. The chart no longer
+  imposes CPU or memory requests/limits, and the `resources` key is omitted entirely when
+  both are empty so LimitRange and namespace defaults apply. Commented examples are
+  provided in `values.yaml` ([#23](https://github.com/fosrl/helm-charts/issues/23)).
+- The resources schema accepts an empty map, `null`, requests-only, limits-only,
+  fractional CPU and extended resources. It previously typed every field as a bare string
+  with a `^[0-9]+m?$` pattern, which rejected `null`.
+- `global.metrics.adminAddr` is authoritative for the metrics port; the container port,
+  Service `targetPort` and scrape annotation all derive from it. `global.metrics.port` is
+  deprecated but still honoured as the listen port so existing values files are unchanged.
 
 ---
 
