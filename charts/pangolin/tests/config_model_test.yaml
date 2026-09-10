@@ -577,3 +577,67 @@ tests:
       - notMatchRegex:
           path: data["config.yml"]
           pattern: "rate_limits:"
+
+  # `X | default true` collapsed an explicit false back onto the default, so none of
+  # these opt-outs could be applied at all - telemetry included.
+  - it: honours an explicit telemetry opt-out
+    template: templates/configmap-pangolin.yaml
+    set:
+      pangolin.config.app.telemetry.anonymous_usage: false
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "anonymous_usage: false"
+
+  - it: honours explicit notification opt-outs
+    template: templates/configmap-pangolin.yaml
+    set:
+      pangolin.config.app.notifications.product_updates: false
+      pangolin.config.app.notifications.new_releases: false
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "product_updates: false"
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "new_releases: false"
+
+  - it: keeps telemetry and notifications on by default
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "anonymous_usage: true"
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "product_updates: true"
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "new_releases: true"
+
+  - it: honours trust_proxy set to zero
+    template: templates/configmap-pangolin.yaml
+    set:
+      pangolin.config.server.trust_proxy: 0
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "trust_proxy: 0"
+
+  - it: defaults trust_proxy to one
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "trust_proxy: 1"
+
+  - it: honours smtp_tls_reject_unauthorized set to false
+    template: templates/configmap-pangolin.yaml
+    set:
+      pangolin.config.email.enabled: true
+      pangolin.config.email.smtp_host: smtp.example.com
+      pangolin.config.email.smtp_tls_reject_unauthorized: false
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "smtp_tls_reject_unauthorized: false"
