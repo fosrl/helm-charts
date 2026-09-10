@@ -6,7 +6,10 @@
 {{- $controllerNpAnns := mergeOverwrite (dict) (include "pangolin.global.commonAnnotations" $root | fromYaml) (include "pangolin.component.commonAnnotations" (dict "root" $root "component" "controller") | fromYaml) -}}
 {{- $gerbilNpAnns := mergeOverwrite (dict) (include "pangolin.global.commonAnnotations" $root | fromYaml) (include "pangolin.component.commonAnnotations" (dict "root" $root "component" "gerbil") | fromYaml) -}}
 {{- $embeddedNpAnns := mergeOverwrite (dict) (include "pangolin.global.commonAnnotations" $root | fromYaml) (($root.Values.database.embedded.commonAnnotations) | default dict) -}}
-{{- $allowExternal := (default true $root.Values.networkPolicy.allowExternalIngress) -}}
+{{- $allowExternal := true -}}
+{{- if kindIs "bool" $root.Values.networkPolicy.allowExternalIngress -}}
+{{- $allowExternal = $root.Values.networkPolicy.allowExternalIngress -}}
+{{- end -}}
 {{- $allowHttpsEgress := (default false $root.Values.networkPolicy.allowExternalEgressHttps) -}}
 {{- $extraIngress := $root.Values.networkPolicy.extraIngress | default list -}}
 {{- $extraEgress := $root.Values.networkPolicy.extraEgress | default list -}}
@@ -26,7 +29,10 @@
 {{- $npPangolinDashboardIngress := $npPangolinIngress.dashboard | default dict -}}
 {{- $pangolinDashboardFrom := $npPangolinDashboardIngress.from | default list -}}
 {{- $npPangolinExternal := $npPangolin.externalIngress | default dict -}}
-{{- $allowPangolinExternal := (default true $npPangolinExternal.external) -}}
+{{- $allowPangolinExternal := true -}}
+{{- if kindIs "bool" $npPangolinExternal.external -}}
+{{- $allowPangolinExternal = $npPangolinExternal.external -}}
+{{- end -}}
 {{- /*
 `next` is the Next.js dashboard port. ingressroute-dashboard.yaml routes every
 request that is not the API PathPrefix to it and is enabled by default, so a flat
@@ -56,7 +62,10 @@ than `hasKey` because the value is present-but-null by default.
 {{- $allowPangolinNext = $npPangolinExternal.next -}}
 {{- end -}}
 {{- $allowPangolinIntegration := (default false $npPangolinExternal.integration) -}}
-{{- $requireIntegrationFlag := (default true $npPangolinExternal.requireIntegrationFlag) -}}
+{{- $requireIntegrationFlag := true -}}
+{{- if kindIs "bool" $npPangolinExternal.requireIntegrationFlag -}}
+{{- $requireIntegrationFlag = $npPangolinExternal.requireIntegrationFlag -}}
+{{- end -}}
 {{- $pangolinExtraIngress := $npPangolin.extraIngress | default list -}}
 {{- $pangolinExtraEgress := $npPangolin.extraEgress | default list -}}
 
@@ -122,7 +131,10 @@ regression, so an existing narrow configuration is carried over untouched.
 {{- $controllerExtraEgress := $npController.extraEgress | default list -}}
 
 {{- $npDatabase := $root.Values.networkPolicy.database | default dict -}}
-{{- $allowDatabaseEgress := (default true $npDatabase.enabled) -}}
+{{- $allowDatabaseEgress := true -}}
+{{- if kindIs "bool" $npDatabase.enabled -}}
+{{- $allowDatabaseEgress = $npDatabase.enabled -}}
+{{- end -}}
 {{- $databasePort := (default 5432 $npDatabase.port) -}}
 {{- $databaseCnpgPeers := $npDatabase.cnpgPeers | default list -}}
 {{- $databaseExternalCidrs := $npDatabase.externalCIDRs | default list -}}
@@ -130,7 +142,10 @@ regression, so an existing narrow configuration is carried over untouched.
 {{- $databaseExtraEgress := $npDatabase.extraEgress | default list -}}
 
 {{- $npGerbil := $root.Values.networkPolicy.gerbil | default dict -}}
-{{- $allowGerbilWireguardUdpEgress := (default true $npGerbil.allowWireguardUdpEgress) -}}
+{{- $allowGerbilWireguardUdpEgress := true -}}
+{{- if kindIs "bool" $npGerbil.allowWireguardUdpEgress -}}
+{{- $allowGerbilWireguardUdpEgress = $npGerbil.allowWireguardUdpEgress -}}
+{{- end -}}
 {{- $gerbilWireguardUdpCidrs := $npGerbil.wireguardUdpCIDRs | default (list "0.0.0.0/0") -}}
 {{- $gerbilExtraIngress := $npGerbil.extraIngress | default list -}}
 {{- $gerbilExtraEgress := $npGerbil.extraEgress | default list -}}

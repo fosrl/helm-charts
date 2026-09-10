@@ -1,0 +1,116 @@
+suite: NetworkPolicy opt-outs
+templates:
+  - templates/networkpolicy.yaml
+tests:
+  - it: allows the external Pangolin ports by default
+    set:
+      networkPolicy:
+        enabled: true
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-pangolin-ingress
+    asserts:
+      - contains:
+          path: spec.ingress
+          content:
+            ports:
+              - port: 3000
+                protocol: TCP
+
+  - it: allowExternalIngress false closes the external Pangolin ports
+    set:
+      networkPolicy:
+        enabled: true
+        allowExternalIngress: false
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-pangolin-ingress
+    asserts:
+      - notContains:
+          path: spec.ingress
+          content:
+            ports:
+              - port: 3000
+                protocol: TCP
+
+  - it: pangolin.externalIngress.external false closes the external Pangolin ports
+    set:
+      networkPolicy:
+        enabled: true
+        pangolin:
+          externalIngress:
+            external: false
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-pangolin-ingress
+    asserts:
+      - notContains:
+          path: spec.ingress
+          content:
+            ports:
+              - port: 3000
+                protocol: TCP
+
+  - it: database.enabled false removes the database egress rule
+    set:
+      networkPolicy:
+        enabled: true
+        database:
+          enabled: false
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-pangolin-egress
+    asserts:
+      - notContains:
+          path: spec.egress
+          content:
+            ports:
+              - port: 5432
+                protocol: TCP
+            to:
+              - podSelector:
+                  matchLabels:
+                    cnpg.io/cluster: pangolin-db
+
+  - it: gerbil.allowWireguardUdpEgress false removes the WireGuard egress rule
+    set:
+      networkPolicy:
+        enabled: true
+        gerbil:
+          allowWireguardUdpEgress: false
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-gerbil-egress
+    asserts:
+      - notContains:
+          path: spec.egress
+          content:
+            ports:
+              - port: 51820
+                protocol: UDP
+              - port: 21820
+                protocol: UDP
+            to:
+              - ipBlock:
+                  cidr: 0.0.0.0/0
+
+  - it: an explicit null still yields the documented default
+    set:
+      networkPolicy:
+        enabled: true
+        database:
+          enabled: null
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-pangolin-egress
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            ports:
+              - port: 5432
+                protocol: TCP
+            to:
+              - podSelector:
+                  matchLabels:
+                    cnpg.io/cluster: pangolin-db
