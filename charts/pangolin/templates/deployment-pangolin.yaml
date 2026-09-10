@@ -174,8 +174,8 @@ spec:
               subPath: {{ $pcSubPath | quote }}
               readOnly: true
             {{- end }}
-            {{- range $pangolin.extraVolumeMounts }}
-            - {{- toYaml . | nindent 12 }}
+            {{- with $pangolin.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
             {{- end }}
           {{- end }}
           {{- with $pangolin.probes }}
@@ -232,8 +232,8 @@ spec:
           secret:
             secretName: {{ include "pangolin.privateConfig.secretName" $root }}
         {{- end }}
-        {{- range $pangolin.extraVolumes }}
-        - {{- toYaml . | nindent 8 }}
+        {{- with $pangolin.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
         {{- end }}
       {{- end }}
 {{- end }}
