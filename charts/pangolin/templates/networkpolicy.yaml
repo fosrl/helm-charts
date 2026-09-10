@@ -62,6 +62,7 @@ than `hasKey` because the value is present-but-null by default.
 {{- $allowPangolinNext = $npPangolinExternal.next -}}
 {{- end -}}
 {{- $allowPangolinIntegration := (default false $npPangolinExternal.integration) -}}
+{{- $allowPangolinAiGateway := (default false $npPangolinExternal.aiGateway) -}}
 {{- $requireIntegrationFlag := true -}}
 {{- if kindIs "bool" $npPangolinExternal.requireIntegrationFlag -}}
 {{- $requireIntegrationFlag = $npPangolinExternal.requireIntegrationFlag -}}
@@ -187,6 +188,9 @@ regression, so an existing narrow configuration is carried over untouched.
 {{- end -}}
 {{- if and $allowPangolinIntegration (or (not $requireIntegrationFlag) (($root.Values.pangolin.config | default dict).flags | default dict).enable_integration_api) -}}
 {{- $pangolinIngress = append $pangolinIngress (dict "ports" (list (dict "protocol" "TCP" "port" $root.Values.pangolin.service.ports.integration))) -}}
+{{- end -}}
+{{- if $allowPangolinAiGateway -}}
+{{- $pangolinIngress = append $pangolinIngress (dict "ports" (list (dict "protocol" "TCP" "port" $root.Values.pangolin.service.ports.aiGateway))) -}}
 {{- end -}}
 {{- end -}}
 {{- if $extraIngress -}}

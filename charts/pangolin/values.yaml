@@ -176,8 +176,6 @@ rbac:
 # -----------------------------------------------------------------------------
 ## @section Common runtime settings
 runtime:
-  # -- Enable hostNetwork on workloads that support it.
-  hostNetwork: false # @schema type: boolean
   # -- Grace period in seconds before Pod termination.
   terminationGracePeriodSeconds: 30 # @schema type: integer ; minimum: 0
   # -- Min ready seconds for Deployments.
@@ -291,6 +289,9 @@ networkPolicy:
       next: null # @schema type: [boolean, "null"]
       # -- Allow external ingress on Pangolin integration API port.
       integration: false # @schema type: boolean
+      # -- Allow external ingress on the Pangolin AI gateway port.
+      # Off by default: the gateway is reached through Traefik, not directly.
+      aiGateway: false # @schema type: boolean
       # -- Require `pangolin.config.flags.enable_integration_api=true` before opening integration ingress.
       requireIntegrationFlag: true # @schema type: boolean
 
@@ -500,6 +501,8 @@ pangolin:
       internalApi: 3001
       next: 3002
       integration: 3003
+      # -- AI gateway port. Requires Pangolin >= 1.22.0.
+      aiGateway: 3005
     # -- Additional Service annotations for Pangolin.
     annotations: {} # @schema type: object ; additionalProperties: { type: string }
     # -- Additional Service labels for Pangolin.
@@ -686,6 +689,34 @@ pangolin:
         credentials: false # @schema type: boolean
       # -- Number of trusted reverse-proxy hops. Use 0 to disable trust-proxy.
       trust_proxy: 1 # @schema type: integer ; minimum: 0
+      remote_headers:
+        # -- Header carrying the resolved user id to downstream resources.
+        user_id: Remote-User-Id # @schema type: string
+        # -- Header carrying the resolved virtual API key id (AI gateway).
+        virtual_api_key_id: Remote-Virtual-Api-Key-Id # @schema type: string
+        # -- Header carrying the resolved username.
+        user: Remote-User # @schema type: string
+        # -- Header carrying the resolved user email.
+        email: Remote-Email # @schema type: string
+        # -- Header carrying the resolved user display name.
+        name: Remote-Name # @schema type: string
+        # -- Header carrying the resolved user role.
+        role: Remote-Role # @schema type: string
+      # -- Override the base URL Badger uses to reach the Pangolin internal API.
+      # Empty (default) lets Pangolin derive it from `internal_hostname` and the internal
+      # port. Set this when Badger must reach Pangolin by some other address.
+      badger_override: "" # @schema type: string
+      # -- Override the base URL used to reach the AI gateway. Empty lets Pangolin derive
+      # it from `internal_hostname` and `ai_gateway_port`. Requires Pangolin >= 1.22.0.
+      ai_gateway_override: "" # @schema type: string
+      # -- Have Traefik/Badger stamp the resolved client IP into X-Pangolin-Client-Ip on
+      # the AI gateway route. Off by default: it needs a Badger build that supports
+      # realIpHeader. Requires Pangolin >= 1.22.0.
+      enable_ai_gateway_client_ip_header: false # @schema type: boolean
+      # -- Path to a MaxMind GeoLite2/GeoIP2 city database for geo-blocking rules.
+      maxmind_db_path: "" # @schema type: string
+      # -- Path to a MaxMind ASN database.
+      maxmind_asn_path: "" # @schema type: string
 
     # ---------- gerbil section ----------
     # Describes Gerbil's network settings from Pangolin's perspective.
@@ -699,7 +730,6 @@ pangolin:
       # Set this to your real public endpoint for production.
       base_endpoint: "pangolin.example.com" # @schema type: string
       # -- Use subdomain-based resource endpoints.
-      use_subdomain: false # @schema type: boolean
       # -- Supernet for WireGuard address allocation.
       subnet_group: "100.89.137.0/20" # @schema type: string
       # -- CIDR prefix length per cluster / site group.
@@ -736,6 +766,13 @@ pangolin:
       disable_product_help_banners: false # @schema type: boolean
       # -- Disable Enterprise-licensed features even when a valid license is present.
       disable_enterprise_features: false # @schema type: boolean
+      # -- Hide the virtual API keys UI (AI gateway). Requires Pangolin >= 1.22.0.
+      disable_virtual_api_keys_ui: false # @schema type: boolean
+      # -- Sync ACME certificates issued by Traefik back into Pangolin.
+      # Upstream default is true.
+      enable_acme_cert_sync: true # @schema type: boolean
+      # -- Disable the placeholder page served for private HTTP resources.
+      disable_private_http_placeholder: false # @schema type: boolean
 
     # ---------- traefik section ----------
     traefik:
@@ -755,6 +792,18 @@ pangolin:
       prefer_wildcard_cert: false # @schema type: boolean
       # -- Extra Traefik middleware names applied to all Pangolin routes.
       additional_middlewares: [] # @schema type: array ; item: string
+      # -- Site types Pangolin generates Traefik configuration for.
+      # Upstream default is [newt, wireguard, local].
+      site_types: [] # @schema type: array ; item: string
+      # -- Domains always present in the generated Traefik configuration.
+      static_domains: [] # @schema type: array ; item: string
+      rate_limit:
+        # -- Average requests per second for the generated Traefik rate-limit middleware.
+        # Upstream default is 30. Set to 0 to leave the section unrendered.
+        average: 0 # @schema type: integer ; minimum: 0
+        # -- Burst size for the generated Traefik rate-limit middleware.
+        # Upstream default is 50. Set to 0 to leave the section unrendered.
+        burst: 0 # @schema type: integer ; minimum: 0
 
     # ---------- rate_limits section (optional) ----------
     rate_limits:
@@ -1791,71 +1840,3 @@ cnpg-cluster:
 # Metrics and monitoring
 # -----------------------------------------------------------------------------
 ## @section Metrics and monitoring
-monitoring:
-  # -- Enable generic chart-level metrics Service / scrape integration for Pangolin app.
-  enabled: false # @schema type: boolean
-  service:
-    # -- Create a metrics Service for Pangolin.
-    enabled: false # @schema type: boolean
-    type: ClusterIP # @schema type: string ; enum: [ClusterIP, NodePort, LoadBalancer]
-    port: 9090 # @schema type: integer ; minimum: 1 ; maximum: 65535
-    portName: metrics # @schema type: string
-    annotations:
-      prometheus.io/scrape: "true"
-      prometheus.io/port: "9090"
-      prometheus.io/path: "/metrics"
-    labels: {} # @schema type: object ; additionalProperties: { type: string }
-  metrics:
-    # -- Metrics endpoint port name.
-    targetPortName: metrics # @schema type: string
-    # -- Metrics endpoint numeric port.
-    targetPort: 9090 # @schema type: integer ; minimum: 1 ; maximum: 65535
-    # -- Default metrics path.
-    path: /metrics # @schema type: string
-    # -- Expose internal metrics where supported.
-    addInternals: false # @schema type: boolean
-    endpoints:
-      health: /health/metrics
-      performance: /perf/metrics
-      application: /app/metrics
-    customLabels:
-      service: pangolin
-
-  serviceMonitor:
-    enabled: false # @schema type: boolean
-    apiVersion: monitoring.coreos.com/v1 # @schema type: string
-    namespace: "" # @schema type: string
-    labels: {} # @schema type: object ; additionalProperties: { type: string }
-    annotations: {} # @schema type: object ; additionalProperties: { type: string }
-    interval: 30s # @schema type: string
-    scrapeTimeout: 10s # @schema type: string
-    selector:
-      matchLabels:
-        app.kubernetes.io/name: pangolin
-    honorLabels: true # @schema type: boolean
-    scheme: http # @schema type: string
-    path: /metrics # @schema type: string
-    relabelings: [] # @schema type: array ; item: object
-    metricRelabelings: [] # @schema type: array ; item: object
-    targetLabels: [] # @schema type: array ; item: string
-    sampleLimit: 0 # @schema type: integer ; minimum: 0
-
-  podMonitor:
-    enabled: false # @schema type: boolean
-    apiVersion: monitoring.coreos.com/v1 # @schema type: string
-    namespace: "" # @schema type: string
-    labels: {} # @schema type: object ; additionalProperties: { type: string }
-    annotations: {} # @schema type: object ; additionalProperties: { type: string }
-    portName: internalApi # @schema type: string
-    scheme: http # @schema type: string
-    path: /metrics # @schema type: string
-    interval: 30s # @schema type: string
-    scrapeTimeout: 10s # @schema type: string
-    relabelings: [] # @schema type: array ; item: object
-    metricRelabelings: [] # @schema type: array ; item: object
-
-  prometheusRule:
-    enabled: false # @schema type: boolean
-    namespace: "" # @schema type: string
-    additionalLabels: {} # @schema type: object ; additionalProperties: { type: string }
-    rules: [] # @schema type: array ; item: object

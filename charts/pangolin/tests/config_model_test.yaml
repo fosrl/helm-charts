@@ -641,3 +641,132 @@ tests:
       - matchRegex:
           path: data["config.yml"]
           pattern: "smtp_tls_reject_unauthorized: false"
+
+  # --- Pangolin 1.22 configuration surface ---------------------------------------
+  # gerbil.use_subdomain was dropped from Pangolin's config schema; the chart must not
+  # keep emitting a key upstream no longer knows about.
+  - it: no longer emits the removed gerbil.use_subdomain
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - notMatchRegex:
+          path: data["config.yml"]
+          pattern: "use_subdomain"
+
+  # The listener ports and the config that advertises them must come from one place.
+  - it: derives the server ports from the Service port values
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "external_port: 3000"
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "internal_port: 3001"
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "next_port: 3002"
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "integration_port: 3003"
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "ai_gateway_port: 3005"
+
+  - it: follows a custom service port into the rendered config
+    set:
+      pangolin.service.ports.aiGateway: 3105
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "ai_gateway_port: 3105"
+
+  - it: emits the remote_headers defaults
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "user_id: \"Remote-User-Id\""
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "virtual_api_key_id: \"Remote-Virtual-Api-Key-Id\""
+
+  # Optional keys must stay unset so Pangolin's own defaults keep applying.
+  - it: omits the optional 1.22 overrides by default
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - notMatchRegex:
+          path: data["config.yml"]
+          pattern: "badger_override"
+      - notMatchRegex:
+          path: data["config.yml"]
+          pattern: "ai_gateway_override"
+      - notMatchRegex:
+          path: data["config.yml"]
+          pattern: "enable_ai_gateway_client_ip_header"
+      - notMatchRegex:
+          path: data["config.yml"]
+          pattern: "maxmind"
+
+  - it: emits badger_override and ai_gateway_override when set
+    set:
+      pangolin.config.server.badger_override: http://pangolin.pangolin.svc.cluster.local:3001/api/v1
+      pangolin.config.server.ai_gateway_override: http://ai.example:3005
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "badger_override: \"http://pangolin.pangolin.svc.cluster.local:3001/api/v1\""
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "ai_gateway_override: \"http://ai.example:3005\""
+
+  - it: emits the 1.22 flags when set
+    set:
+      pangolin.config.flags.disable_virtual_api_keys_ui: true
+      pangolin.config.flags.disable_private_http_placeholder: true
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "disable_virtual_api_keys_ui: true"
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "disable_private_http_placeholder: true"
+
+  - it: lets enable_acme_cert_sync be turned off
+    set:
+      pangolin.config.flags.enable_acme_cert_sync: false
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "enable_acme_cert_sync: false"
+
+  - it: omits the traefik rate limit unless configured
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - notMatchRegex:
+          path: data["config.yml"]
+          pattern: "rate_limit:\n        average"
+
+  - it: emits traefik site_types, static_domains and rate_limit when set
+    set:
+      pangolin.config.traefik.site_types: ["newt", "local"]
+      pangolin.config.traefik.static_domains: ["a.example.com"]
+      pangolin.config.traefik.rate_limit.average: 30
+      pangolin.config.traefik.rate_limit.burst: 50
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "site_types: \\[\"newt\",\"local\"\\]"
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "static_domains: \\[\"a.example.com\"\\]"
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "average: 30"
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "burst: 50"
