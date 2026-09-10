@@ -112,15 +112,18 @@ tests:
             name: PING_TIMEOUT
             value: "10s"
 
-  - it: renders ACCEPT_CLIENTS when enabled
+  # ACCEPT_CLIENTS was removed upstream in Newt 1.7.0 and replaced by DISABLE_CLIENTS.
+  # acceptClients still gates the client Service and NetworkPolicy rule chart-side.
+  - it: does not render the removed ACCEPT_CLIENTS variable
     set:
       newtInstances:
-        - name: test-accept
+        - name: main-tunnel
           enabled: true
+          auth:
+            existingSecretName: newt-cred
           acceptClients: true
-          extraEnv: {}
     asserts:
-      - contains:
+      - notContains:
           path: spec.template.spec.containers[0].env
           content:
             name: ACCEPT_CLIENTS
@@ -207,15 +210,16 @@ tests:
             name: INTERFACE
             value: "wg0"
 
-  - it: renders KEEP_INTERFACE when enabled
+  - it: does not render the removed KEEP_INTERFACE variable
     set:
       newtInstances:
-        - name: test-keep-iface
+        - name: main-tunnel
           enabled: true
+          auth:
+            existingSecretName: newt-cred
           keepInterface: true
-          extraEnv: {}
     asserts:
-      - contains:
+      - notContains:
           path: spec.template.spec.containers[0].env
           content:
             name: KEEP_INTERFACE
@@ -235,19 +239,20 @@ tests:
             name: CONFIG_FILE
             value: "/etc/newt/config.yaml"
 
-  - it: renders GENERATE_AND_SAVE_KEY_TO when specified
+  - it: does not render the removed GENERATE_AND_SAVE_KEY_TO variable
     set:
       newtInstances:
-        - name: test-genkey
+        - name: main-tunnel
           enabled: true
-          generateAndSaveKeyTo: /etc/newt/key.pem
-          extraEnv: {}
+          auth:
+            existingSecretName: newt-cred
+          generateAndSaveKeyTo: /keys/newt.key
     asserts:
-      - contains:
+      - notContains:
           path: spec.template.spec.containers[0].env
           content:
             name: GENERATE_AND_SAVE_KEY_TO
-            value: "/etc/newt/key.pem"
+            value: /keys/newt.key
 
   - it: renders UPDOWN_SCRIPT when enabled
     set:
@@ -582,3 +587,113 @@ tests:
           content:
             name: PROVISIONING_BLUEPRINT_FILE
             value: "/etc/newt/provisioning-blueprint.yaml"
+
+  # --- options Newt gained through 1.16 ------------------------------------------
+  - it: renders DISABLE_SSH when enabled
+    set:
+      newtInstances:
+        - name: main-tunnel
+          enabled: true
+          auth:
+            existingSecretName: newt-cred
+          disableSSH: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DISABLE_SSH
+            value: "true"
+
+  - it: renders the native main interface settings
+    set:
+      newtInstances:
+        - name: main-tunnel
+          enabled: true
+          auth:
+            existingSecretName: newt-cred
+          useNativeMainInterface: true
+          interfaceMain: wg-main
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: USE_NATIVE_MAIN_INTERFACE
+            value: "true"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: INTERFACE_MAIN
+            value: wg-main
+
+  - it: renders PREFER_ENDPOINT and the UDP proxy idle timeout
+    set:
+      newtInstances:
+        - name: main-tunnel
+          enabled: true
+          auth:
+            existingSecretName: newt-cred
+          preferEndpoint: https://eu.example.com
+          udpProxyIdleTimeout: 120s
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PREFER_ENDPOINT
+            value: https://eu.example.com
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: NEWT_UDP_PROXY_IDLE_TIMEOUT
+            value: 120s
+
+  # AD_KEY is a credential, so it is only ever referenced from a Secret.
+  - it: references the auth daemon key from a Secret and never inlines it
+    set:
+      newtInstances:
+        - name: main-tunnel
+          enabled: true
+          auth:
+            existingSecretName: newt-cred
+          authDaemon:
+            keySecretName: newt-ad
+            keySecretKey: preSharedKey
+            principalsFile: /etc/ssh/principals
+            caCertPath: /etc/ssh/ca.pem
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AD_KEY
+            valueFrom:
+              secretKeyRef:
+                name: newt-ad
+                key: preSharedKey
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AD_PRINCIPALS_FILE
+            value: /etc/ssh/principals
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AD_CA_CERT_PATH
+            value: /etc/ssh/ca.pem
+
+  - it: renders none of the new options by default
+    set:
+      newtInstances:
+        - name: main-tunnel
+          enabled: true
+          auth:
+            existingSecretName: newt-cred
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DISABLE_SSH
+            value: "true"
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: USE_NATIVE_MAIN_INTERFACE
+            value: "true"

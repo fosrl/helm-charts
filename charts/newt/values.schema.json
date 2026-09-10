@@ -1039,7 +1039,7 @@
                 "type": "object",
                 "properties": {
                     "acceptClients": {
-                        "description": "Accept client connections for runtime only (ACCEPT_CLIENTS env). Does NOT create any Service; Service is controlled by newtInstances[x].service.enabled",
+                        "description": "Gate the client Service and the automatic client ingress NetworkPolicy rule. This is a chart-side switch only: it no longer sets any Newt environment variable, because ACCEPT_CLIENTS was removed upstream in Newt 1.7.0 and replaced by DISABLE_CLIENTS. To actually refuse client connections set `disableClients: true`.",
                         "type": "boolean"
                     },
                     "affinity": {
@@ -1103,6 +1103,31 @@
                             }
                         }
                     },
+                    "authDaemon": {
+                        "type": "object",
+                        "properties": {
+                            "caCertPath": {
+                                "description": "Path to the SSH CA certificate (AD_CA_CERT_PATH).",
+                                "type": "string"
+                            },
+                            "generateRandomPassword": {
+                                "description": "Generate a random password on start (AD_GENERATE_RANDOM_PASSWORD).",
+                                "type": "boolean"
+                            },
+                            "keySecretKey": {
+                                "description": "Key inside `authDaemon.keySecretName` holding the pre-shared key.",
+                                "type": "string"
+                            },
+                            "keySecretName": {
+                                "description": "Name of an existing Secret holding the auth daemon pre-shared key (AD_KEY). The key is only ever referenced, never rendered into the manifest.",
+                                "type": "string"
+                            },
+                            "principalsFile": {
+                                "description": "Path to the SSH principals file (AD_PRINCIPALS_FILE).",
+                                "type": "string"
+                            }
+                        }
+                    },
                     "blueprintData": {
                         "description": "Blueprint file content (inline). When provided, creates a ConfigMap with this content. Use this for simple inline blueprints, or leave empty to reference an existing ConfigMap.",
                         "type": "string"
@@ -1152,6 +1177,10 @@
                     },
                     "disableClients": {
                         "description": "Disable client connections (DISABLE_CLIENTS env). When enabled, Newt does not accept incoming client connections.",
+                        "type": "boolean"
+                    },
+                    "disableSSH": {
+                        "description": "Disable Newt's built-in SSH server (DISABLE_SSH). Newt 1.13 replaced the separate auth daemon with an internal SSH server that is on by default.",
                         "type": "boolean"
                     },
                     "dns": {
@@ -1210,7 +1239,7 @@
                         "additionalProperties": true
                     },
                     "generateAndSaveKeyTo": {
-                        "description": "Optional path to save generated private key (GENERATE_AND_SAVE_KEY_TO env)",
+                        "description": "DEPRECATED and inert: Newt has no --generateAndSaveKeyTo flag or GENERATE_AND_SAVE_KEY_TO variable in any release this chart can select. Kept so existing values files stay valid; it renders nothing.",
                         "type": "string"
                     },
                     "healthFile": {
@@ -1241,8 +1270,12 @@
                         "description": "WireGuard interface name in the pod",
                         "type": "string"
                     },
+                    "interfaceMain": {
+                        "description": "Name of the native main WireGuard interface (INTERFACE_MAIN). Requires Newt \u003e= 1.14.0.",
+                        "type": "string"
+                    },
                     "keepInterface": {
-                        "description": "Keep the interface on shutdown (native mode)",
+                        "description": "DEPRECATED and inert: Newt has no --keep-interface flag or KEEP_INTERFACE variable in any release this chart can select. Kept so existing values files stay valid; it renders nothing.",
                         "type": "boolean"
                     },
                     "lifecycle": {
@@ -1770,6 +1803,10 @@
                         "description": "WireGuard UDP port (PORT env). Default is 51820.",
                         "type": "string"
                     },
+                    "preferEndpoint": {
+                        "description": "Prefer this endpoint when several are advertised (PREFER_ENDPOINT).",
+                        "type": "string"
+                    },
                     "provisioningBlueprintData": {
                         "description": "Provisioning blueprint file content (inline). Required when provisioningBlueprintFile is set.",
                         "type": "string"
@@ -1939,6 +1976,10 @@
                             "type": "object"
                         }
                     },
+                    "udpProxyIdleTimeout": {
+                        "description": "Idle timeout for proxied UDP flows, e.g. \"90s\" (NEWT_UDP_PROXY_IDLE_TIMEOUT). Empty uses the Newt default.",
+                        "type": "string"
+                    },
                     "updown": {
                         "type": "object",
                         "properties": {
@@ -1966,6 +2007,10 @@
                     },
                     "useNativeInterface": {
                         "description": "Use native WireGuard kernel interface (requires nativeMode.enabled=true and privileged)",
+                        "type": "boolean"
+                    },
+                    "useNativeMainInterface": {
+                        "description": "Create the main WireGuard interface natively on the host instead of in netstack (USE_NATIVE_MAIN_INTERFACE). Requires Newt \u003e= 1.14.0 and a privileged container.",
                         "type": "boolean"
                     }
                 }

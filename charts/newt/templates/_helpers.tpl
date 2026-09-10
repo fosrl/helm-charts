@@ -286,11 +286,6 @@ imagePullSecrets:
 - name: PING_TIMEOUT
   value: {{ $inst.pingTimeout | quote }}
 {{- end }}
-{{- /* Add ACCEPT_CLIENTS env var only when enabled */ -}}
-{{- if (default false $inst.acceptClients) }}
-- name: ACCEPT_CLIENTS
-  value: "true"
-{{- end }}
 {{- if $nativeEnabled }}
 - name: USE_NATIVE_INTERFACE
   value: "true"
@@ -298,10 +293,6 @@ imagePullSecrets:
 {{- if and $inst.interface (ne $inst.interface "newt") }}
 - name: INTERFACE
   value: {{ $inst.interface | quote }}
-{{- end }}
-{{- if $inst.keepInterface }}
-- name: KEEP_INTERFACE
-  value: "true"
 {{- end }}
 {{- if $root.Values.global.health.enabled }}
 - name: HEALTH_FILE
@@ -326,10 +317,6 @@ imagePullSecrets:
 - name: CONFIG_FILE
   value: {{ $inst.configFile | quote }}
 {{- end }}
-{{- if $inst.generateAndSaveKeyTo }}
-- name: GENERATE_AND_SAVE_KEY_TO
-  value: {{ $inst.generateAndSaveKeyTo | quote }}
-{{- end }}
 {{- if $inst.port }}
 - name: PORT
   value: {{ $inst.port | quote }}
@@ -340,6 +327,46 @@ imagePullSecrets:
 {{- end }}
 {{- if $inst.disableClients }}
 - name: DISABLE_CLIENTS
+  value: "true"
+{{- end }}
+{{- if $inst.disableSSH }}
+- name: DISABLE_SSH
+  value: "true"
+{{- end }}
+{{- if $inst.useNativeMainInterface }}
+- name: USE_NATIVE_MAIN_INTERFACE
+  value: "true"
+{{- end }}
+{{- if and $inst.interfaceMain (ne $inst.interfaceMain "newt") }}
+- name: INTERFACE_MAIN
+  value: {{ $inst.interfaceMain | quote }}
+{{- end }}
+{{- if $inst.preferEndpoint }}
+- name: PREFER_ENDPOINT
+  value: {{ $inst.preferEndpoint | quote }}
+{{- end }}
+{{- if $inst.udpProxyIdleTimeout }}
+- name: NEWT_UDP_PROXY_IDLE_TIMEOUT
+  value: {{ $inst.udpProxyIdleTimeout | quote }}
+{{- end }}
+{{- $authDaemon := default (dict) $inst.authDaemon }}
+{{- if and $authDaemon.keySecretName $authDaemon.keySecretKey }}
+- name: AD_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ $authDaemon.keySecretName | quote }}
+      key: {{ $authDaemon.keySecretKey | quote }}
+{{- end }}
+{{- if $authDaemon.principalsFile }}
+- name: AD_PRINCIPALS_FILE
+  value: {{ $authDaemon.principalsFile | quote }}
+{{- end }}
+{{- if $authDaemon.caCertPath }}
+- name: AD_CA_CERT_PATH
+  value: {{ $authDaemon.caCertPath | quote }}
+{{- end }}
+{{- if $authDaemon.generateRandomPassword }}
+- name: AD_GENERATE_RANDOM_PASSWORD
   value: "true"
 {{- end }}
 {{- if $inst.blueprintFile }}
@@ -449,20 +476,21 @@ imagePullSecrets:
 {{- if $inst.pingInterval }}{{- $args = append $args (printf "--ping-interval=%s" $inst.pingInterval) }}{{- end }}
 {{- if $inst.pingTimeout }}{{- $args = append $args (printf "--ping-timeout=%s" $inst.pingTimeout) }}{{- end }}
 {{- if and $canOverride $inst.logLevel }}{{- $args = append $args (printf "--log-level=%s" $inst.logLevel) }}{{- else if $root.Values.global.logLevel }}{{- $args = append $args (printf "--log-level=%s" $root.Values.global.logLevel) }}{{- end }}
-{{- /* Append --accept-clients only when enabled */ -}}
-{{- if (default false $inst.acceptClients) }}{{- $args = append $args "--accept-clients" }}{{- end }}
 {{- if and $inst.useNativeInterface $root.Values.global.nativeMode.enabled }}{{- $args = append $args "--native" }}{{- end }}
 {{- if and $inst.interface (ne $inst.interface "newt") }}{{- $args = append $args (printf "--interface=%s" $inst.interface) }}{{- end }}
-{{- if $inst.keepInterface }}{{- $args = append $args "--keep-interface" }}{{- end }}
 {{- if $root.Values.global.health.enabled }}{{- $args = append $args (printf "--health-file=%s" (default $root.Values.global.health.path $inst.healthFile)) }}{{- end }}
 {{- if $inst.dockerSocket.enabled }}{{- $args = append $args (printf "--docker-socket=%s" $inst.dockerSocket.path) }}{{- end }}
 {{- if and $inst.dockerSocket.enabled $inst.dockerSocket.enforceNetworkValidation }}{{- $args = append $args "--docker-enforce-network-validation" }}{{- end }}
 {{- if $inst.updown.enabled }}{{- $args = append $args (printf "--updown=%s/%s" (default "/opt/newt/updown" $inst.updown.mountPath) (default "updown.sh" $inst.updown.fileName)) }}{{- end }}
 {{- if $inst.mtls.enabled }}{{- $args = append $args (printf "--tls-client-cert=%s" $inst.mtls.certPath) }}{{- end }}
-{{- if $inst.generateAndSaveKeyTo }}{{- $args = append $args (printf "--generateAndSaveKeyTo=%s" $inst.generateAndSaveKeyTo) }}{{- end }}
 {{- if $inst.port }}{{- $args = append $args (printf "--port=%s" $inst.port) }}{{- end }}
 {{- if $inst.noCloud }}{{- $args = append $args "--no-cloud" }}{{- end }}
 {{- if $inst.disableClients }}{{- $args = append $args "--disable-clients" }}{{- end }}
+{{- if $inst.disableSSH }}{{- $args = append $args "--disable-ssh" }}{{- end }}
+{{- if $inst.useNativeMainInterface }}{{- $args = append $args "--native-main" }}{{- end }}
+{{- if and $inst.interfaceMain (ne $inst.interfaceMain "newt") }}{{- $args = append $args (printf "--interface-main=%s" $inst.interfaceMain) }}{{- end }}
+{{- if $inst.preferEndpoint }}{{- $args = append $args (printf "--prefer-endpoint=%s" $inst.preferEndpoint) }}{{- end }}
+{{- if $inst.udpProxyIdleTimeout }}{{- $args = append $args (printf "--udp-proxy-idle-timeout=%s" $inst.udpProxyIdleTimeout) }}{{- end }}
 {{- if $inst.blueprintFile }}{{- $args = append $args (printf "--blueprint-file=%s" $inst.blueprintFile) }}{{- end }}
 {{- if $inst.enforceHcCert }}{{- $args = append $args "--enforce-hc-cert" }}{{- end }}
 {{- /* Metrics CLI args */ -}}
