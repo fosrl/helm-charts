@@ -40,9 +40,23 @@ This changelog is chart-scoped to support multiple charts over time.
   (node IP:6443) CNI behaviour.
 - `PANGOLIN-067` fails the render when Kubernetes API egress is enabled with no
   destination configured.
+- The Pangolin 1.22 configuration surface: `server.{ai_gateway_port, ai_gateway_override,
+  badger_override, remote_headers.*, enable_ai_gateway_client_ip_header, maxmind_db_path,
+  maxmind_asn_path}`, `flags.{disable_virtual_api_keys_ui, enable_acme_cert_sync,
+  disable_private_http_placeholder}` and `traefik.{site_types, static_domains,
+  rate_limit}`. Optional keys are emitted only when set so Pangolin's defaults apply.
+- `pangolin.service.ports.aiGateway` (3005), exposed on the Service and the workload, with
+  an opt-in `networkPolicy.pangolin.externalIngress.aiGateway` rule. The rendered
+  `server.*_port` values now derive from these ports so they cannot drift.
 
 #### Changed
 
+- Bumped Pangolin appVersion to `1.22.2`, the Gerbil image to `1.5.1` and the chart to
+  `0.1.0-alpha.2`. The chart remains a prerelease.
+- **BREAKING:** `pangolin.config.gerbil.use_subdomain` is removed - Pangolin dropped it
+  from its config schema, so the chart was emitting a key upstream no longer knows.
+- **BREAKING:** the top-level `monitoring.*` tree and `runtime.hostNetwork` are removed.
+  No template ever read either of them.
 - **BREAKING:** `database.sqlite.enabled` is removed. It was never read by any template;
   `database.mode=sqlite` is and remains the only switch.
 - `networkPolicy.controller.egress.kubernetesApi.cidr` and
@@ -89,6 +103,13 @@ This changelog is chart-scoped to support multiple charts over time.
 - `newtInstances[].extraVolumes` / `extraVolumeMounts` no longer render stray bare list
   dashes ([#25](https://github.com/fosrl/helm-charts/issues/25)).
 
+#### Added
+
+- Per-instance `disableSSH`, `useNativeMainInterface` / `interfaceMain`, `preferEndpoint`,
+  `udpProxyIdleTimeout` and `authDaemon.*`, covering the options Newt gained through
+  1.16. `authDaemon.keySecretName`/`keySecretKey` reference the pre-shared key from a
+  Secret; it is never inlined into the manifest.
+
 #### Changed
 
 - `global.resources` and `newtInstances[].resources` default to `{}`. The chart no longer
@@ -101,6 +122,13 @@ This changelog is chart-scoped to support multiple charts over time.
 - `global.metrics.adminAddr` is authoritative for the metrics port; the container port,
   Service `targetPort` and scrape annotation all derive from it. `global.metrics.port` is
   deprecated but still honoured as the listen port so existing values files are unchanged.
+- Bumped Newt appVersion to `1.16.0` and the chart to `1.6.0`.
+- Stopped emitting `ACCEPT_CLIENTS`, `KEEP_INTERFACE` and `GENERATE_AND_SAVE_KEY_TO` and
+  their CLI flags. None exist in any Newt release this chart can select - `ACCEPT_CLIENTS`
+  was replaced by `DISABLE_CLIENTS` in Newt 1.7.0 - so the binary already ignored them and
+  removing them changes no behaviour. The values keys are kept: `acceptClients` still
+  gates the client Service and NetworkPolicy rule, and the other two are documented as
+  inert.
 
 ---
 
