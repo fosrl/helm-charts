@@ -217,7 +217,7 @@ tests:
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
-          value: docker.io/fosrl/pangolin:postgresql-1.18.3
+          value: docker.io/fosrl/pangolin:postgresql-1.22.2
 
   - it: cnpg-operator can be enabled independently without cnpg-cluster
     set:
@@ -229,7 +229,7 @@ tests:
           of: Deployment
       - equal:
           path: spec.template.spec.containers[0].image
-          value: docker.io/fosrl/pangolin:postgresql-1.18.3
+          value: docker.io/fosrl/pangolin:postgresql-1.22.2
       - equal:
           path: spec.template.spec.containers[0].env[1].valueFrom.secretKeyRef.name
           value: pangolin-db-app
@@ -244,7 +244,7 @@ tests:
           of: Deployment
       - equal:
           path: spec.template.spec.containers[0].image
-          value: docker.io/fosrl/pangolin:postgresql-1.18.3
+          value: docker.io/fosrl/pangolin:postgresql-1.22.2
       - equal:
           path: spec.template.spec.containers[0].env[1].valueFrom.secretKeyRef.name
           value: pangolin-db-app

@@ -425,7 +425,7 @@ images:
     # -- Gerbil image repository.
     repository: fosrl/gerbil # @schema type: string
     # -- Gerbil image tag.
-    tag: "1.3.1" # @schema type: string
+    tag: "1.5.1" # @schema type: string
     # -- Gerbil image digest. Overrides tag when set.
     digest: "" # @schema type: string
     # -- Gerbil image pull policy.
