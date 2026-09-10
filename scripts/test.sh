@@ -462,13 +462,21 @@ run_metrics_override_tests() {
   
   local metrics_tmp="$TEMP_DIR/metrics-tests"
   mkdir -p "$metrics_tmp"
+
+  # These probes only set metrics keys. The chart refuses to render without
+  # credentials, so layer them on the dev values instead of rendering nothing and
+  # reporting the empty output as a missing PrometheusRule.
+  local base_args=()
+  if [ -f "$chart/values.dev.yaml" ]; then
+    base_args+=(-f "$chart/values.dev.yaml")
+  fi
   
   cat > "$metrics_tmp/a-values.yaml" <<'EOF'
 global:
   metrics:
     enabled: false
 EOF
-  helm template test-a "$chart" -f "$metrics_tmp/a-values.yaml" > "$metrics_tmp/a.yaml" 2>/dev/null || true
+  helm template test-a "$chart" "${base_args[@]}" -f "$metrics_tmp/a-values.yaml" > "$metrics_tmp/a.yaml" 2>/dev/null || true
   if grep -q "Kind: PrometheusRule\|kind: PrometheusRule" "$metrics_tmp/a.yaml"; then
     log_fail "PrometheusRule rendered when global.metrics.enabled=false"
     FAILED=$((FAILED + 1))
@@ -483,7 +491,7 @@ global:
     prometheusRule:
       enabled: true
 EOF
-  helm template test-b "$chart" -f "$metrics_tmp/b-values.yaml" > "$metrics_tmp/b.yaml" 2>/dev/null || true
+  helm template test-b "$chart" "${base_args[@]}" -f "$metrics_tmp/b-values.yaml" > "$metrics_tmp/b.yaml" 2>/dev/null || true
   if grep -q "Kind: PrometheusRule\|kind: PrometheusRule" "$metrics_tmp/b.yaml"; then
     log_pass "PrometheusRule present when global.prometheusRule.enabled=true"
   else
@@ -491,15 +499,38 @@ EOF
     FAILED=$((FAILED + 1))
   fi
   
-  if [ -f "$chart/examples/values/minimalistic-metrics.yaml" ]; then
-    helm template test-c "$chart" -f "$chart/examples/values/minimalistic-metrics.yaml" > "$metrics_tmp/c.yaml" 2>/dev/null || true
-    if grep -q "Kind: PrometheusRule\|kind: PrometheusRule" "$metrics_tmp/c.yaml"; then
-      log_pass "PrometheusRule present with allowGlobalOverride"
-    else
-      log_fail "PrometheusRule missing with allowGlobalOverride"
-      FAILED=$((FAILED + 1))
-    fi
-    fi
+  # examples/values/minimalistic-metrics.yaml sets neither prometheusRule.enabled nor
+  # allowGlobalOverride, so it never exercised the per-instance path this probe claims to
+  # cover. Build the values it actually needs.
+  cat > "$metrics_tmp/c-values.yaml" <<'EOF'
+global:
+  metrics:
+    # templates/prometheusrule.yaml gates the per-instance branch on the global flag, so
+    # the per-instance override only ever applies on top of globally-enabled metrics.
+    enabled: true
+    prometheusRule:
+      enabled: false
+newtInstances:
+  - name: main-tunnel
+    enabled: true
+    allowGlobalOverride: true
+    auth:
+      existingSecretName: newt-cred
+    metrics:
+      enabled: true
+      prometheusRule:
+        enabled: true
+        rules:
+          - alert: NewtDown
+            expr: up == 0
+EOF
+  helm template test-c "$chart" -f "$metrics_tmp/c-values.yaml" > "$metrics_tmp/c.yaml" 2>/dev/null || true
+  if grep -q "Kind: PrometheusRule\|kind: PrometheusRule" "$metrics_tmp/c.yaml"; then
+    log_pass "PrometheusRule present with allowGlobalOverride"
+  else
+    log_fail "PrometheusRule missing with allowGlobalOverride"
+    FAILED=$((FAILED + 1))
+  fi
     
     PASSED=$((PASSED + 1))
 }
