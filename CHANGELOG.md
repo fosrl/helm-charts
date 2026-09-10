@@ -56,7 +56,11 @@ This changelog is chart-scoped to support multiple charts over time.
 - **BREAKING:** `pangolin.config.gerbil.use_subdomain` is removed - Pangolin dropped it
   from its config schema, so the chart was emitting a key upstream no longer knows.
 - **BREAKING:** the top-level `monitoring.*` tree and `runtime.hostNetwork` are removed.
-  No template ever read either of them.
+  No template ever read either of them. The two removals fail differently on upgrade
+  because the schema is strict at the root only: a leftover `monitoring:` block aborts
+  `helm upgrade` with `at '': additional properties 'monitoring' not allowed`, while a
+  leftover `runtime.hostNetwork` is accepted and does nothing. Delete both from your
+  values file. If you need host networking for Gerbil, use `gerbil.hostGateway.*`.
 - **BREAKING:** `database.sqlite.enabled` is removed. It was never read by any template;
   `database.mode=sqlite` is and remains the only switch.
 - `networkPolicy.controller.egress.kubernetesApi.cidr` and
@@ -65,6 +69,9 @@ This changelog is chart-scoped to support multiple charts over time.
   is never widened by an upgrade.
 - `networkPolicy.pangolin.externalIngress.next` defaults to `null` (derive from the
   dashboard route). An explicit boolean still wins.
+- `networkPolicy.pangolin.externalIngress.aiGateway` defaults to `true`. Traefik reaches
+  the AI gateway by connecting to port 3005 on the Pangolin Pod, so the previous `false`
+  blocked every AI gateway route while the port was published on the Service.
 
 ---
 

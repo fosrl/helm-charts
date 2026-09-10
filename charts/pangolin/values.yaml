@@ -289,9 +289,11 @@ networkPolicy:
       next: null # @schema type: [boolean, "null"]
       # -- Allow external ingress on Pangolin integration API port.
       integration: false # @schema type: boolean
-      # -- Allow external ingress on the Pangolin AI gateway port.
-      # Off by default: the gateway is reached through Traefik, not directly.
-      aiGateway: false # @schema type: boolean
+      # -- Allow ingress on the Pangolin AI gateway port.
+      # On by default, like the external (3000) and dashboard (3002) ports: Traefik reaches
+      # the gateway by connecting to this port on the Pangolin Pod, so closing it makes every
+      # AI gateway route fail even though the port is published on the Service.
+      aiGateway: true # @schema type: boolean
       # -- Require `pangolin.config.flags.enable_integration_api=true` before opening integration ingress.
       requireIntegrationFlag: true # @schema type: boolean
 
@@ -611,7 +613,7 @@ pangolin:
       length: 64 # @schema type: integer ; minimum: 16
 
   # -- Pangolin application config rendered into /app/config/config.yml.
-  # Keys and structure follow the Pangolin 1.18.x configSchema (snake_case).
+  # Keys and structure follow the Pangolin 1.22.x configSchema (snake_case).
   config:
     # ---------- app section ----------
     app:
@@ -729,8 +731,7 @@ pangolin:
       # -- Public endpoint (hostname or IP) where Gerbil is reachable by sites.
       # Set this to your real public endpoint for production.
       base_endpoint: "pangolin.example.com" # @schema type: string
-      # -- Use subdomain-based resource endpoints.
-      # -- Supernet for WireGuard address allocation.
+        # -- Supernet for WireGuard address allocation.
       subnet_group: "100.89.137.0/20" # @schema type: string
       # -- CIDR prefix length per cluster / site group.
       block_size: 24 # @schema type: integer ; minimum: 16 ; maximum: 30
