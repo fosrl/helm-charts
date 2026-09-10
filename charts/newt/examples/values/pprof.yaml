@@ -1,3 +1,10 @@
+# Minimal profile with the pprof endpoint enabled
 global:
   metrics:
     pprofEnabled: true
+
+newtInstances:
+  - name: main-tunnel
+    enabled: true
+    auth:
+      existingSecretName: newt-cred
