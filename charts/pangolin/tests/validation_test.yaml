@@ -199,22 +199,6 @@ tests:
       - failedTemplate:
           errorPattern: "PANGOLIN-067"
 
-  - it: fails when Kubernetes API egress endpoints carry no CIDRs
-    set:
-      database:
-        mode: sqlite
-      deployment:
-        type: controller
-        mode: multi
-      networkPolicy:
-        controller:
-          egress:
-            kubernetesApi:
-              endpoints:
-                - ports: [443]
-    asserts:
-      - failedTemplate:
-          errorPattern: "PANGOLIN-067"
 
   - it: passes when Kubernetes API egress is explicitly opted out
     set:
@@ -256,3 +240,77 @@ tests:
         startupMode: disabledUntilSetup
     asserts:
       - notFailedTemplate: {}
+
+  - it: rejects an endpoint entry that carries no cidrs
+    set:
+      database:
+        mode: sqlite
+      deployment:
+        type: controller
+        mode: multi
+      networkPolicy:
+        enabled: true
+        controller:
+          egress:
+            kubernetesApi:
+              endpoints:
+                - ports: [443]
+    asserts:
+      - failedTemplate:
+          errorPattern: "PANGOLIN-067.*has no cidrs"
+
+  - it: rejects an address without a prefix length
+    set:
+      database:
+        mode: sqlite
+      deployment:
+        type: controller
+        mode: multi
+      networkPolicy:
+        enabled: true
+        controller:
+          egress:
+            kubernetesApi:
+              endpoints:
+                - cidrs: ["10.43.0.1"]
+    asserts:
+      - failedTemplate:
+          errorPattern: "PANGOLIN-067.*not an address/prefix"
+
+  - it: rejects a port outside the valid range
+    set:
+      database:
+        mode: sqlite
+      deployment:
+        type: controller
+        mode: multi
+      networkPolicy:
+        enabled: true
+        controller:
+          egress:
+            kubernetesApi:
+              endpoints:
+                - cidrs: ["10.43.0.1/32"]
+                  ports: [70000]
+    asserts:
+      - failedTemplate:
+          errorPattern: "PANGOLIN-067.*outside 1-65535"
+
+  - it: rejects except combined with more than one cidr
+    set:
+      database:
+        mode: sqlite
+      deployment:
+        type: controller
+        mode: multi
+      networkPolicy:
+        enabled: true
+        controller:
+          egress:
+            kubernetesApi:
+              endpoints:
+                - cidrs: ["10.0.0.0/8", "192.168.0.0/16"]
+                  except: ["10.1.0.0/16"]
+    asserts:
+      - failedTemplate:
+          errorPattern: "PANGOLIN-067.*combines except with 2 cidrs"

@@ -1005,10 +1005,25 @@ strategy:
 {{- if and $npControllerEgressEnabled $npKubeApiEnabled -}}
 {{- $hasLegacyKubeApi := or (ne (default "" (get $npKubeApi "cidr")) "") (gt (len (default list (get $np "kubernetesApiCIDRs"))) 0) -}}
 {{- $hasKubeApiEndpoints := false -}}
-{{- range $endpoint := (default list (get $npKubeApi "endpoints")) -}}
-{{- if gt (len (default list (get $endpoint "cidrs"))) 0 -}}
-{{- $hasKubeApiEndpoints = true -}}
+{{- range $i, $endpoint := (default list (get $npKubeApi "endpoints")) -}}
+{{- $cidrs := default list (get $endpoint "cidrs") -}}
+{{- if eq (len $cidrs) 0 -}}
+{{- fail (printf "PANGOLIN-067: networkPolicy.controller.egress.kubernetesApi.endpoints[%d] has no cidrs. An entry without cidrs is not a destination and was previously skipped in silence, so a misspelled key narrowed the policy without any error. Every entry needs cidrs: [ ... ]." $i) -}}
 {{- end -}}
+{{- range $cidr := $cidrs -}}
+{{- if not (regexMatch "^[0-9A-Fa-f:.]+/[0-9]{1,3}$" (printf "%v" $cidr)) -}}
+{{- fail (printf "PANGOLIN-067: networkPolicy.controller.egress.kubernetesApi.endpoints[%d] contains %q, which is not an address/prefix. Kubernetes rejects an ipBlock without a prefix length, so write for example 10.43.0.1/32 rather than a bare address." $i $cidr) -}}
+{{- end -}}
+{{- end -}}
+{{- if and (gt (len (default list (get $endpoint "except"))) 0) (gt (len $cidrs) 1) -}}
+{{- fail (printf "PANGOLIN-067: networkPolicy.controller.egress.kubernetesApi.endpoints[%d] combines except with %d cidrs. Kubernetes requires every except range to sit inside the cidr it belongs to, and the chart would copy this except onto all of them. Split the entry so each cidr carries its own except." $i (len $cidrs)) -}}
+{{- end -}}
+{{- range $port := (default list (get $endpoint "ports")) -}}
+{{- if or (lt (int $port) 1) (gt (int $port) 65535) -}}
+{{- fail (printf "PANGOLIN-067: networkPolicy.controller.egress.kubernetesApi.endpoints[%d] declares port %v, which is outside 1-65535." $i $port) -}}
+{{- end -}}
+{{- end -}}
+{{- $hasKubeApiEndpoints = true -}}
 {{- end -}}
 {{- if not (or $hasLegacyKubeApi $hasKubeApiEndpoints) -}}
 {{- fail "PANGOLIN-067: networkPolicy.controller.egress.kubernetesApi.enabled=true but no destination is configured, which would leave the controller unable to reach the Kubernetes API. Populate networkPolicy.controller.egress.kubernetesApi.endpoints[].cidrs (the chart default covers RFC1918/CGNAT/link-local on TCP 443 and 6443), or set kubernetesApi.enabled=false and supply the rule yourself via networkPolicy.controller.extraEgress." -}}
