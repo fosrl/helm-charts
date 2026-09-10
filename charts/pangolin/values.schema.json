@@ -2109,258 +2109,6 @@
                 }
             }
         },
-        "monitoring": {
-            "description": "--------------------------------------------------------------------------- Metrics and monitoring # @section Metrics and monitoring",
-            "type": "object",
-            "properties": {
-                "enabled": {
-                    "description": "Enable generic chart-level metrics Service / scrape integration for Pangolin app.",
-                    "type": "boolean"
-                },
-                "metrics": {
-                    "type": "object",
-                    "properties": {
-                        "addInternals": {
-                            "description": "Expose internal metrics where supported.",
-                            "type": "boolean"
-                        },
-                        "customLabels": {
-                            "type": "object",
-                            "properties": {
-                                "service": {
-                                    "type": "string"
-                                }
-                            }
-                        },
-                        "endpoints": {
-                            "type": "object",
-                            "properties": {
-                                "application": {
-                                    "type": "string"
-                                },
-                                "health": {
-                                    "type": "string"
-                                },
-                                "performance": {
-                                    "type": "string"
-                                }
-                            }
-                        },
-                        "path": {
-                            "description": "Default metrics path.",
-                            "type": "string"
-                        },
-                        "targetPort": {
-                            "description": "Metrics endpoint numeric port.",
-                            "type": "integer",
-                            "maximum": 65535,
-                            "minimum": 1
-                        },
-                        "targetPortName": {
-                            "description": "Metrics endpoint port name.",
-                            "type": "string"
-                        }
-                    }
-                },
-                "podMonitor": {
-                    "type": "object",
-                    "properties": {
-                        "annotations": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        },
-                        "apiVersion": {
-                            "type": "string"
-                        },
-                        "enabled": {
-                            "type": "boolean"
-                        },
-                        "interval": {
-                            "type": "string"
-                        },
-                        "labels": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        },
-                        "metricRelabelings": {
-                            "type": "array",
-                            "items": {
-                                "type": "object"
-                            }
-                        },
-                        "namespace": {
-                            "type": "string"
-                        },
-                        "path": {
-                            "type": "string"
-                        },
-                        "portName": {
-                            "type": "string"
-                        },
-                        "relabelings": {
-                            "type": "array",
-                            "items": {
-                                "type": "object"
-                            }
-                        },
-                        "scheme": {
-                            "type": "string"
-                        },
-                        "scrapeTimeout": {
-                            "type": "string"
-                        }
-                    }
-                },
-                "prometheusRule": {
-                    "type": "object",
-                    "properties": {
-                        "additionalLabels": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        },
-                        "enabled": {
-                            "type": "boolean"
-                        },
-                        "namespace": {
-                            "type": "string"
-                        },
-                        "rules": {
-                            "type": "array",
-                            "items": {
-                                "type": "object"
-                            }
-                        }
-                    }
-                },
-                "service": {
-                    "type": "object",
-                    "properties": {
-                        "annotations": {
-                            "type": "object",
-                            "properties": {
-                                "prometheus.io/path": {
-                                    "type": "string"
-                                },
-                                "prometheus.io/port": {
-                                    "type": "string"
-                                },
-                                "prometheus.io/scrape": {
-                                    "type": "string"
-                                }
-                            }
-                        },
-                        "enabled": {
-                            "description": "Create a metrics Service for Pangolin.",
-                            "type": "boolean"
-                        },
-                        "labels": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        },
-                        "port": {
-                            "type": "integer",
-                            "maximum": 65535,
-                            "minimum": 1
-                        },
-                        "portName": {
-                            "type": "string"
-                        },
-                        "type": {
-                            "type": "string",
-                            "enum": [
-                                "ClusterIP",
-                                "NodePort",
-                                "LoadBalancer"
-                            ]
-                        }
-                    }
-                },
-                "serviceMonitor": {
-                    "type": "object",
-                    "properties": {
-                        "annotations": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        },
-                        "apiVersion": {
-                            "type": "string"
-                        },
-                        "enabled": {
-                            "type": "boolean"
-                        },
-                        "honorLabels": {
-                            "type": "boolean"
-                        },
-                        "interval": {
-                            "type": "string"
-                        },
-                        "labels": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        },
-                        "metricRelabelings": {
-                            "type": "array",
-                            "items": {
-                                "type": "object"
-                            }
-                        },
-                        "namespace": {
-                            "type": "string"
-                        },
-                        "path": {
-                            "type": "string"
-                        },
-                        "relabelings": {
-                            "type": "array",
-                            "items": {
-                                "type": "object"
-                            }
-                        },
-                        "sampleLimit": {
-                            "type": "integer",
-                            "minimum": 0
-                        },
-                        "scheme": {
-                            "type": "string"
-                        },
-                        "scrapeTimeout": {
-                            "type": "string"
-                        },
-                        "selector": {
-                            "type": "object",
-                            "properties": {
-                                "matchLabels": {
-                                    "type": "object",
-                                    "properties": {
-                                        "app.kubernetes.io/name": {
-                                            "type": "string"
-                                        }
-                                    }
-                                }
-                            }
-                        },
-                        "targetLabels": {
-                            "type": "array",
-                            "items": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        },
         "namespace": {
             "description": "--------------------------------------------------------------------------- Namespace # @section Namespace When namespace.create=true the chart renders a Namespace resource and applies the Pod Security Admission labels required for Gerbil (NET_ADMIN / WireGuard). If you manage the namespace outside this chart, apply the label manually:",
             "type": "object",
@@ -2679,6 +2427,10 @@
                         "externalIngress": {
                             "type": "object",
                             "properties": {
+                                "aiGateway": {
+                                    "description": "Allow external ingress on the Pangolin AI gateway port. Off by default: the gateway is reached through Traefik, not directly.",
+                                    "type": "boolean"
+                                },
                                 "external": {
                                     "description": "Allow external ingress on Pangolin public port.",
                                     "type": "boolean"
@@ -2946,6 +2698,10 @@
                                     "description": "Disable local (same-host) site type.",
                                     "type": "boolean"
                                 },
+                                "disable_private_http_placeholder": {
+                                    "description": "Disable the placeholder page served for private HTTP resources.",
+                                    "type": "boolean"
+                                },
                                 "disable_product_help_banners": {
                                     "description": "Disable product help banners in the Pangolin UI.",
                                     "type": "boolean"
@@ -2956,6 +2712,14 @@
                                 },
                                 "disable_user_create_org": {
                                     "description": "Prevent regular users from creating new organizations. Set to true in production to keep org management in admin hands. Upstream default is false; the chart keeps upstream default for onboarding flexibility.",
+                                    "type": "boolean"
+                                },
+                                "disable_virtual_api_keys_ui": {
+                                    "description": "Hide the virtual API keys UI (AI gateway). Requires Pangolin \u003e= 1.22.0.",
+                                    "type": "boolean"
+                                },
+                                "enable_acme_cert_sync": {
+                                    "description": "Sync ACME certificates issued by Traefik back into Pangolin. Upstream default is true.",
                                     "type": "boolean"
                                 },
                                 "enable_integration_api": {
@@ -3001,12 +2765,8 @@
                                     "minimum": 1
                                 },
                                 "subnet_group": {
-                                    "description": "Supernet for WireGuard address allocation.",
-                                    "type": "string"
-                                },
-                                "use_subdomain": {
                                     "description": "Use subdomain-based resource endpoints.",
-                                    "type": "boolean"
+                                    "type": "string"
                                 }
                             }
                         },
@@ -3113,6 +2873,14 @@
                             "description": "-------- server section ----------",
                             "type": "object",
                             "properties": {
+                                "ai_gateway_override": {
+                                    "description": "Override the base URL used to reach the AI gateway. Empty lets Pangolin derive it from `internal_hostname` and `ai_gateway_port`. Requires Pangolin \u003e= 1.22.0.",
+                                    "type": "string"
+                                },
+                                "badger_override": {
+                                    "description": "Override the base URL Badger uses to reach the Pangolin internal API. Empty (default) lets Pangolin derive it from `internal_hostname` and the internal port. Set this when Badger must reach Pangolin by some other address.",
+                                    "type": "string"
+                                },
                                 "cors": {
                                     "type": "object",
                                     "properties": {
@@ -3148,9 +2916,50 @@
                                     "type": "integer",
                                     "minimum": 1
                                 },
+                                "enable_ai_gateway_client_ip_header": {
+                                    "description": "Have Traefik/Badger stamp the resolved client IP into X-Pangolin-Client-Ip on the AI gateway route. Off by default: it needs a Badger build that supports realIpHeader. Requires Pangolin \u003e= 1.22.0.",
+                                    "type": "boolean"
+                                },
                                 "internal_hostname": {
                                     "description": "Internal hostname used by Pangolin when communicating with Gerbil.",
                                     "type": "string"
+                                },
+                                "maxmind_asn_path": {
+                                    "description": "Path to a MaxMind ASN database.",
+                                    "type": "string"
+                                },
+                                "maxmind_db_path": {
+                                    "description": "Path to a MaxMind GeoLite2/GeoIP2 city database for geo-blocking rules.",
+                                    "type": "string"
+                                },
+                                "remote_headers": {
+                                    "type": "object",
+                                    "properties": {
+                                        "email": {
+                                            "description": "Header carrying the resolved user email.",
+                                            "type": "string"
+                                        },
+                                        "name": {
+                                            "description": "Header carrying the resolved user display name.",
+                                            "type": "string"
+                                        },
+                                        "role": {
+                                            "description": "Header carrying the resolved user role.",
+                                            "type": "string"
+                                        },
+                                        "user": {
+                                            "description": "Header carrying the resolved username.",
+                                            "type": "string"
+                                        },
+                                        "user_id": {
+                                            "description": "Header carrying the resolved user id to downstream resources.",
+                                            "type": "string"
+                                        },
+                                        "virtual_api_key_id": {
+                                            "description": "Header carrying the resolved virtual API key id (AI gateway).",
+                                            "type": "string"
+                                        }
+                                    }
                                 },
                                 "resource_access_token_headers": {
                                     "type": "object",
@@ -3219,6 +3028,35 @@
                                 "prefer_wildcard_cert": {
                                     "description": "Request wildcard certificates instead of per-domain certificates.",
                                     "type": "boolean"
+                                },
+                                "rate_limit": {
+                                    "type": "object",
+                                    "properties": {
+                                        "average": {
+                                            "description": "Average requests per second for the generated Traefik rate-limit middleware. Upstream default is 30. Set to 0 to leave the section unrendered.",
+                                            "type": "integer",
+                                            "minimum": 0
+                                        },
+                                        "burst": {
+                                            "description": "Burst size for the generated Traefik rate-limit middleware. Upstream default is 50. Set to 0 to leave the section unrendered.",
+                                            "type": "integer",
+                                            "minimum": 0
+                                        }
+                                    }
+                                },
+                                "site_types": {
+                                    "description": "Site types Pangolin generates Traefik configuration for. Upstream default is [newt, wireguard, local].",
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                },
+                                "static_domains": {
+                                    "description": "Domains always present in the generated Traefik configuration.",
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
                                 }
                             }
                         }
@@ -3852,6 +3690,10 @@
                             "description": "Service port configuration.",
                             "type": "object",
                             "properties": {
+                                "aiGateway": {
+                                    "description": "AI gateway port. Requires Pangolin \u003e= 1.22.0.",
+                                    "type": "integer"
+                                },
                                 "external": {
                                     "type": "integer"
                                 },
@@ -3991,10 +3833,6 @@
                             "minimum": 1
                         }
                     }
-                },
-                "hostNetwork": {
-                    "description": "Enable hostNetwork on workloads that support it.",
-                    "type": "boolean"
                 },
                 "minReadySeconds": {
                     "description": "Min ready seconds for Deployments.",
