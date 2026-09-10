@@ -215,3 +215,16 @@ tests:
             ports:
               - protocol: TCP
                 port: 3001
+
+  # The alias makes Helm name subchart resources after it, and pangolin-traefikController
+  # is not a valid DNS-1123 name.
+  - it: keeps the bundled Traefik out of the render by default
+    template: templates/deployment-traefik.yaml
+    set:
+      deployment.type: controller
+      deployment.mode: multi
+      controller:
+        enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0

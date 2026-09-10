@@ -1420,8 +1420,30 @@ traefik:
 # -----------------------------------------------------------------------------
 
 ## @section Traefik controller subchart overrides
-# -- Values passed to the Traefik dependency chart (only used when `deployment.installTraefikController=true`).
-traefikController: {} # @schema type: object
+# -- Values passed to the bundled Traefik chart, which is installed only when
+# `deployment.installTraefikController=true`. Everything the official chart accepts can be
+# set here; the defaults below are the ones this chart cannot leave to the subchart.
+#
+# In controller mode pangolin-kube-controller reads Pangolin's generated configuration and
+# materialises it as Traefik CRDs, so the bundled Traefik needs the Kubernetes providers
+# rather than an HTTP provider. It still needs the Badger plugin declared statically,
+# because the middleware the controller writes into every router references it by alias.
+traefikController: # @schema type: object
+  # -- Required. The alias makes Helm name subchart resources after it, and
+  # `pangolin-traefikController` is not a valid DNS-1123 name, so the API server rejects
+  # every object on install. Do not remove this.
+  nameOverride: traefik
+  ingressClass:
+    # -- Off by default: an externally installed Traefik is an explicitly supported topology
+    # and two default IngressClasses in one cluster is an ambiguous configuration.
+    isDefaultClass: false
+  experimental:
+    plugins:
+      # -- The alias must be `badger`: Pangolin hardcodes that string as the plugin type in
+      # the middleware it generates, and Traefik resolves it against this map.
+      badger:
+        moduleName: github.com/fosrl/badger
+        version: v1.7.0
 
 # -----------------------------------------------------------------------------
 # Gerbil
