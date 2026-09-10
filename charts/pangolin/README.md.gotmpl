@@ -395,9 +395,9 @@ Be clear about what it does **not** solve:
 | Not available in `single` mode | Gerbil shares a Pod with Pangolin there, so `hostNetwork` would bind every component's ports on the node. |
 
 The chart refuses the combinations that cannot work rather than letting them surface as a
-Pending Pod or a silent `502`: `PANGOLIN-069` (single mode), `PANGOLIN-070` (Gerbil
-disabled), `PANGOLIN-071` (more than one replica), `PANGOLIN-072` (chart-created namespace
-without `privileged`), and `PANGOLIN-073` (the Traefik subchart, where Helm cannot inject
+Pending Pod or a silent `502`: `PANGOLIN-071` (single mode), `PANGOLIN-072` (Gerbil
+disabled), `PANGOLIN-073` (more than one replica), `PANGOLIN-074` (chart-created namespace
+without `privileged`), and `PANGOLIN-075` (the Traefik subchart, where Helm cannot inject
 affinity at render time).
 
 ### NetworkPolicy

@@ -61,7 +61,7 @@ namespace:
   name: pangolin
   podSecurity:
     # hostNetwork requires `privileged`; `baseline` forbids it and the chart fails with
-    # PANGOLIN-072 rather than letting the Pod be rejected at admission.
+    # PANGOLIN-074 rather than letting the Pod be rejected at admission.
     enforce: privileged
     warn: baseline
     audit: baseline
@@ -100,9 +100,12 @@ networkPolicy:
     hostGateway:
       # A hostNetwork Pod is not matched by a podSelector - its traffic sources from the
       # node IP - so the Gerbil -> Pangolin rule is expressed as node address blocks.
-      # Narrow this to your actual node subnet.
+      # REPLACE these with your own node addresses; the chart has no default because the
+      # private ranges contain every mainstream Pod CIDR, and seeding them would admit
+      # every Pod in the cluster to Pangolin's internal API.
+      #   kubectl get nodes -o jsonpath='{.items[*].status.addresses[?(@.type=="InternalIP")].address}'
       nodeCIDRs:
-        - 192.168.0.0/16
+        - 192.168.1.10/32
 
 cnpg-operator:
   enabled: false

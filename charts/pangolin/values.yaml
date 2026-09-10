@@ -50,9 +50,9 @@ global:
     imagePullPolicy: IfNotPresent # @schema type: string ; enum: [Always, IfNotPresent, Never]
     # -- Image pull secrets applied to all workloads by default.
     imagePullSecrets: [] # @schema type:[array, null] ; item: object ; itemProperties: {"name": {"type": "string"}}
-  # -- Default StorageClass used by all PVCs when the local storageClass is empty.
   # -- Cluster DNS domain, used to build in-cluster FQDNs.
   clusterDomain: cluster.local # @schema type: string
+  # -- Default StorageClass used by all PVCs when the local storageClass is empty.
   storageClass: "" # @schema type: [string, "null"]
   # -- Override the chart name.
   nameOverride: "" # @schema type: string
@@ -423,12 +423,12 @@ networkPolicy:
       # podSelector on any mainstream CNI - its traffic sources from the node IP - so the
       # rule has to be expressed as node address blocks or Gerbil's --remoteConfig polling
       # is blackholed by this chart's own default policy.
-      # Narrow this to your node subnet in hardened clusters.
-      nodeCIDRs: # @schema type: array ; item: string
-        - 10.0.0.0/8
-        - 172.16.0.0/12
-        - 192.168.0.0/16
-        - 100.64.0.0/10
+      # There is no safe default: RFC1918 and CGNAT contain every mainstream Pod CIDR
+      # (flannel 10.244/16, k3s 10.42/16, Calico 192.168/16), so seeding this with those
+      # ranges would admit every Pod in the cluster to Pangolin's internal API instead of
+      # just the Gerbil node. Supply your node addresses:
+      #   kubectl get nodes -o jsonpath='{.items[*].status.addresses[?(@.type=="InternalIP")].address}'
+      nodeCIDRs: [] # @schema type: array ; item: string
     # -- Additional ingress rules appended to the Gerbil NetworkPolicy only.
     extraIngress: [] # @schema type: array ; item: object
     # -- Additional egress rules appended to the Gerbil NetworkPolicy only.

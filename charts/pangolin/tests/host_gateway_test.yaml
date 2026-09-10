@@ -27,6 +27,11 @@ tests:
       gerbil:
         hostGateway:
           enabled: true
+      networkPolicy:
+        gerbil:
+          hostGateway:
+            nodeCIDRs:
+              - 192.168.1.10/32
     template: templates/deployment-gerbil.yaml
     asserts:
       - equal:
@@ -50,6 +55,11 @@ tests:
         hostGateway:
           enabled: true
           dnsPolicy: ClusterFirst
+      networkPolicy:
+        gerbil:
+          hostGateway:
+            nodeCIDRs:
+              - 192.168.1.10/32
     template: templates/deployment-gerbil.yaml
     asserts:
       - equal:
@@ -62,6 +72,11 @@ tests:
   # to pangolin.gerbil.selectorLabels breaks exactly one of them.
   - it: pins the chart-managed Traefik to the Gerbil node
     set:
+      networkPolicy:
+        gerbil:
+          hostGateway:
+            nodeCIDRs:
+              - 192.168.1.10/32
       database:
         mode: sqlite
       deployment:
@@ -100,6 +115,11 @@ tests:
 
   - it: selects the Gerbil workload with the labels the affinity term matches
     set:
+      networkPolicy:
+        gerbil:
+          hostGateway:
+            nodeCIDRs:
+              - 192.168.1.10/32
       database:
         mode: sqlite
       namespace:
@@ -141,6 +161,11 @@ tests:
 
   - it: honours colocateWithGerbil=disabled
     set:
+      networkPolicy:
+        gerbil:
+          hostGateway:
+            nodeCIDRs:
+              - 192.168.1.10/32
       database:
         mode: sqlite
       deployment:
@@ -196,6 +221,11 @@ tests:
 
   - it: merges the term with a user-supplied affinity
     set:
+      networkPolicy:
+        gerbil:
+          hostGateway:
+            nodeCIDRs:
+              - 192.168.1.10/32
       database:
         mode: sqlite
       deployment:
@@ -238,6 +268,11 @@ tests:
   # --- NetworkPolicy -------------------------------------------------------------
   - it: allows Gerbil to reach Pangolin from the node address in host gateway mode
     set:
+      networkPolicy:
+        gerbil:
+          hostGateway:
+            nodeCIDRs:
+              - 192.168.1.10/32
       database:
         mode: sqlite
       namespace:
@@ -258,13 +293,7 @@ tests:
           content:
             from:
               - ipBlock:
-                  cidr: 10.0.0.0/8
-              - ipBlock:
-                  cidr: 172.16.0.0/12
-              - ipBlock:
-                  cidr: 192.168.0.0/16
-              - ipBlock:
-                  cidr: 100.64.0.0/10
+                  cidr: 192.168.1.10/32
             ports:
               - protocol: TCP
                 port: 3001
@@ -334,13 +363,23 @@ tests:
       gerbil:
         hostGateway:
           enabled: true
+      networkPolicy:
+        gerbil:
+          hostGateway:
+            nodeCIDRs:
+              - 192.168.1.10/32
     template: templates/validate.yaml
     asserts:
       - failedTemplate:
-          errorPattern: "PANGOLIN-069"
+          errorPattern: "PANGOLIN-071"
 
   - it: rejects host gateway mode with Gerbil disabled
     set:
+      networkPolicy:
+        gerbil:
+          hostGateway:
+            nodeCIDRs:
+              - 192.168.1.10/32
       database:
         mode: sqlite
       gerbil:
@@ -350,10 +389,15 @@ tests:
     template: templates/validate.yaml
     asserts:
       - failedTemplate:
-          errorPattern: "PANGOLIN-070"
+          errorPattern: "PANGOLIN-072"
 
   - it: rejects more than one Gerbil replica
     set:
+      networkPolicy:
+        gerbil:
+          hostGateway:
+            nodeCIDRs:
+              - 192.168.1.10/32
       database:
         mode: sqlite
       namespace:
@@ -367,7 +411,7 @@ tests:
     template: templates/validate.yaml
     asserts:
       - failedTemplate:
-          errorPattern: "PANGOLIN-071"
+          errorPattern: "PANGOLIN-073"
 
   - it: rejects a chart-created namespace that forbids hostNetwork
     set:
@@ -380,17 +424,20 @@ tests:
       gerbil:
         hostGateway:
           enabled: true
+      networkPolicy:
+        gerbil:
+          hostGateway:
+            nodeCIDRs:
+              - 192.168.1.10/32
     template: templates/validate.yaml
     asserts:
       - failedTemplate:
-          errorPattern: "PANGOLIN-072"
+          errorPattern: "PANGOLIN-074"
 
-  - it: rejects the Traefik subchart without an explicit affinity
+  - it: rejects host gateway mode without node CIDRs while a policy is enforced
     set:
       database:
         mode: sqlite
-      deployment:
-        installTraefikController: true
       namespace:
         create: true
         podSecurity:
@@ -401,7 +448,24 @@ tests:
     template: templates/validate.yaml
     asserts:
       - failedTemplate:
-          errorPattern: "PANGOLIN-073"
+          errorPattern: "PANGOLIN-075"
+
+  - it: accepts host gateway mode without node CIDRs when no policy is rendered
+    set:
+      database:
+        mode: sqlite
+      namespace:
+        create: true
+        podSecurity:
+          enforce: privileged
+      networkPolicy:
+        enabled: false
+      gerbil:
+        hostGateway:
+          enabled: true
+    template: templates/validate.yaml
+    asserts:
+      - notFailedTemplate: {}
 
   - it: accepts host gateway mode against an externally managed namespace
     set:
@@ -412,6 +476,61 @@ tests:
       gerbil:
         hostGateway:
           enabled: true
+      networkPolicy:
+        gerbil:
+          hostGateway:
+            nodeCIDRs:
+              - 192.168.1.10/32
     template: templates/validate.yaml
     asserts:
       - notFailedTemplate: {}
+
+  # hostNetwork binds the WireGuard and internal-API ports in the node network namespace,
+  # so a surged Pod cannot bind them and the rollout would never converge.
+  - it: never surges the Gerbil Deployment in host gateway mode
+    set:
+      database:
+        mode: sqlite
+      namespace:
+        create: true
+        podSecurity:
+          enforce: privileged
+      gerbil:
+        hostGateway:
+          enabled: true
+      networkPolicy:
+        gerbil:
+          hostGateway:
+            nodeCIDRs:
+              - 192.168.1.10/32
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - equal:
+          path: spec.strategy.type
+          value: Recreate
+      - notExists:
+          path: spec.strategy.rollingUpdate
+
+  - it: never surges even when Gerbil persistence is disabled
+    set:
+      database:
+        mode: sqlite
+      namespace:
+        create: true
+        podSecurity:
+          enforce: privileged
+      gerbil:
+        persistence:
+          enabled: false
+        hostGateway:
+          enabled: true
+      networkPolicy:
+        gerbil:
+          hostGateway:
+            nodeCIDRs:
+              - 192.168.1.10/32
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - equal:
+          path: spec.strategy.type
+          value: Recreate

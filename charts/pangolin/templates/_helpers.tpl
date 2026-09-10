@@ -705,11 +705,15 @@ the Deployment at zero replicas.
 true{{- else -}}false{{- end -}}
 {{- end -}}
 
+{{- /* Whether this chart renders a Traefik workload at all. deployment-traefik.yaml is
+       gated on exactly these conditions, and NOTES.txt needs the same answer. */ -}}
+{{- define "pangolin.traefik.chartManaged" -}}
+{{- if and (.Values.traefik).enabled (eq .Values.deployment.type "standalone") (eq .Values.deployment.mode "multi") -}}true{{- else -}}false{{- end -}}
+{{- end -}}
+
 {{- define "pangolin.traefik.colocateWithGerbil" -}}
 {{- $mode := (.Values.traefik).colocateWithGerbil | default "auto" -}}
-{{- /* Only meaningful when this chart actually renders a Traefik workload to pin;
-       deployment-traefik.yaml is gated on the same conditions. */ -}}
-{{- $chartManagedTraefik := and (.Values.traefik).enabled (eq .Values.deployment.type "standalone") (eq .Values.deployment.mode "multi") -}}
+{{- $chartManagedTraefik := eq (include "pangolin.traefik.chartManaged" .) "true" -}}
 {{- if not $chartManagedTraefik -}}
 false
 {{- else if eq (include "pangolin.gerbil.colocationSupported" .) "false" -}}
@@ -830,7 +834,12 @@ StatefulSet already replaces Pods one at a time without surging, so no Recreate 
 {{- end -}}
 
 {{- define "pangolin.gerbil.blocksSurge" -}}
+{{- /* In host gateway mode Gerbil binds its ports in the node network namespace, so a
+       surged Pod cannot bind them and the rollout would never converge. */ -}}
+{{- if eq (include "pangolin.gerbil.hostGateway.enabled" .) "true" -}}true
+{{- else -}}
 {{- include "pangolin.persistence.blocksSurge" (dict "persistence" ((.Values.gerbil).persistence | default dict)) -}}
+{{- end -}}
 {{- end -}}
 
 {{- define "pangolin.traefik.blocksSurge" -}}
@@ -1164,21 +1173,33 @@ Traefik as a container inside the single-mode Pod.
 {{- if eq (include "pangolin.gerbil.hostGateway.enabled" $root) "true" -}}
 {{- $hgGerbil := default (dict) $root.Values.gerbil -}}
 {{- if ne $root.Values.deployment.mode "multi" -}}
-{{- fail "PANGOLIN-069: gerbil.hostGateway.enabled=true requires deployment.mode=multi. In single mode Gerbil shares a Pod with Pangolin, so hostNetwork would bind every component's ports on the node." -}}
+{{- fail "PANGOLIN-071: gerbil.hostGateway.enabled=true requires deployment.mode=multi. In single mode Gerbil shares a Pod with Pangolin, so hostNetwork would bind every component's ports on the node." -}}
 {{- end -}}
 {{- if not (default false (get $hgGerbil "enabled")) -}}
-{{- fail "PANGOLIN-070: gerbil.hostGateway.enabled=true requires gerbil.enabled=true." -}}
+{{- fail "PANGOLIN-072: gerbil.hostGateway.enabled=true requires gerbil.enabled=true." -}}
 {{- end -}}
 {{- if gt (int (default 1 (get $hgGerbil "replicaCount"))) 1 -}}
-{{- fail "PANGOLIN-071: gerbil.hostGateway.enabled=true requires gerbil.replicaCount=1. Gerbil binds its WireGuard and internal API ports on the node, so a second replica cannot start alongside it." -}}
+{{- fail "PANGOLIN-073: gerbil.hostGateway.enabled=true requires gerbil.replicaCount=1. Gerbil binds its WireGuard and internal API ports on the node, so a second replica cannot start alongside it." -}}
 {{- end -}}
 {{- $hgNamespace := default (dict) $root.Values.namespace -}}
 {{- $hgPodSecurity := default (dict) (get $hgNamespace "podSecurity") -}}
 {{- if and (default false (get $hgNamespace "create")) (ne (default "" (get $hgPodSecurity "enforce")) "privileged") -}}
-{{- fail "PANGOLIN-072: gerbil.hostGateway.enabled=true requires namespace.podSecurity.enforce=privileged when the chart creates the namespace. Pod Security Admission level baseline forbids hostNetwork." -}}
+{{- fail "PANGOLIN-074: gerbil.hostGateway.enabled=true requires namespace.podSecurity.enforce=privileged when the chart creates the namespace. Pod Security Admission level baseline forbids hostNetwork." -}}
 {{- end -}}
-{{- if and $root.Values.deployment.installTraefikController (not (get (default (dict) (index $root.Values "traefikController")) "affinity")) -}}
-{{- fail "PANGOLIN-073: gerbil.hostGateway.enabled=true with deployment.installTraefikController=true requires an explicit traefikController.affinity. Helm cannot inject affinity into a subchart at render time, so the co-location term has to be set in your own values - run `helm get notes` for the exact snippet." -}}
+{{- /* PANGOLIN-075: a hostNetwork Pod sources from the node IP, so the Gerbil -> Pangolin
+       internal-API rule becomes an ipBlock. The chart cannot discover node addresses at
+       template time and any guess would admit far more than the node. */ -}}
+{{- $hgNp := default (dict) $root.Values.networkPolicy -}}
+{{- $hgNpEnabled := true -}}
+{{- if hasKey $hgNp "enabled" -}}
+{{- $hgNpEnabled = get $hgNp "enabled" -}}
+{{- end -}}
+{{- if $hgNpEnabled -}}
+{{- $hgNpGerbil := default (dict) (get $hgNp "gerbil") -}}
+{{- $hgNodeCidrs := default list (get (default (dict) (get $hgNpGerbil "hostGateway")) "nodeCIDRs") -}}
+{{- if eq (len $hgNodeCidrs) 0 -}}
+{{- fail "PANGOLIN-075: gerbil.hostGateway.enabled=true with networkPolicy.enabled=true requires networkPolicy.gerbil.hostGateway.nodeCIDRs. Gerbil runs with hostNetwork, so its traffic sources from the node IP and no podSelector matches it; without node address blocks this chart's own policy blackholes Gerbil's --remoteConfig polling. Set your node addresses, e.g. kubectl get nodes -o jsonpath='{.items[*].status.addresses[?(@.type==\"InternalIP\")].address}'. Do not use the private ranges wholesale - they contain every mainstream Pod CIDR." -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}

@@ -237,6 +237,12 @@ compatibility mode, not the final architecture - see fosrl/helm-charts#20.
 {{- if eq (include "pangolin.traefik.colocateWithGerbil" .) "true" }}
 
 The chart-managed Traefik is pinned to the Gerbil node via a required podAffinity.
+{{- else if eq (include "pangolin.traefik.chartManaged" .) "true" }}
+
+The chart manages Traefik, but it is NOT pinned to the Gerbil node. Every tunnel-backed
+resource served by a Traefik Pod on another node will return 502. Set
+traefik.colocateWithGerbil=true, and make sure Gerbil is actually scheduled
+(gerbil.startupMode must not hold the Deployment at zero replicas).
 {{- else }}
 
 Traefik is not managed by this chart. Add the following to its Helm values so it

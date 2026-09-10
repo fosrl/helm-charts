@@ -1749,7 +1749,7 @@
                     "type": "object"
                 },
                 "clusterDomain": {
-                    "description": "Default StorageClass used by all PVCs when the local storageClass is empty.",
+                    "description": "Cluster DNS domain, used to build in-cluster FQDNs.",
                     "type": "string"
                 },
                 "commonAnnotations": {
@@ -1857,6 +1857,7 @@
                     "minimum": 0
                 },
                 "storageClass": {
+                    "description": "Default StorageClass used by all PVCs when the local storageClass is empty.",
                     "type": [
                         "string",
                         "null"
@@ -2431,7 +2432,7 @@
                             "type": "object",
                             "properties": {
                                 "nodeCIDRs": {
-                                    "description": "Source CIDRs used for the Gerbil -\u003e Pangolin internal-API rule when `gerbil.hostGateway.enabled=true`. A hostNetwork Pod is not matched by a podSelector on any mainstream CNI - its traffic sources from the node IP - so the is blackholed by this chart's own default policy. Narrow this to your node subnet in hardened clusters.",
+                                    "description": "Source CIDRs used for the Gerbil -\u003e Pangolin internal-API rule when `gerbil.hostGateway.enabled=true`. A hostNetwork Pod is not matched by a podSelector on any mainstream CNI - its traffic sources from the node IP - so the is blackholed by this chart's own default policy. There is no safe default: RFC1918 and CGNAT contain every mainstream Pod CIDR (flannel 10.244/16, k3s 10.42/16, Calico 192.168/16), so seeding this with those ranges would admit every Pod in the cluster to Pangolin's internal API instead of just the Gerbil node. Supply your node addresses: kubectl get nodes -o jsonpath='{.items[*].status.addresses[?(@.type==\"InternalIP\")].address}'",
                                     "type": "array",
                                     "items": {
                                         "type": "string"
