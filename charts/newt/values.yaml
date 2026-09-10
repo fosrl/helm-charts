@@ -301,16 +301,20 @@ global:
   # Resource Requests & Limits
   # -----------------------------------------------------------------------------
 
-  resources: # @schema type: object
-    requests:
-      cpu: "100m" # @schema type: string ; pattern: ^[0-9]+m?$
-      memory: "128Mi" # @schema type: string
-      ephemeral-storage: "128Mi" # @schema type: string
-
-    limits:
-      cpu: "200m" # @schema type: string ; pattern: ^[0-9]+m?$
-      memory: "256Mi" # @schema type: string
-      ephemeral-storage: "256Mi" # @schema type: string
+  # -- Default resource requests/limits for every Newt container.
+  # Empty by default (#23): the chart imposes no sizing, so the container inherits any
+  # LimitRange or namespace default instead. A non-empty `newtInstances[].resources`
+  # always overrides this. CPU limits in particular are a deliberate choice, not a
+  # sensible default, because throttling a WireGuard data path degrades it silently.
+  # Example:
+  #   resources:
+  #     requests:
+  #       cpu: 100m
+  #       memory: 128Mi
+  #       ephemeral-storage: 128Mi
+  #     limits:
+  #       memory: 256Mi
+  resources: {} # @schema type: [object, "null"] ; additionalProperties: {"type": ["object", "array", "null"], "additionalProperties": {"type": ["string", "integer", "number", "null"]}}
 
   # -----------------------------------------------------------------------------
   # Helm Test Configuration
@@ -326,11 +330,11 @@ global:
       pullPolicy: IfNotPresent # @schema type: string ; enum: [Always, IfNotPresent, Never]
     resources: # @schema type: object
       requests:
-        cpu: "100m" # @schema type: string ; pattern: ^[0-9]+m?$
+        cpu: "100m" # @schema type: [string, number]
         memory: "128Mi" # @schema type: string
         #ephemeral-storage: "128Mi" # @schema type: string
       limits:
-        cpu: "200m" # @schema type: string ; pattern: ^[0-9]+m?$
+        cpu: "200m" # @schema type: [string, number]
         memory: "256Mi" # @schema type: string
         #ephemeral-storage: "256Mi" # @schema type: string
 

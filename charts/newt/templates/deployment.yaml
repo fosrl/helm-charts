@@ -357,20 +357,19 @@ spec:
           lifecycle:
             {{- toYaml $inst.lifecycle | nindent 12 }}
           {{- end }}
+          {{- /* Resource resolution (#23): a non-empty per-instance `resources` wins, then
+                 `global.resources`, then nothing at all. There is deliberately no
+                 `allowGlobalOverride` gate here - that flag guards identity and security
+                 overrides, while resources are per-workload sizing, and gating them while
+                 `global.resources` shipped non-empty made the documented per-instance key a
+                 no-op on every default install. Omitting the key entirely when both are
+                 empty lets LimitRange and namespace defaults apply instead of a chart
+                 opinion that could not be switched off. */}}
+          {{- $instResources := $inst.resources | default dict }}
+          {{- $resources := ternary $instResources ($root.Values.global.resources | default dict) (gt (len $instResources) 0) }}
+          {{- if gt (len $resources) 0 }}
           resources:
-            {{- if and $canOverride $inst.resources }}
-            {{- toYaml $inst.resources | nindent 12 }}
-            {{- else if $root.Values.global.resources }}
-            {{- toYaml $root.Values.global.resources | nindent 12 }}
-            {{- else }}
-            requests:
-              cpu: 100m
-              memory: 128Mi
-              ephemeral-storage: 128Mi
-            limits:
-              cpu: 500m
-              memory: 256Mi
-              ephemeral-storage: 256Mi
+            {{- toYaml $resources | nindent 12 }}
           {{- end }}
       {{- with $inst.extraContainers }}
         {{- toYaml . | nindent 8 }}

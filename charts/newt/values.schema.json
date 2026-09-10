@@ -163,7 +163,7 @@
                     "type": "object",
                     "properties": {
                         "adminAddr": {
-                            "description": "Metrics admin server address (NEWT_ADMIN_ADDR). Default :2112 listens on all interfaces. Use 127.0.0.1:2112 to restrict to loopback.",
+                            "description": "Metrics admin server address (NEWT_ADMIN_ADDR). Default \":2112\" listens on all interfaces (required for in-cluster Prometheus scraping). Use \"127.0.0.1:2112\" to restrict to loopback only (disables in-cluster scraping from other Pods).",
                             "type": "string",
                             "pattern": "^.*:[0-9]+$"
                         },
@@ -376,7 +376,7 @@
                                     "type": "boolean"
                                 },
                                 "port": {
-                                    "description": "Service port exposed for scraping",
+                                    "description": "Service port exposed for scraping (matches adminAddr default port 2112)",
                                     "type": "integer",
                                     "maximum": 65535,
                                     "minimum": 1
@@ -818,38 +818,24 @@
                     "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
                 },
                 "resources": {
-                    "description": "--------------------------------------------------------------------------- Resource Requests \u0026 Limits ",
-                    "type": "object",
-                    "properties": {
-                        "limits": {
-                            "type": "object",
-                            "properties": {
-                                "cpu": {
-                                    "type": "string",
-                                    "pattern": "^[0-9]+m?$"
-                                },
-                                "ephemeral-storage": {
-                                    "type": "string"
-                                },
-                                "memory": {
-                                    "type": "string"
-                                }
-                            }
-                        },
-                        "requests": {
-                            "type": "object",
-                            "properties": {
-                                "cpu": {
-                                    "type": "string",
-                                    "pattern": "^[0-9]+m?$"
-                                },
-                                "ephemeral-storage": {
-                                    "type": "string"
-                                },
-                                "memory": {
-                                    "type": "string"
-                                }
-                            }
+                    "description": "Default resource requests/limits for every Newt container. Empty by default (#23): the chart imposes no sizing, so the container inherits any LimitRange or namespace default instead. A non-empty `newtInstances[].resources` always overrides this. CPU limits in particular are a deliberate choice, not a sensible default, because throttling a WireGuard data path degrades it silently. Example: resources: requests: cpu: 100m memory: 128Mi ephemeral-storage: 128Mi limits: memory: 256Mi",
+                    "type": [
+                        "object",
+                        "null"
+                    ],
+                    "additionalProperties": {
+                        "type": [
+                            "object",
+                            "array",
+                            "null"
+                        ],
+                        "additionalProperties": {
+                            "type": [
+                                "string",
+                                "integer",
+                                "number",
+                                "null"
+                            ]
                         }
                     }
                 },
@@ -907,8 +893,10 @@
                                     "type": "object",
                                     "properties": {
                                         "cpu": {
-                                            "type": "string",
-                                            "pattern": "^[0-9]+m?$"
+                                            "type": [
+                                                "string",
+                                                "number"
+                                            ]
                                         },
                                         "memory": {
                                             "type": "string"
@@ -919,8 +907,10 @@
                                     "type": "object",
                                     "properties": {
                                         "cpu": {
-                                            "type": "string",
-                                            "pattern": "^[0-9]+m?$"
+                                            "type": [
+                                                "string",
+                                                "number"
+                                            ]
                                         },
                                         "memory": {
                                             "type": "string"
@@ -982,6 +972,66 @@
                 }
             }
         },
+        "namespace": {
+            "description": "Namespace configuration for resources created by this chart.",
+            "type": "object",
+            "properties": {
+                "create": {
+                    "description": "Create namespaces used by this chart.",
+                    "default": false,
+                    "type": "boolean"
+                },
+                "labels": {
+                    "description": "Additional labels applied to created namespaces.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "name": {
+                    "description": "Default namespace name. Empty means use .Release.Namespace.",
+                    "type": "string",
+                    "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+                },
+                "podSecurity": {
+                    "description": "Pod Security Admission labels for created namespaces.",
+                    "type": "object",
+                    "properties": {
+                        "audit": {
+                            "description": "Pod Security Admission audit level.",
+                            "type": "string",
+                            "enum": [
+                                "",
+                                "privileged",
+                                "baseline",
+                                "restricted"
+                            ]
+                        },
+                        "enforce": {
+                            "description": "Pod Security Admission enforce level.",
+                            "type": "string",
+                            "enum": [
+                                "",
+                                "privileged",
+                                "baseline",
+                                "restricted"
+                            ]
+                        },
+                        "warn": {
+                            "description": "Pod Security Admission warn level.",
+                            "type": "string",
+                            "enum": [
+                                "",
+                                "privileged",
+                                "baseline",
+                                "restricted"
+                            ]
+                        }
+                    },
+                    "additionalProperties": false
+                }
+            }
+        },
         "newtInstances": {
             "description": "List of Newt instances to deploy. Each instance can optionally override",
             "type": "array",
@@ -1015,120 +1065,26 @@
                         "default": false,
                         "type": "boolean"
                     },
-                    "namespace": {
-                        "description": "Per-instance namespace override. Only effective when allowGlobalOverride=true.",
-                        "type": "object",
-                        "properties": {
-                            "name": {
-                                "description": "Override target namespace for this instance. Empty means global namespace or release namespace.",
-                                "type": "string",
-                                "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
-                            },
-                            "create": {
-                                "description": "Whether to create the namespace for this instance. null means inherit namespace.create.",
-                                "type": [
-                                    "boolean",
-                                    "null"
-                                ]
-                            },
-                            "labels": {
-                                "description": "Additional labels for this instance namespace, merged on top of global namespace labels.",
-                                "type": "object",
-                                "additionalProperties": {
-                                    "type": "string"
-                                }
-                            },
-                            "podSecurity": {
-                                "description": "Pod Security Admission labels override for this instance namespace.",
-                                "type": "object",
-                                "properties": {
-                                    "enforce": {
-                                        "description": "Override enforce level.",
-                                        "type": "string",
-                                        "enum": [
-                                            "",
-                                            "privileged",
-                                            "baseline",
-                                            "restricted"
-                                        ]
-                                    },
-                                    "warn": {
-                                        "description": "Override warn level.",
-                                        "type": "string",
-                                        "enum": [
-                                            "",
-                                            "privileged",
-                                            "baseline",
-                                            "restricted"
-                                        ]
-                                    },
-                                    "audit": {
-                                        "description": "Override audit level.",
-                                        "type": "string",
-                                        "enum": [
-                                            "",
-                                            "privileged",
-                                            "baseline",
-                                            "restricted"
-                                        ]
-                                    }
-                                },
-                                "additionalProperties": false
-                            }
-                        },
-                        "additionalProperties": false
-                    },
-                    "serviceAccount": {
-                        "description": "Per-instance ServiceAccount configuration. Only effective when allowGlobalOverride=true.",
-                        "type": "object",
-                        "properties": {
-                            "create": {
-                                "description": "Create a dedicated ServiceAccount for this instance. null means inherit global serviceAccount behavior.",
-                                "type": [
-                                    "boolean",
-                                    "null"
-                                ]
-                            },
-                            "name": {
-                                "description": "Custom ServiceAccount name. Empty means auto-generate when create=true.",
-                                "type": "string",
-                                "pattern": "^$|^[a-z0-9]([a-z0-9-]*[a-z0-9])?(?:\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$"
-                            },
-                            "annotations": {
-                                "description": "Additional annotations applied to the instance ServiceAccount.",
-                                "type": "object",
-                                "additionalProperties": {
-                                    "type": "string"
-                                }
-                            },
-                            "automountServiceAccountToken": {
-                                "description": "Control automounting of the ServiceAccount token for this instance.",
-                                "default": false,
-                                "type": "boolean"
-                            }
-                        },
-                        "additionalProperties": false
-                    },
                     "auth": {
                         "type": "object",
                         "properties": {
                             "createSecret": {
-                                "description": "Create a Secret from inline credentials (pangolinEndpoint/id/secret) when provided.",
+                                "description": "Create a Secret from inline credentials (pangolinEndpoint/id/secret) when provided. Set false to disable secret creation from inline credentials.",
                                 "default": true,
                                 "type": "boolean"
                             },
                             "envVarsDirect": {
-                                "description": "Inject inline credentials directly as env vars instead of Secret refs. Intended for local/dev testing.",
+                                "description": "Inject inline credentials directly as env vars instead of Secret refs. Use only for local/dev testing because credentials are visible in rendered manifests.",
                                 "default": false,
                                 "type": "boolean"
                             },
                             "existingSecretName": {
-                                "description": "Name of an existing Secret containing endpoint/id/secret keys.",
+                                "description": "Name of an existing Secret containing endpoint/id/secret keys. The Secret must contain keys from auth.keys.endpointKey/auth.keys.idKey/auth.keys.secretKey.",
                                 "type": "string",
                                 "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
                             },
                             "keys": {
-                                "description": "Key mappings used inside Secrets. These are key names, not credential values.",
+                                "description": "Key mappings used inside Secrets. IMPORTANT: auth.keys.* are key names, not credential values.",
                                 "type": "object",
                                 "properties": {
                                     "endpointKey": {
@@ -1270,7 +1226,7 @@
                         "type": "boolean"
                     },
                     "id": {
-                        "description": "WARNING: Use auth.existingSecretName for production to avoid secrets in values",
+                        "description": "Inline values are for convenience/testing. Use auth.existingSecretName for production.",
                         "type": "string",
                         "pattern": "^$|^[a-zA-Z0-9_-]+$"
                     },
@@ -1568,6 +1524,69 @@
                         "maxLength": 63,
                         "minLength": 1
                     },
+                    "namespace": {
+                        "description": "Per-instance namespace override. Only effective when allowGlobalOverride=true.",
+                        "type": "object",
+                        "properties": {
+                            "create": {
+                                "description": "Whether to create the namespace for this instance. null means inherit namespace.create.",
+                                "type": [
+                                    "boolean",
+                                    "null"
+                                ]
+                            },
+                            "labels": {
+                                "description": "Additional labels for this instance namespace, merged on top of global namespace labels.",
+                                "type": "object",
+                                "additionalProperties": {
+                                    "type": "string"
+                                }
+                            },
+                            "name": {
+                                "description": "Override target namespace for this instance. Empty means global namespace or release namespace.",
+                                "type": "string",
+                                "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+                            },
+                            "podSecurity": {
+                                "description": "Pod Security Admission labels override for this instance namespace.",
+                                "type": "object",
+                                "properties": {
+                                    "audit": {
+                                        "description": "Override audit level.",
+                                        "type": "string",
+                                        "enum": [
+                                            "",
+                                            "privileged",
+                                            "baseline",
+                                            "restricted"
+                                        ]
+                                    },
+                                    "enforce": {
+                                        "description": "Override enforce level.",
+                                        "type": "string",
+                                        "enum": [
+                                            "",
+                                            "privileged",
+                                            "baseline",
+                                            "restricted"
+                                        ]
+                                    },
+                                    "warn": {
+                                        "description": "Override warn level.",
+                                        "type": "string",
+                                        "enum": [
+                                            "",
+                                            "privileged",
+                                            "baseline",
+                                            "restricted"
+                                        ]
+                                    }
+                                },
+                                "additionalProperties": false
+                            }
+                        },
+                        "additionalProperties": false
+                    },
                     "networkPolicy": {
                         "description": "NetworkPolicy behavior (inherit/merge/replace) and enable/disable components.",
                         "type": "object",
@@ -1804,7 +1823,7 @@
                         }
                     },
                     "secret": {
-                        "description": "Instance secret issued by Pangolin (WARNING: Use existingSecretName for production)",
+                        "description": "Newt instance secret issued by Pangolin (must be set with pangolinEndpoint and id) - WARNING: Use auth.existingSecretName for production.",
                         "type": "string",
                         "pattern": "^$|^[a-zA-Z0-9_-]+$"
                     },
@@ -1891,6 +1910,37 @@
                             }
                         }
                     },
+                    "serviceAccount": {
+                        "description": "Per-instance ServiceAccount configuration. Only effective when allowGlobalOverride=true.",
+                        "type": "object",
+                        "properties": {
+                            "annotations": {
+                                "description": "Additional annotations applied to the instance ServiceAccount.",
+                                "type": "object",
+                                "additionalProperties": {
+                                    "type": "string"
+                                }
+                            },
+                            "automountServiceAccountToken": {
+                                "description": "Control automounting of the ServiceAccount token for this instance.",
+                                "default": false,
+                                "type": "boolean"
+                            },
+                            "create": {
+                                "description": "Create a dedicated ServiceAccount for this instance. null means inherit global serviceAccount behavior.",
+                                "type": [
+                                    "boolean",
+                                    "null"
+                                ]
+                            },
+                            "name": {
+                                "description": "Custom ServiceAccount name. Empty means auto-generate when create=true.",
+                                "type": "string",
+                                "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+                            }
+                        },
+                        "additionalProperties": false
+                    },
                     "tolerations": {
                         "description": "Pod tolerations",
                         "type": "array"
@@ -1933,67 +1983,6 @@
                     }
                 }
             }
-        },
-        "namespace": {
-            "description": "Namespace configuration for resources created by this chart.",
-            "type": "object",
-            "properties": {
-                "create": {
-                    "description": "Create namespaces used by this chart. When false, rely on the Helm release namespace or --create-namespace.",
-                    "default": false,
-                    "type": "boolean"
-                },
-                "name": {
-                    "description": "Default namespace name. Empty means use .Release.Namespace.",
-                    "type": "string",
-                    "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
-                },
-                "labels": {
-                    "description": "Additional labels applied to created namespaces.",
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
-                },
-                "podSecurity": {
-                    "description": "Pod Security Admission labels for created namespaces.",
-                    "type": "object",
-                    "properties": {
-                        "enforce": {
-                            "description": "Pod Security Admission enforce level.",
-                            "type": "string",
-                            "enum": [
-                                "",
-                                "privileged",
-                                "baseline",
-                                "restricted"
-                            ]
-                        },
-                        "warn": {
-                            "description": "Pod Security Admission warn level.",
-                            "type": "string",
-                            "enum": [
-                                "",
-                                "privileged",
-                                "baseline",
-                                "restricted"
-                            ]
-                        },
-                        "audit": {
-                            "description": "Pod Security Admission audit level.",
-                            "type": "string",
-                            "enum": [
-                                "",
-                                "privileged",
-                                "baseline",
-                                "restricted"
-                            ]
-                        }
-                    },
-                    "additionalProperties": false
-                }
-            },
-            "additionalProperties": false
         },
         "rbac": {
             "description": "--------------------------------------------------------------------------- RBAC Configuration ",
@@ -2049,7 +2038,7 @@
                 "name": {
                     "description": "ServiceAccount name. If empty and create=true, the chart generates a name. If create=false and empty, the \"default\" ServiceAccount is used.",
                     "type": "string",
-                    "pattern": "^$|^[a-z0-9]([a-z0-9-]*[a-z0-9])?(?:\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$"
+                    "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
                 }
             }
         }
