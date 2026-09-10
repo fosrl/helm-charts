@@ -1729,6 +1729,10 @@
                     "description": "Affinity applied to all Pods.",
                     "type": "object"
                 },
+                "clusterDomain": {
+                    "description": "Default StorageClass used by all PVCs when the local storageClass is empty.",
+                    "type": "string"
+                },
                 "commonAnnotations": {
                     "description": "Common annotations applied to all resources rendered by this chart (preferred alias).",
                     "type": "object",
@@ -1834,7 +1838,6 @@
                     "minimum": 0
                 },
                 "storageClass": {
-                    "description": "Default StorageClass used by all PVCs when the local storageClass is empty.",
                     "type": [
                         "string",
                         "null"
@@ -2937,7 +2940,7 @@
                                     "type": "boolean"
                                 },
                                 "internal_hostname": {
-                                    "description": "Internal hostname used by Pangolin when communicating with Gerbil.",
+                                    "description": "Hostname Pangolin advertises for its own internal API. It is resolved by Badger from inside the Traefik Pod and also drives the Pangolin UI and AI gateway URLs in the generated Traefik configuration. Empty (default) derives the in-cluster FQDN `\u003crelease\u003e-pangolin.\u003cnamespace\u003e.svc.\u003cclusterDomain\u003e`, which resolves from any namespace. A bare Service name only resolves when Traefik shares the namespace, so with `deployment.traefikNamespace` set it made Badger answer 404 for every request while the Traefik dashboard still showed the router as healthy.",
                                     "type": "string"
                                 },
                                 "maxmind_asn_path": {

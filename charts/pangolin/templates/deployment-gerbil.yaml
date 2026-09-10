@@ -127,9 +127,9 @@ spec:
             {{- toYaml $gerbil.args | nindent 12 }}
           {{- else if not $gerbil.command }}
           args:
-            - {{ printf "--reachableAt=http://%s-gerbil:%v" (include "pangolin.fullname" $root) ($gerbil.ports.internalApi | default 3004) | quote }}
+            - {{ printf "--reachableAt=http://%s:%v" (include "pangolin.gerbil.serviceFQDN" $root) ($gerbil.ports.internalApi | default 3004) | quote }}
             - --generateAndSaveKeyTo=/var/config/key
-            - {{ printf "--remoteConfig=http://%s:%v/api/v1/" (include "pangolin.fullname" $root) ($root.Values.pangolin.service.ports.internalApi | default 3001) | quote }}
+            - {{ printf "--remoteConfig=http://%s:%v/api/v1/" (include "pangolin.pangolin.serviceFQDN" $root) ($root.Values.pangolin.service.ports.internalApi | default 3001) | quote }}
           {{- end }}
           ports:
             - name: wg1

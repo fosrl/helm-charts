@@ -1,0 +1,104 @@
+suite: in-cluster addressing
+templates:
+  - templates/configmap-pangolin.yaml
+  - templates/deployment-gerbil.yaml
+  - templates/configmap-controller.yaml
+tests:
+  # Badger resolves internal_hostname from inside the Traefik Pod. A bare Service name
+  # only resolves when Traefik shares the namespace, which deployment.traefikNamespace
+  # explicitly does not require - so Badger answered 404 for every request while the
+  # Traefik dashboard still reported the router healthy.
+  - it: derives an in-cluster FQDN for the Pangolin internal API
+    set:
+      database:
+        mode: sqlite
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: 'internal_hostname: "RELEASE-NAME-pangolin\.NAMESPACE\.svc\.cluster\.local"'
+
+  - it: keeps resolving to an FQDN when Traefik lives in another namespace
+    set:
+      database:
+        mode: sqlite
+      deployment:
+        type: controller
+        traefikNamespace: traefik-system
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: 'internal_hostname: "RELEASE-NAME-pangolin\.NAMESPACE\.svc\.cluster\.local"'
+
+  - it: lets an explicit internal_hostname win
+    set:
+      database:
+        mode: sqlite
+      pangolin:
+        config:
+          server:
+            internal_hostname: pangolin.example.internal
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: 'internal_hostname: "pangolin\.example\.internal"'
+
+  - it: honours a custom cluster domain
+    set:
+      database:
+        mode: sqlite
+      global:
+        clusterDomain: k8s.internal
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: 'internal_hostname: "RELEASE-NAME-pangolin\.NAMESPACE\.svc\.k8s\.internal"'
+
+  # Gerbil resolves these itself, and in host gateway mode it runs with hostNetwork
+  # where the cluster search path no longer applies.
+  - it: gives Gerbil fully qualified addresses
+    set:
+      database:
+        mode: sqlite
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--reachableAt=http://RELEASE-NAME-pangolin-gerbil.NAMESPACE.svc.cluster.local:3004"
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--remoteConfig=http://RELEASE-NAME-pangolin.NAMESPACE.svc.cluster.local:3001/api/v1/"
+
+  - it: points the controller at the fully qualified config endpoint
+    set:
+      database:
+        mode: sqlite
+      deployment:
+        type: controller
+    template: templates/configmap-controller.yaml
+    asserts:
+      - equal:
+          path: data.CONFIG_ENDPOINT
+          value: http://RELEASE-NAME-pangolin.NAMESPACE.svc.cluster.local:3001/api/v1/traefik-config
+
+  # badger_override remains the escape hatch when Badger must reach Pangolin some
+  # other way; it is emitted verbatim and does not disturb internal_hostname.
+  - it: emits badger_override alongside the derived hostname
+    set:
+      database:
+        mode: sqlite
+      pangolin:
+        config:
+          server:
+            badger_override: http://pangolin.other:3001/api/v1
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: 'badger_override: "http://pangolin\.other:3001/api/v1"'
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: 'internal_hostname: "RELEASE-NAME-pangolin\.NAMESPACE\.svc\.cluster\.local"'

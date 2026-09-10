@@ -51,6 +51,8 @@ global:
     # -- Image pull secrets applied to all workloads by default.
     imagePullSecrets: [] # @schema type:[array, null] ; item: object ; itemProperties: {"name": {"type": "string"}}
   # -- Default StorageClass used by all PVCs when the local storageClass is empty.
+  # -- Cluster DNS domain, used to build in-cluster FQDNs.
+  clusterDomain: cluster.local # @schema type: string
   storageClass: "" # @schema type: [string, "null"]
   # -- Override the chart name.
   nameOverride: "" # @schema type: string
@@ -691,8 +693,15 @@ pangolin:
 
     # ---------- server section ----------
     server:
-      # -- Internal hostname used by Pangolin when communicating with Gerbil.
-      internal_hostname: pangolin # @schema type: string
+      # -- Hostname Pangolin advertises for its own internal API. It is resolved by
+      # Badger from inside the Traefik Pod and also drives the Pangolin UI and AI gateway
+      # URLs in the generated Traefik configuration.
+      # Empty (default) derives the in-cluster FQDN
+      # `<release>-pangolin.<namespace>.svc.<clusterDomain>`, which resolves from any
+      # namespace. A bare Service name only resolves when Traefik shares the namespace,
+      # so with `deployment.traefikNamespace` set it made Badger answer 404 for every
+      # request while the Traefik dashboard still showed the router as healthy.
+      internal_hostname: "" # @schema type: string
       # -- Session cookie name.
       session_cookie_name: p_session_token # @schema type: string
       # -- Request parameter name for resource access tokens.

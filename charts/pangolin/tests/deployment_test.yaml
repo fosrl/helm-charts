@@ -41,7 +41,7 @@ tests:
           value: controller
       - matchRegex:
           path: spec.template.spec.initContainers[0].command[2]
-          pattern: 'ENDPOINT="http://RELEASE-NAME-pangolin:3001/api/v1/traefik-config"'
+          pattern: 'ENDPOINT="http://RELEASE-NAME-pangolin.NAMESPACE.svc.cluster.local:3001/api/v1/traefik-config"'
 
   - it: controller wait initContainer uses effective overridden config endpoint
     set:

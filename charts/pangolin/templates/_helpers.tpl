@@ -413,7 +413,7 @@ imagePullSecrets:
 {{- end -}}
 
 {{- define "pangolin.controller.configEndpoint" -}}
-{{- $pangolinSvc := include "pangolin.fullname" . -}}
+{{- $pangolinSvc := include "pangolin.pangolin.serviceFQDN" . -}}
 {{- $pangolinPort := (.Values.pangolin.service.ports.internalApi | default 3001) -}}
 {{- $defaultEndpoint := printf "http://%s:%v/api/v1/traefik-config" $pangolinSvc $pangolinPort -}}
 {{- .Values.controller.config.configEndpoint | default $defaultEndpoint -}}
@@ -677,6 +677,37 @@ SQLite persistence helpers. `database.mode` is the single source of truth for
 whether SQLite is in use; the old `database.sqlite.enabled` toggle was never read
 by any template and is gone.
 */ -}}
+{{- /*
+In-cluster addressing. Badger runs inside the Traefik Pod and resolves the address
+Pangolin advertises for its internal API, so a bare Service name only works when
+Traefik happens to share the namespace. deployment.traefikNamespace explicitly supports
+the opposite, and there the bare name does not resolve at all: Badger then answers
+404 page not found for every request while the Traefik dashboard still reports the
+router as healthy. server.internal_hostname also drives the Pangolin UI URL and the AI
+gateway URL in the same generated configuration, so resolving it once fixes all three.
+*/ -}}
+{{- define "pangolin.clusterDomain" -}}
+{{- .Values.global.clusterDomain | default "cluster.local" -}}
+{{- end -}}
+
+{{- define "pangolin.pangolin.serviceFQDN" -}}
+{{- printf "%s.%s.svc.%s" (include "pangolin.fullname" .) (include "pangolin.namespace" .) (include "pangolin.clusterDomain" .) -}}
+{{- end -}}
+
+{{- define "pangolin.gerbil.serviceFQDN" -}}
+{{- printf "%s-gerbil.%s.svc.%s" (include "pangolin.fullname" .) (include "pangolin.namespace" .) (include "pangolin.clusterDomain" .) -}}
+{{- end -}}
+
+{{- define "pangolin.server.internalHostname" -}}
+{{- $server := (.Values.pangolin.config).server | default dict -}}
+{{- $explicit := trim (default "" (get $server "internal_hostname")) -}}
+{{- if $explicit -}}
+{{- $explicit -}}
+{{- else -}}
+{{- include "pangolin.pangolin.serviceFQDN" . -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "pangolin.sqlite.claimName" -}}
 {{- $persistence := ((.Values.database).sqlite | default dict).persistence | default dict -}}
 {{- $persistence.existingClaim | default (printf "%s-sqlite" (include "pangolin.fullname" .)) -}}

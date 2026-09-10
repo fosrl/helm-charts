@@ -45,7 +45,7 @@ tests:
     asserts:
       - equal:
           path: data.CONFIG_ENDPOINT
-          value: http://RELEASE-NAME-pangolin:3001/api/v1/traefik-config
+          value: http://RELEASE-NAME-pangolin.NAMESPACE.svc.cluster.local:3001/api/v1/traefik-config
 
   - it: honors explicit controller config endpoint override
     set:
@@ -64,7 +64,7 @@ tests:
     asserts:
       - matchRegex:
           path: spec.template.spec.initContainers[0].command[2]
-          pattern: 'ENDPOINT="http://RELEASE-NAME-pangolin:3001/api/v1/traefik-config"'
+          pattern: 'ENDPOINT="http://RELEASE-NAME-pangolin.NAMESPACE.svc.cluster.local:3001/api/v1/traefik-config"'
 
   - it: controller wait initContainer uses same overridden endpoint as CONFIG_ENDPOINT
     template: templates/deployment-controller.yaml
