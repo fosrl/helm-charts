@@ -25,7 +25,7 @@ Sources:
 | Kubernetes version | `>=1.30.14-0` |
 | Pangolin default image tag | `1.22.2` |
 | Pangolin PostgreSQL image tag | `postgresql-1.22.2` |
-| pangolin-kube-controller tag | `0.1.0-alpha.1` |
+| pangolin-kube-controller tag | `0.1.0-alpha.2` |
 | Gerbil tag | `1.5.1` |
 | Traefik tag | `v3.7.13` |
 

@@ -483,7 +483,7 @@ images:
     # -- Pangolin kube controller image repository.
     repository: fosrl/pangolin-kube-controller # @schema type: string
     # -- Pangolin kube controller image tag. Managed independently from `.Chart.AppVersion`.
-    tag: "0.1.0-alpha.1" # @schema type: string
+    tag: "0.1.0-alpha.2" # @schema type: string
     # -- Pangolin kube controller image digest. Overrides tag when set.
     digest: "" # @schema type: string
     # -- Pangolin kube controller image pull policy.
