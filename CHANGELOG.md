@@ -84,6 +84,12 @@ This changelog is chart-scoped to support multiple charts over time.
   switch, and a NetworkPolicy rule with no `from` is every source: turning it on to let
   Traefik through would hand every Pod in the cluster the model providers behind the
   gateway. Use `networkPolicy.pangolin.ingress.aiGateway` instead.
+- The chart-managed Traefik (`deployment.type=standalone`) now receives Pangolin's
+  generated configuration. It declares the Badger plugin in static configuration
+  (`traefik.badger.*`), polls `/api/v1/traefik-config` over the HTTP provider
+  (`traefik.config.httpProvider.*`), gets the RBAC its Kubernetes providers need, and is
+  allowed through the chart's own NetworkPolicy to Pangolin's internal API. Without these
+  the mode started healthy and served nothing Pangolin created.
 - `newtInstances[].useNativeMainInterface` and `useNativeInterface` now both require
   `global.nativeMode.enabled=true` and are rejected without it. `global.nativeMode.enabled`
   on its own no longer makes a Pod root and privileged: it is a permission gate, and an
