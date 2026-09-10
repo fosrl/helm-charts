@@ -141,7 +141,13 @@ collect_charts() {
 run_helm_lint() {
   local chart="$1"
   log_info "Running helm lint on: $chart"
-  if helm lint "$chart" -f "$chart/values.dev.yaml" >/dev/null 2>&1; then
+  local lint_args=()
+  # Not every chart ships a values.dev.yaml; charts/pangolin does not, and passing a
+  # missing -f made lint fail before it ever rendered.
+  if [ -f "$chart/values.dev.yaml" ]; then
+    lint_args+=(-f "$chart/values.dev.yaml")
+  fi
+  if helm lint "$chart" "${lint_args[@]}" >/dev/null 2>&1; then
     log_pass "helm lint passed"
     LINT_PASSED=$((LINT_PASSED + 1))
     return 0
@@ -198,13 +204,20 @@ run_helm_unittest() {
   
   local args=()
   for f in "${test_files[@]}"; do
-    args+=("-f" "$f")
+    # helm-unittest resolves -f patterns relative to the chart directory. The chart path
+    # is absolute here, so passing the absolute file path made the pattern miss and the
+    # plugin fell back to walking the packaged subcharts instead.
+    args+=("-f" "tests/$(basename "$f")")
   done
   
   local output
   local exit_code=0
   
-  output=$(helm unittest "$chart" -v "$chart/values.dev.yaml" "${args[@]}" 2>&1) || exit_code=$?
+  local values_args=()
+  if [ -f "$chart/values.dev.yaml" ]; then
+    values_args+=(-v "$chart/values.dev.yaml")
+  fi
+  output=$(helm unittest --strict "$chart" "${values_args[@]}" "${args[@]}" 2>&1) || exit_code=$?
   
   if echo "$output" | grep -qE "panic:|nil pointer dereference|runtime error"; then
     log_warn "helm unittest CRASHED (files=$file_count, cases=$it_count)"

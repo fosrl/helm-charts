@@ -127,6 +127,13 @@ jobs:
           helm template demo charts/pangolin --namespace pangolin --set database.mode=sqlite > rendered/sqlite.yaml
           helm template demo charts/pangolin --namespace pangolin --set gerbil.service.type=LoadBalancer > rendered/gerbil-lb.yaml
 
+          # Regression coverage for the values that used to abort `helm template`.
+          helm template demo charts/pangolin --namespace pangolin             --set database.mode=sqlite             --set-json 'pangolin.extraVolumes=[{"name":"extra","emptyDir":{}}]'             --set-json 'pangolin.extraVolumeMounts=[{"name":"extra","mountPath":"/extra"}]'             > rendered/extra-volumes.yaml
+          helm template demo charts/pangolin --namespace pangolin             --set deployment.mode=single --set database.mode=sqlite             --set-json 'pangolin.extraVolumes=[{"name":"extra","emptyDir":{}}]'             --set-json 'pangolin.extraVolumeMounts=[{"name":"extra","mountPath":"/extra"}]'             > rendered/extra-volumes-single.yaml
+          helm template demo charts/pangolin --namespace pangolin             --set deployment.type=controller --set deployment.mode=multi             --set networkPolicy.enabled=true > rendered/controller-netpol.yaml
+          helm template demo charts/pangolin --namespace pangolin             --set database.mode=sqlite --set database.sqlite.persistence.enabled=true             > rendered/sqlite-persistence.yaml
+          helm template demo charts/pangolin --namespace pangolin             --set gerbil.startupMode=disabledUntilSetup > rendered/gerbil-disabled.yaml
+
           shopt -s nullglob
           for values in charts/pangolin/examples/*.yaml; do
             name="$(basename "$values" .yaml)"
@@ -146,8 +153,53 @@ jobs:
             kubeconform -strict -summary -ignore-missing-schemas "$f"
           done
 
+      - name: Verify controller egress and dashboard ingress defaults
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import subprocess, sys, yaml
+          out = subprocess.run(
+              ["helm", "template", "demo", "charts/pangolin", "--namespace", "pangolin",
+               "--set", "deployment.type=controller", "--set", "deployment.mode=multi",
+               "-s", "templates/networkpolicy.yaml"],
+              capture_output=True, text=True, check=True).stdout
+          policies = {d["metadata"]["name"]: d for d in yaml.safe_load_all(out) if d}
+          egress = next(p for n, p in policies.items() if n.endswith("-controller-egress"))
+          ports = {p["port"] for r in egress["spec"]["egress"] for p in r.get("ports", [])}
+          if not {443, 6443} & ports:
+              sys.exit("controller egress has no Kubernetes API rule: %s" % sorted(ports))
+          ingress = next(p for n, p in policies.items() if n.endswith("-pangolin-ingress"))
+          in_ports = {p["port"] for r in ingress["spec"]["ingress"] for p in r.get("ports", [])}
+          if 3002 not in in_ports:
+              sys.exit("dashboard next port 3002 is not allowed: %s" % sorted(in_ports))
+          print("controller egress ports:", sorted(ports))
+          print("pangolin ingress ports:", sorted(in_ports))
+          PY
+
+      - name: Verify image tags match appVersion
+        run: |
+          set -euo pipefail
+          APP_VERSION="$(helm show chart charts/pangolin | awk '/^appVersion:/ {gsub(/"/,"",$2); print $2}')"
+          echo "appVersion: ${APP_VERSION}"
+          if ! grep -q "fosrl/pangolin:${APP_VERSION}" <(helm template demo charts/pangolin --namespace pangolin --set database.mode=sqlite); then
+            echo "ERROR: rendered Pangolin image does not use appVersion ${APP_VERSION}"
+            exit 1
+          fi
+          if ! grep -q "image: docker.io/fosrl/pangolin:${APP_VERSION}" charts/pangolin/Chart.yaml; then
+            echo "ERROR: Chart.yaml artifacthub.io/images is not on appVersion ${APP_VERSION}"
+            exit 1
+          fi
+
+      - name: Verify generated values.schema.json is current
+        run: |
+          set -euo pipefail
+          helm plugin install https://github.com/losisin/helm-values-schema-json.git --version v2.3.1 || true
+          cp charts/pangolin/values.schema.json /tmp/pangolin.schema.before
+          helm schema -f charts/pangolin/values.yaml -o charts/pangolin/values.schema.json --config charts/pangolin/.schema.yaml
+          diff -u /tmp/pangolin.schema.before charts/pangolin/values.schema.json
+
       - name: Run helm-unittest
-        run: helm unittest charts/pangolin
+        run: helm unittest --strict charts/pangolin
 
       - name: Upload rendered manifests
         if: always()
@@ -155,4 +207,170 @@ jobs:
         with:
           name: pangolin-rendered-manifests
           path: rendered/*.yaml
+          if-no-files-found: ignore
+
+  newt-validate:
+    name: Newt chart validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Helm
+        uses: Azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5.0.0
+        with:
+          version: v3.20.2
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.x'
+
+      - name: Install helm-unittest plugin
+        run: helm plugin install https://github.com/helm-unittest/helm-unittest.git --version 1.0.3
+
+      - name: Install kubeconform
+        run: |
+          set -euo pipefail
+          KUBECONFORM_VERSION="v0.7.0"
+          curl -fsSL \
+            -o "${RUNNER_TEMP}/kubeconform.tar.gz" \
+            "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          curl -fsSL \
+            -o "${RUNNER_TEMP}/kubeconform-checksums.txt" \
+            "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/CHECKSUMS"
+          KUBECONFORM_SHA256=$(grep "kubeconform-linux-amd64.tar.gz" "${RUNNER_TEMP}/kubeconform-checksums.txt" | awk '{print $1}')
+          if [ -z "${KUBECONFORM_SHA256}" ]; then
+            echo "ERROR: Could not find SHA256 for kubeconform-linux-amd64.tar.gz in CHECKSUMS file"
+            exit 1
+          fi
+          echo "${KUBECONFORM_SHA256}  ${RUNNER_TEMP}/kubeconform.tar.gz" > "${RUNNER_TEMP}/kubeconform.tar.gz.sha256"
+          if ! sha256sum -c "${RUNNER_TEMP}/kubeconform.tar.gz.sha256"; then
+            echo "ERROR: kubeconform tarball SHA256 verification failed"
+            exit 1
+          fi
+          mkdir -p "${RUNNER_TEMP}/kubeconform-bin"
+          tar -xz -C "${RUNNER_TEMP}/kubeconform-bin" -f "${RUNNER_TEMP}/kubeconform.tar.gz" kubeconform
+          echo "${RUNNER_TEMP}/kubeconform-bin" >> "$GITHUB_PATH"
+          "${RUNNER_TEMP}/kubeconform-bin/kubeconform" -v
+
+      - name: Install yamllint
+        run: python -m pip install --upgrade pip yamllint
+
+      - name: Lint chart
+        run: helm lint charts/newt -f charts/newt/examples/values/bare-minimum.yaml
+
+      - name: Render chart variants
+        run: |
+          set -euo pipefail
+          mkdir -p rendered-newt
+
+          # The chart's own defaults carry no credentials and cannot render, so every
+          # variant starts from an example profile.
+          BASE="charts/newt/examples/values/bare-minimum.yaml"
+
+          helm template demo charts/newt --namespace newt -f "$BASE" > rendered-newt/default.yaml
+          helm template demo charts/newt --namespace newt -f "$BASE" \
+            --set global.metrics.enabled=true \
+            --set global.metrics.service.enabled=true > rendered-newt/metrics.yaml
+          helm template demo charts/newt --namespace newt -f "$BASE" \
+            --set global.networkPolicy.enabled=true > rendered-newt/netpol.yaml
+          helm template demo charts/newt --namespace newt -f "$BASE" \
+            --set-json 'global.resources={"requests":{"cpu":"100m"}}' > rendered-newt/resources-requests.yaml
+          helm template demo charts/newt --namespace newt -f "$BASE" \
+            --set-json 'global.resources={"limits":{"memory":"256Mi"}}' > rendered-newt/resources-limits.yaml
+          helm template demo charts/newt --namespace newt -f "$BASE" \
+            --set-json 'newtInstances[0].extraVolumes=[{"name":"extra","emptyDir":{}}]' \
+            --set-json 'newtInstances[0].extraVolumeMounts=[{"name":"extra","mountPath":"/extra"}]' \
+            --set 'newtInstances[0].name=main-tunnel' \
+            --set 'newtInstances[0].enabled=true' \
+            --set 'newtInstances[0].auth.existingSecretName=newt-cred' > rendered-newt/extra-volumes.yaml
+
+          shopt -s nullglob
+          for values in charts/newt/examples/values/*.yaml; do
+            name="$(basename "$values" .yaml)"
+            helm template demo charts/newt --namespace newt -f "$values" > "rendered-newt/example-${name}.yaml"
+          done
+          for values in charts/newt/ci/*.yaml; do
+            name="$(basename "$values" .yaml)"
+            helm template demo charts/newt --namespace newt -f "$values" > "rendered-newt/ci-${name}.yaml"
+          done
+          shopt -u nullglob
+
+      - name: yamllint rendered manifests
+        run: |
+          yamllint -d '{extends: relaxed, rules: {line-length: {max: 200}, indentation: {spaces: consistent, indent-sequences: whatever}, trailing-spaces: disable}}' rendered-newt/*.yaml
+
+      - name: kubeconform rendered manifests
+        run: |
+          set -euo pipefail
+          for f in rendered-newt/*.yaml; do
+            echo "==> kubeconform: $f"
+            kubeconform -strict -summary -ignore-missing-schemas "$f"
+          done
+
+      - name: Verify the metrics endpoint is actually wired
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import subprocess, sys, yaml
+          out = subprocess.run(
+              ["helm", "template", "demo", "charts/newt", "--namespace", "newt",
+               "-f", "charts/newt/examples/values/bare-minimum.yaml",
+               "--set", "global.metrics.enabled=true",
+               "--set", "global.metrics.service.enabled=true"],
+              capture_output=True, text=True, check=True).stdout
+          docs = [d for d in yaml.safe_load_all(out) if d]
+          dep = next(d for d in docs if d["kind"] == "Deployment")
+          c = dep["spec"]["template"]["spec"]["containers"][0]
+          env = {e["name"]: e.get("value") for e in c.get("env", [])}
+          if env.get("NEWT_METRICS_PROMETHEUS_ENABLED") != "true":
+              sys.exit("NEWT_METRICS_PROMETHEUS_ENABLED is not set; /metrics would 404")
+          ports = {p["name"]: p["containerPort"] for p in c.get("ports", [])}
+          if "metrics" not in ports:
+              sys.exit("no metrics containerPort declared")
+          admin = env.get("NEWT_ADMIN_ADDR", ":2112")
+          bound = int(admin.rsplit(":", 1)[1])
+          if ports["metrics"] != bound:
+              sys.exit("containerPort %s does not match bound port %s" % (ports["metrics"], bound))
+          svc = next(d for d in docs if d["kind"] == "Service" and "metrics" in d["metadata"]["name"])
+          target = svc["spec"]["ports"][0]["targetPort"]
+          if target != "metrics":
+              sys.exit("metrics Service targets %r instead of the port name" % target)
+          print("metrics wired: bound=%s containerPort=%s targetPort=%s" % (bound, ports["metrics"], target))
+          PY
+
+      - name: Verify image tags match appVersion
+        run: |
+          set -euo pipefail
+          APP_VERSION="$(helm show chart charts/newt | awk '/^appVersion:/ {gsub(/"/,"",$2); print $2}')"
+          echo "appVersion: ${APP_VERSION}"
+          if ! grep -q "fosrl/newt:${APP_VERSION}" <(helm template demo charts/newt --namespace newt -f charts/newt/examples/values/bare-minimum.yaml); then
+            echo "ERROR: rendered Newt image does not use appVersion ${APP_VERSION}"
+            exit 1
+          fi
+          if ! grep -q "image: docker.io/fosrl/newt:${APP_VERSION}" charts/newt/Chart.yaml; then
+            echo "ERROR: Chart.yaml artifacthub.io/images is not on appVersion ${APP_VERSION}"
+            exit 1
+          fi
+
+      - name: Verify generated values.schema.json is current
+        run: |
+          set -euo pipefail
+          helm plugin install https://github.com/losisin/helm-values-schema-json.git --version v2.3.1 || true
+          cp charts/newt/values.schema.json /tmp/newt.schema.before
+          helm schema -f charts/newt/values.yaml -o charts/newt/values.schema.json \
+            --config charts/newt/.schema.yaml --draft 7 --k8s-schema-version v1.33.1 --use-helm-docs
+          diff -u /tmp/newt.schema.before charts/newt/values.schema.json
+
+      - name: Run helm-unittest
+        run: helm unittest --strict charts/newt
+
+      - name: Upload rendered manifests
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: newt-rendered-manifests
+          path: rendered-newt/*.yaml
           if-no-files-found: ignore
