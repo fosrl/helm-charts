@@ -1,0 +1,217 @@
+suite: standalone Traefik Pangolin wiring
+templates:
+  - templates/deployment-traefik.yaml
+  - templates/deployment-single.yaml
+  - templates/rbac-traefik.yaml
+  - templates/networkpolicy.yaml
+tests:
+  - it: polls the generated configuration from Pangolin
+    template: templates/deployment-traefik.yaml
+    set:
+      deployment.type: standalone
+      deployment.mode: multi
+      traefik:
+        enabled: true
+        config:
+          letsencryptEmail: ops@example.com
+          dynamicRouters:
+            host: pangolin.example.com
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--providers.http.endpoint=http://RELEASE-NAME-pangolin:3001/api/v1/traefik-config"
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--providers.http.pollinterval=5s"
+
+  # Pangolin hardcodes "badger" as both the middleware name and the plugin type, so the
+  # static alias has to match or every generated router fails with `unknown plugin type`.
+  - it: declares the Badger plugin under the alias Pangolin references
+    template: templates/deployment-traefik.yaml
+    set:
+      deployment.type: standalone
+      deployment.mode: multi
+      traefik:
+        enabled: true
+        config:
+          letsencryptEmail: ops@example.com
+          dynamicRouters:
+            host: pangolin.example.com
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--experimental.plugins.badger.modulename=github.com/fosrl/badger"
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--experimental.plugins.badger.version=v1.7.0"
+
+  - it: honours a pinned Badger version
+    template: templates/deployment-traefik.yaml
+    set:
+      deployment.type: standalone
+      deployment.mode: multi
+      traefik:
+        enabled: true
+        badger:
+          version: v1.6.1
+        config:
+          letsencryptEmail: ops@example.com
+          dynamicRouters:
+            host: pangolin.example.com
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--experimental.plugins.badger.version=v1.6.1"
+
+  - it: omits the plugin declaration when Badger is disabled
+    template: templates/deployment-traefik.yaml
+    set:
+      deployment.type: standalone
+      deployment.mode: multi
+      traefik:
+        enabled: true
+        badger:
+          enabled: false
+        config:
+          letsencryptEmail: ops@example.com
+          dynamicRouters:
+            host: pangolin.example.com
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: "--experimental.plugins.badger.modulename=github.com/fosrl/badger"
+
+  - it: honours an explicit config endpoint
+    template: templates/deployment-traefik.yaml
+    set:
+      deployment.type: standalone
+      deployment.mode: multi
+      traefik:
+        enabled: true
+        config:
+          letsencryptEmail: ops@example.com
+          dynamicRouters:
+            host: pangolin.example.com
+          httpProvider:
+            endpoint: http://pangolin.other.svc:3001/api/v1/traefik-config
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--providers.http.endpoint=http://pangolin.other.svc:3001/api/v1/traefik-config"
+
+  - it: drops the HTTP provider when it is turned off
+    template: templates/deployment-traefik.yaml
+    set:
+      deployment.type: standalone
+      deployment.mode: multi
+      traefik:
+        enabled: true
+        config:
+          letsencryptEmail: ops@example.com
+          dynamicRouters:
+            host: pangolin.example.com
+          httpProvider:
+            enabled: false
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: "--providers.http.pollinterval=5s"
+
+  - it: wires the same static configuration into single mode
+    template: templates/deployment-single.yaml
+    set:
+      deployment.type: standalone
+      deployment.mode: single
+      traefik:
+        enabled: true
+        config:
+          letsencryptEmail: ops@example.com
+          dynamicRouters:
+            host: pangolin.example.com
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[?(@.name=='traefik')].args
+          content: "--experimental.plugins.badger.modulename=github.com/fosrl/badger"
+          any: true
+
+  # --providers.kubernetescrd and --providers.kubernetesingress cannot read anything
+  # without these rules, and rbac.yaml only covers the controller.
+  - it: grants the chart-managed Traefik the RBAC its providers need
+    template: templates/rbac-traefik.yaml
+    set:
+      deployment.type: standalone
+      deployment.mode: multi
+      traefik:
+        enabled: true
+        config:
+          letsencryptEmail: ops@example.com
+          dynamicRouters:
+            host: pangolin.example.com
+    asserts:
+      - hasDocuments:
+          count: 2
+      - isKind:
+          of: ClusterRole
+        documentIndex: 0
+      - isKind:
+          of: ClusterRoleBinding
+        documentIndex: 1
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["traefik.io"]
+            resources:
+              - ingressroutes
+              - ingressroutetcps
+              - ingressrouteudps
+              - middlewares
+              - middlewaretcps
+              - serverstransports
+              - serverstransporttcps
+              - tlsoptions
+              - tlsstores
+              - traefikservices
+            verbs: ["get", "list", "watch"]
+        documentIndex: 0
+
+  - it: creates no Traefik RBAC in controller mode
+    template: templates/rbac-traefik.yaml
+    set:
+      deployment.type: controller
+      deployment.mode: multi
+      controller:
+        enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # Without this the chart's own default policy blackholes the HTTP provider.
+  - it: lets the chart-managed Traefik reach the internal API
+    template: templates/networkpolicy.yaml
+    set:
+      deployment.type: standalone
+      deployment.mode: multi
+      networkPolicy:
+        enabled: true
+      traefik:
+        enabled: true
+        config:
+          letsencryptEmail: ops@example.com
+          dynamicRouters:
+            host: pangolin.example.com
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-pangolin-ingress
+    asserts:
+      - contains:
+          path: spec.ingress
+          content:
+            from:
+              - podSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: pangolin
+                    app.kubernetes.io/instance: RELEASE-NAME
+                    app.kubernetes.io/component: traefik-standalone
+            ports:
+              - protocol: TCP
+                port: 3001

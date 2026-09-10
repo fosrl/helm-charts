@@ -178,6 +178,12 @@ regression, so an existing narrow configuration is carried over untouched.
 {{- if $renderGerbil -}}
 {{- $pangolinIngress = append $pangolinIngress (dict "from" (list (dict "podSelector" (dict "matchLabels" $selGerbil))) "ports" (list (dict "protocol" "TCP" "port" $root.Values.pangolin.service.ports.internalApi))) -}}
 {{- end -}}
+{{- /* A chart-managed Traefik polls the generated configuration from the same internal API
+       port. Without this rule the HTTP provider is blackholed by the chart's own policy and
+       Traefik serves nothing Pangolin generated. */ -}}
+{{- if and (eq (include "pangolin.traefik.chartManagedAnyMode" $root) "true") (eq (include "pangolin.traefik.httpProviderEnabled" $root) "true") (not $singleMode) -}}
+{{- $pangolinIngress = append $pangolinIngress (dict "from" (list (dict "podSelector" (dict "matchLabels" $selTraefik))) "ports" (list (dict "protocol" "TCP" "port" $root.Values.pangolin.service.ports.internalApi))) -}}
+{{- end -}}
 {{- /*
 The AI gateway port is reached by Traefik, not by the cluster at large: every AI
 gateway resource is a route Traefik terminates and forwards here. Build the rule from
