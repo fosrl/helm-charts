@@ -56,9 +56,12 @@ spec:
       {{- if $ips }}
     {{ $ips | nindent 6 }}
       {{- end }}
-      {{- if $root.Values.global.affinity }}
+      {{- /* Merges global.affinity with the Gerbil co-location term when host gateway
+             mode needs Traefik on the Gerbil node. */}}
+      {{- $traefikAffinity := include "pangolin.traefik.affinity" $root }}
+      {{- if $traefikAffinity }}
       affinity:
-        {{- toYaml $root.Values.global.affinity | nindent 8 }}
+        {{- $traefikAffinity | nindent 8 }}
       {{- end }}
       {{- if $root.Values.global.nodeSelector }}
       nodeSelector:

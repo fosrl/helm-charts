@@ -417,6 +417,18 @@ networkPolicy:
     # -- CIDRs allowed for Gerbil UDP egress when WireGuard egress is enabled.
     wireguardUdpCIDRs: # @schema type: array ; item: string
       - 0.0.0.0/0
+    hostGateway:
+      # -- Source CIDRs used for the Gerbil -> Pangolin internal-API rule when
+      # `gerbil.hostGateway.enabled=true`. A hostNetwork Pod is not matched by a
+      # podSelector on any mainstream CNI - its traffic sources from the node IP - so the
+      # rule has to be expressed as node address blocks or Gerbil's --remoteConfig polling
+      # is blackholed by this chart's own default policy.
+      # Narrow this to your node subnet in hardened clusters.
+      nodeCIDRs: # @schema type: array ; item: string
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+        - 100.64.0.0/10
     # -- Additional ingress rules appended to the Gerbil NetworkPolicy only.
     extraIngress: [] # @schema type: array ; item: object
     # -- Additional egress rules appended to the Gerbil NetworkPolicy only.
@@ -1264,6 +1276,18 @@ controller:
 
 ## @section Standalone Traefik mode
 traefik:
+  # -- Pin the chart-managed Traefik Pods onto the node currently running Gerbil, using a
+  # required podAffinity on kubernetes.io/hostname. Only meaningful together with
+  # `gerbil.hostGateway.enabled`.
+  #   auto     - follow gerbil.hostGateway.enabled (default)
+  #   required - always pin
+  #   disabled - never pin
+  # Suppressed automatically when it could not be satisfied (single mode, Gerbil
+  # disabled, or a startupMode that keeps Gerbil at zero replicas), because a required
+  # affinity against a workload that never schedules would leave Traefik Pending forever.
+  # The term is IgnoredDuringExecution: if Gerbil moves, already-running Traefik Pods stay
+  # put and keep returning 502 until they are restarted.
+  colocateWithGerbil: auto # @schema type: string ; enum: [auto, required, disabled]
   # -- Labels added to all standalone Traefik resources rendered by this chart.
   commonLabels: {} # @schema type: object ; additionalProperties: { type: string }
   # -- Annotations added to all standalone Traefik resources rendered by this chart.
@@ -1438,6 +1462,37 @@ gerbil:
     endpoint: "" # @schema type: string
   # -- Number of Gerbil replicas in multi mode.
   replicaCount: 1 # @schema type: integer ; minimum: 1
+  hostGateway:
+    # -- TRANSITIONAL COMPATIBILITY MODE - opt-in, never enabled implicitly.
+    #
+    # Gerbil creates its WireGuard interface in whatever network namespace it runs in.
+    # Under Kubernetes that is its own Pod namespace, so the tunnel subnet Pangolin
+    # advertises as a backend exists there and nowhere else: an externally installed
+    # Traefik has no route to it and every tunnel-backed resource returns 502 while the
+    # tunnel itself is healthy. Docker Compose avoids this by giving Traefik Gerbil's
+    # namespace outright (network_mode: service:gerbil); separate Pods have no equivalent.
+    #
+    # With hostNetwork the interface and its connected route are created in the NODE
+    # namespace, so Pods scheduled onto that node reach the tunnel through the node
+    # routing table.
+    #
+    # This is a workaround for a missing portable data path, not the intended
+    # architecture. It is expected to be superseded - see the chart README.
+    #
+    # Requirements and consequences:
+    #   - Traefik MUST run on the same node. `traefik.colocateWithGerbil` handles the
+    #     chart-managed Traefik; `helm get notes` prints the snippet for an external one.
+    #   - Your CNI must masquerade Pod egress leaving the node (the default for Flannel,
+    #     Calico with natOutgoing, and Cilium). Without it the remote WireGuard peer sees
+    #     the Traefik Pod IP as source and drops the reply.
+    #   - The namespace must permit hostNetwork, i.e. Pod Security Admission `privileged`.
+    #   - Gerbil binds its ports on the node: one Gerbil per node, replicaCount must be 1.
+    enabled: false # @schema type: boolean
+    # -- DNS policy applied together with hostNetwork. Gerbil still has to resolve the
+    # Pangolin Service for --remoteConfig, and a hostNetwork Pod with the default
+    # ClusterFirst uses the node resolver, where that name does not exist.
+    dnsPolicy: ClusterFirstWithHostNet # @schema type: string ; enum: [ClusterFirstWithHostNet, ClusterFirst, Default, None]
+
   deployment:
     # -- Rollout strategy for this component, overriding `runtime.updateStrategy`.
     # Left empty the chart picks it: a component holding a PVC that is not ReadWriteMany

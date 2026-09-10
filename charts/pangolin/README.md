@@ -348,6 +348,67 @@ Use this checklist before tagging alpha/RC/stable releases. This runtime validat
 - Check events: `kubectl get events -n <ns> --sort-by=.lastTimestamp | tail -n 50`
 - Controller logs: `kubectl logs -n <ns> deploy/<release>-pangolin --since=10m` (adjust name if overridden)
 
+## Tunnel data path
+
+Pangolin advertises the backends behind a Newt site as raw WireGuard peer addresses, for
+example `http://100.89.128.4:44602`. Gerbil creates its WireGuard interface in whatever
+network namespace it runs in, so under Kubernetes those addresses exist inside the Gerbil
+Pod and nowhere else. An externally installed Traefik has no route to them: every
+tunnel-backed resource returns `502` while the tunnel itself is healthy, Newt is
+connected, and the dashboard reports the router as `Success`.
+
+Docker Compose deployments avoid this by giving Traefik Gerbil's network namespace
+outright (`network_mode: service:gerbil`). Separate Kubernetes Pods have no equivalent.
+This is tracked in [#20](https://github.com/fosrl/helm-charts/issues/20), which remains
+open.
+
+### If your targets run in this cluster
+
+Nothing below is needed. A `local` site whose target host is a Kubernetes Service FQDN
+(`<name>.<namespace>.svc`) is served without a tunnel at all.
+
+### Host gateway mode (transitional)
+
+`gerbil.hostGateway.enabled=true` runs Gerbil with `hostNetwork`, so `wg0` and its
+connected route are created in the **node** network namespace and any Pod scheduled onto
+that node reaches the tunnel through the node routing table. Traefik must then run on the
+same node:
+
+- The **chart-managed** Traefik (`deployment.type=standalone` with `traefik.enabled=true`)
+  is pinned automatically by `traefik.colocateWithGerbil`, a required `podAffinity` on
+  `kubernetes.io/hostname`.
+- For an **externally installed** Traefik, `helm get notes` prints the exact snippet to
+  add to its values, with your release name and namespace filled in.
+
+See `examples/values-host-gateway.yaml`.
+
+This is a workaround for a missing portable data path, not the intended architecture.
+Be clear about what it does **not** solve:
+
+| Limitation | Consequence |
+| --- | --- |
+| Only the Gerbil node has the route | Tunnel backends stay unreachable from Pods on every other node. |
+| The affinity is `IgnoredDuringExecution` | If Gerbil is rescheduled, running Traefik Pods stay put and keep returning `502` until restarted. |
+| Requires CNI egress masquerading | Default for Flannel, Calico (`natOutgoing`) and Cilium. Without that SNAT the remote peer sees the Traefik Pod IP as source and drops the reply. The chart can neither detect nor fix this. |
+| Gerbil binds node ports | One Gerbil per node; `gerbil.replicaCount` must stay `1`, so there is no Gerbil HA. |
+| `hostNetwork` needs a privileged namespace | Pod Security Admission must be `privileged`; `baseline` forbids it. `NET_ADMIN` is still required as before. |
+| Not available in `single` mode | Gerbil shares a Pod with Pangolin there, so `hostNetwork` would bind every component's ports on the node. |
+
+The chart refuses the combinations that cannot work rather than letting them surface as a
+Pending Pod or a silent `502`: `PANGOLIN-069` (single mode), `PANGOLIN-070` (Gerbil
+disabled), `PANGOLIN-071` (more than one replica), `PANGOLIN-072` (chart-created namespace
+without `privileged`), and `PANGOLIN-073` (the Traefik subchart, where Helm cannot inject
+affinity at render time).
+
+### NetworkPolicy
+
+A `hostNetwork` Pod is not matched by a `podSelector` on any mainstream CNI — its traffic
+sources from the node IP. In host gateway mode the Gerbil → Pangolin internal-API rule is
+therefore expressed as node address blocks
+(`networkPolicy.gerbil.hostGateway.nodeCIDRs`), which default to the private ranges.
+Narrow them to your node subnet. Without this the chart's own default policy would
+blackhole Gerbil's `--remoteConfig` polling.
+
 ## Gerbil networking model
 
 - Gerbil always opens UDP ports on the Pod.
@@ -583,13 +644,15 @@ See `examples/values-blueprints.yaml` for a complete working example.
 | deployment.mode | string | `"multi"` | Pod topology for Pangolin application components. `single` runs one Pod containing Pangolin plus optional Gerbil and either pangolin-kube-controller (controller type) or standalone Traefik (standalone type). `multi` runs separate workloads (recommended for production). |
 | deployment.traefikNamespace | string | `""` | Namespace where Traefik controller resources live in controller mode. Defaults to the release namespace. |
 | deployment.type | string | `"controller"` | Pangolin deployment integration mode. `controller` uses pangolin-kube-controller and Traefik CRDs. `standalone` runs an internal Traefik Pod (not recommended for production). |
-| gerbil | object | `{"args":[],"command":[],"commonAnnotations":{},"commonLabels":{},"deployment":{"annotations":{},"labels":{},"podAnnotations":{},"podLabels":{},"updateStrategy":{}},"enabled":true,"extraEnv":{},"persistence":{"accessModes":["ReadWriteOnce"],"annotations":{},"enabled":true,"existingClaim":"","size":"1Gi","storageClass":""},"ports":{"internalApi":3004,"wg1":51820,"wg2":21820},"probes":{},"pvc":{"annotations":{},"labels":{}},"replicaCount":1,"resources":{"limits":{"cpu":"500m","ephemeral-storage":"128Mi","memory":"512Mi"},"requests":{"cpu":"100m","ephemeral-storage":"16Mi","memory":"128Mi"}},"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"add":["NET_ADMIN"],"drop":["ALL"]},"readOnlyRootFilesystem":false,"runAsNonRoot":false},"service":{"annotations":{},"enabled":true,"externalTrafficPolicy":"","labels":{},"loadBalancerIP":"","loadBalancerSourceRanges":[],"ports":[{"name":"wg1","port":51820,"protocol":"UDP","targetPort":"wg1"},{"name":"wg2","port":21820,"protocol":"UDP","targetPort":"wg2"},{"name":"internal-api","port":3004,"protocol":"TCP","targetPort":"internal-api"}],"type":"ClusterIP"},"serviceAccount":{"annotations":{},"labels":{}},"startupMode":"normal","waitForPangolin":{"enabled":true,"endpoint":"","image":{"pullPolicy":"IfNotPresent","registry":"docker.io","repository":"curlimages/curl","tag":"8.8.0"},"intervalSeconds":5,"stableSeconds":30,"timeoutSeconds":600}}` | --------------------------------------------------------------------------- # @section Gerbil |
+| gerbil | object | `{"args":[],"command":[],"commonAnnotations":{},"commonLabels":{},"deployment":{"annotations":{},"labels":{},"podAnnotations":{},"podLabels":{},"updateStrategy":{}},"enabled":true,"extraEnv":{},"hostGateway":{"dnsPolicy":"ClusterFirstWithHostNet","enabled":false},"persistence":{"accessModes":["ReadWriteOnce"],"annotations":{},"enabled":true,"existingClaim":"","size":"1Gi","storageClass":""},"ports":{"internalApi":3004,"wg1":51820,"wg2":21820},"probes":{},"pvc":{"annotations":{},"labels":{}},"replicaCount":1,"resources":{"limits":{"cpu":"500m","ephemeral-storage":"128Mi","memory":"512Mi"},"requests":{"cpu":"100m","ephemeral-storage":"16Mi","memory":"128Mi"}},"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"add":["NET_ADMIN"],"drop":["ALL"]},"readOnlyRootFilesystem":false,"runAsNonRoot":false},"service":{"annotations":{},"enabled":true,"externalTrafficPolicy":"","labels":{},"loadBalancerIP":"","loadBalancerSourceRanges":[],"ports":[{"name":"wg1","port":51820,"protocol":"UDP","targetPort":"wg1"},{"name":"wg2","port":21820,"protocol":"UDP","targetPort":"wg2"},{"name":"internal-api","port":3004,"protocol":"TCP","targetPort":"internal-api"}],"type":"ClusterIP"},"serviceAccount":{"annotations":{},"labels":{}},"startupMode":"normal","waitForPangolin":{"enabled":true,"endpoint":"","image":{"pullPolicy":"IfNotPresent","registry":"docker.io","repository":"curlimages/curl","tag":"8.8.0"},"intervalSeconds":5,"stableSeconds":30,"timeoutSeconds":600}}` | --------------------------------------------------------------------------- # @section Gerbil |
 | gerbil.args | list | `[]` | Override the Gerbil container args. When empty the chart computes the following default args:   --reachableAt=http://<gerbil-svc>:<internalApi-port>   --generateAndSaveKeyTo=/var/config/key   --remoteConfig=http://<pangolin-svc>:<internalApi-port>/api/v1/ Set this list explicitly to pass custom args to Gerbil. |
 | gerbil.command | list | `[]` | Override the Gerbil container entrypoint (command). When empty the container image's default entrypoint is used. |
 | gerbil.commonAnnotations | object | `{}` | Annotations added to all Gerbil resources rendered by this chart. |
 | gerbil.commonLabels | object | `{}` | Labels added to all Gerbil resources rendered by this chart. |
 | gerbil.deployment.updateStrategy | object | `{}` | Rollout strategy for this component, overriding `runtime.updateStrategy`. Left empty the chart picks it: a component holding a PVC that is not ReadWriteMany is switched to Recreate, because a surged Pod could never attach the volume. |
 | gerbil.enabled | bool | `true` | Enable Gerbil component. |
+| gerbil.hostGateway.dnsPolicy | string | `"ClusterFirstWithHostNet"` | DNS policy applied together with hostNetwork. Gerbil still has to resolve the Pangolin Service for --remoteConfig, and a hostNetwork Pod with the default ClusterFirst uses the node resolver, where that name does not exist. |
+| gerbil.hostGateway.enabled | bool | `false` | TRANSITIONAL COMPATIBILITY MODE - opt-in, never enabled implicitly.  Gerbil creates its WireGuard interface in whatever network namespace it runs in. Under Kubernetes that is its own Pod namespace, so the tunnel subnet Pangolin advertises as a backend exists there and nowhere else: an externally installed Traefik has no route to it and every tunnel-backed resource returns 502 while the tunnel itself is healthy. Docker Compose avoids this by giving Traefik Gerbil's namespace outright (network_mode: service:gerbil); separate Pods have no equivalent.  With hostNetwork the interface and its connected route are created in the NODE namespace, so Pods scheduled onto that node reach the tunnel through the node routing table.  This is a workaround for a missing portable data path, not the intended architecture. It is expected to be superseded - see the chart README.  Requirements and consequences:   - Traefik MUST run on the same node. `traefik.colocateWithGerbil` handles the     chart-managed Traefik; `helm get notes` prints the snippet for an external one.   - Your CNI must masquerade Pod egress leaving the node (the default for Flannel,     Calico with natOutgoing, and Cilium). Without it the remote WireGuard peer sees     the Traefik Pod IP as source and drops the reply.   - The namespace must permit hostNetwork, i.e. Pod Security Admission `privileged`.   - Gerbil binds its ports on the node: one Gerbil per node, replicaCount must be 1. |
 | gerbil.persistence.accessModes | list | `["ReadWriteOnce"]` | Access modes for the Gerbil PVC. |
 | gerbil.persistence.annotations | object | `{}` | Additional annotations for the Gerbil PVC. |
 | gerbil.persistence.enabled | bool | `true` | Persist Gerbil key/config data on a PVC. Enabled by default (production-recommended): Gerbil saves its WireGuard private key to /var/config/key. Without persistence the key regenerates on every restart, which forces all WireGuard peers to re-handshake and breaks connectivity until peers reconnect. Disable only for ephemeral dev/CI environments where key rotation is acceptable. |
@@ -673,7 +736,7 @@ See `examples/values-blueprints.yaml` for a complete working example.
 | namespace.podSecurity.audit | string | `""` | PSA audit level applied to the namespace. |
 | namespace.podSecurity.enforce | string | `""` | PSA enforce level applied to the namespace. Use "privileged" to allow Gerbil's NET_ADMIN capability. |
 | namespace.podSecurity.warn | string | `""` | PSA warn level applied to the namespace. |
-| networkPolicy | object | `{"allowExternalEgressHttps":false,"allowExternalIngress":true,"controller":{"egress":{"enabled":true,"kubernetesApi":{"cidr":"","enabled":true,"endpoints":[{"cidrs":["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16","100.64.0.0/10","169.254.0.0/16"],"ports":[443,6443]}],"port":443}},"extraEgress":[],"extraIngress":[],"metrics":{"allowExternalIngress":false,"enabled":false,"from":[],"namespaceSelector":{},"podSelector":{}}},"database":{"cnpgPeers":[],"enabled":true,"externalCIDRs":[],"extraEgress":[],"extraIngress":[],"port":5432},"dns":{"enabled":true,"ports":[{"port":53,"protocol":"UDP"},{"port":53,"protocol":"TCP"}],"to":[{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"kube-system"}}}]},"enabled":true,"extraEgress":[],"extraIngress":[],"gerbil":{"allowWireguardUdpEgress":true,"extraEgress":[],"extraIngress":[],"wireguardUdpCIDRs":["0.0.0.0/0"]},"kubernetesApiCIDRs":[],"pangolin":{"externalIngress":{"aiGateway":false,"external":true,"integration":false,"next":null,"requireIntegrationFlag":true},"extraEgress":[],"extraIngress":[],"ingress":{"aiGateway":{"from":[],"fromTraefik":true},"dashboard":{"from":[]}}}}` | --------------------------------------------------------------------------- # @section NetworkPolicy |
+| networkPolicy | object | `{"allowExternalEgressHttps":false,"allowExternalIngress":true,"controller":{"egress":{"enabled":true,"kubernetesApi":{"cidr":"","enabled":true,"endpoints":[{"cidrs":["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16","100.64.0.0/10","169.254.0.0/16"],"ports":[443,6443]}],"port":443}},"extraEgress":[],"extraIngress":[],"metrics":{"allowExternalIngress":false,"enabled":false,"from":[],"namespaceSelector":{},"podSelector":{}}},"database":{"cnpgPeers":[],"enabled":true,"externalCIDRs":[],"extraEgress":[],"extraIngress":[],"port":5432},"dns":{"enabled":true,"ports":[{"port":53,"protocol":"UDP"},{"port":53,"protocol":"TCP"}],"to":[{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"kube-system"}}}]},"enabled":true,"extraEgress":[],"extraIngress":[],"gerbil":{"allowWireguardUdpEgress":true,"extraEgress":[],"extraIngress":[],"hostGateway":{"nodeCIDRs":["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16","100.64.0.0/10"]},"wireguardUdpCIDRs":["0.0.0.0/0"]},"kubernetesApiCIDRs":[],"pangolin":{"externalIngress":{"aiGateway":false,"external":true,"integration":false,"next":null,"requireIntegrationFlag":true},"extraEgress":[],"extraIngress":[],"ingress":{"aiGateway":{"from":[],"fromTraefik":true},"dashboard":{"from":[]}}}}` | --------------------------------------------------------------------------- # @section NetworkPolicy |
 | networkPolicy.allowExternalEgressHttps | bool | `false` | Allow HTTPS egress (TCP/443) to 0.0.0.0/0. Disabled by default; prefer using `networkPolicy.extraEgress` for a scoped allow-list. |
 | networkPolicy.allowExternalIngress | bool | `true` | Allow ingress from everywhere to public entrypoints / services managed by this chart. Component-level controls below can further restrict which ports open externally. |
 | networkPolicy.controller.egress.enabled | bool | `true` | Enable explicit controller egress NetworkPolicy. When disabled, no controller egress policy is rendered by this chart even if DNS/Pangolin/Kubernetes API egress rules are configured. |
@@ -703,6 +766,7 @@ See `examples/values-blueprints.yaml` for a complete working example.
 | networkPolicy.gerbil.allowWireguardUdpEgress | bool | `true` | Allow UDP egress for WireGuard peer traffic. |
 | networkPolicy.gerbil.extraEgress | list | `[]` | Additional egress rules appended to the Gerbil NetworkPolicy only. Use this for Gerbil-specific outbound rules. |
 | networkPolicy.gerbil.extraIngress | list | `[]` | Additional ingress rules appended to the Gerbil NetworkPolicy only. |
+| networkPolicy.gerbil.hostGateway.nodeCIDRs | list | `["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16","100.64.0.0/10"]` | Source CIDRs used for the Gerbil -> Pangolin internal-API rule when `gerbil.hostGateway.enabled=true`. A hostNetwork Pod is not matched by a podSelector on any mainstream CNI - its traffic sources from the node IP - so the rule has to be expressed as node address blocks or Gerbil's --remoteConfig polling is blackholed by this chart's own default policy. Narrow this to your node subnet in hardened clusters. |
 | networkPolicy.gerbil.wireguardUdpCIDRs | list | `["0.0.0.0/0"]` | CIDRs allowed for Gerbil UDP egress when WireGuard egress is enabled. |
 | networkPolicy.kubernetesApiCIDRs | list | `[]` | DEPRECATED: CIDRs allowed for controller egress to the Kubernetes API on `networkPolicy.controller.egress.kubernetesApi.port`. Superseded by `networkPolicy.controller.egress.kubernetesApi.endpoints`. When this or the deprecated `kubernetesApi.cidr` is set it takes precedence over `endpoints`, so an existing scoped allow-list is never widened by an upgrade. |
 | networkPolicy.pangolin.externalIngress.aiGateway | bool | `false` | Allow ingress on the Pangolin AI gateway port from every source. Off by default. The gateway proxies to model providers on the caller's behalf and holds the virtual API keys that pay for it, so it is not a port to hand to every Pod in the cluster. The supported path is the source-scoped rule under `networkPolicy.pangolin.ingress.aiGateway`; turn this on only for a caller that cannot be expressed as a peer there. |
@@ -914,7 +978,7 @@ See `examples/values-blueprints.yaml` for a complete working example.
 | serviceAccount.pangolin.create | bool | `true` | Create a ServiceAccount for Pangolin Pods. |
 | serviceAccount.pangolin.labels | object | `{}` | Extra labels added to the Pangolin ServiceAccount. |
 | serviceAccount.pangolin.name | string | `""` | Existing ServiceAccount name. When empty and create=true, a name is generated. |
-| traefik | object | `{"cloudflare":{"existingSecretName":"","generatedSecret":{"apiToken":"","create":false,"dnsApiToken":"","email":"","name":"","zoneApiToken":""},"keys":{"dnsApiToken":"dnsApiToken","email":"email","zoneApiToken":"zoneApiToken"}},"commonAnnotations":{},"commonLabels":{},"config":{"acmeCaServer":"https://acme-v02.api.letsencrypt.org/directory","acmeDelayBeforeCheck":0,"adminPort":8085,"certResolver":"letsencrypt","dashboard":false,"dashboardDeclareContainerPort":false,"dynamicRouters":{"host":"example.com"},"httpEntrypoint":"web","httpsEntrypoint":"websecure","insecureSkipVerify":false,"letsencryptEmail":"","logLevel":"INFO"},"deployment":{"annotations":{},"labels":{},"podAnnotations":{},"podLabels":{},"updateStrategy":{}},"enabled":false,"persistence":{"accessModes":["ReadWriteOnce"],"enabled":false,"existingClaim":"","size":"1Gi","storageClass":""},"probes":{"liveness":{"failureThreshold":3,"httpGet":{"path":"/ping","port":8085},"initialDelaySeconds":10,"periodSeconds":30,"timeoutSeconds":5},"readiness":{"failureThreshold":3,"httpGet":{"path":"/ping","port":8085},"initialDelaySeconds":5,"periodSeconds":10,"timeoutSeconds":3},"startup":{"failureThreshold":20,"httpGet":{"path":"/ping","port":8085},"initialDelaySeconds":5,"periodSeconds":5,"timeoutSeconds":3}},"replicaCount":1,"resources":{"limits":{"cpu":"500m","ephemeral-storage":"128Mi","memory":"512Mi"},"requests":{"cpu":"100m","ephemeral-storage":"16Mi","memory":"128Mi"}},"securityContext":{"allowPrivilegeEscalation":true,"readOnlyRootFilesystem":false,"runAsNonRoot":false},"service":{"annotations":{},"enabled":true,"externalTrafficPolicy":"","labels":{},"loadBalancerSourceRanges":[],"type":"LoadBalancer"}}` | --------------------------------------------------------------------------- # @section Standalone Traefik mode |
+| traefik | object | `{"cloudflare":{"existingSecretName":"","generatedSecret":{"apiToken":"","create":false,"dnsApiToken":"","email":"","name":"","zoneApiToken":""},"keys":{"dnsApiToken":"dnsApiToken","email":"email","zoneApiToken":"zoneApiToken"}},"colocateWithGerbil":"auto","commonAnnotations":{},"commonLabels":{},"config":{"acmeCaServer":"https://acme-v02.api.letsencrypt.org/directory","acmeDelayBeforeCheck":0,"adminPort":8085,"certResolver":"letsencrypt","dashboard":false,"dashboardDeclareContainerPort":false,"dynamicRouters":{"host":"example.com"},"httpEntrypoint":"web","httpsEntrypoint":"websecure","insecureSkipVerify":false,"letsencryptEmail":"","logLevel":"INFO"},"deployment":{"annotations":{},"labels":{},"podAnnotations":{},"podLabels":{},"updateStrategy":{}},"enabled":false,"persistence":{"accessModes":["ReadWriteOnce"],"enabled":false,"existingClaim":"","size":"1Gi","storageClass":""},"probes":{"liveness":{"failureThreshold":3,"httpGet":{"path":"/ping","port":8085},"initialDelaySeconds":10,"periodSeconds":30,"timeoutSeconds":5},"readiness":{"failureThreshold":3,"httpGet":{"path":"/ping","port":8085},"initialDelaySeconds":5,"periodSeconds":10,"timeoutSeconds":3},"startup":{"failureThreshold":20,"httpGet":{"path":"/ping","port":8085},"initialDelaySeconds":5,"periodSeconds":5,"timeoutSeconds":3}},"replicaCount":1,"resources":{"limits":{"cpu":"500m","ephemeral-storage":"128Mi","memory":"512Mi"},"requests":{"cpu":"100m","ephemeral-storage":"16Mi","memory":"128Mi"}},"securityContext":{"allowPrivilegeEscalation":true,"readOnlyRootFilesystem":false,"runAsNonRoot":false},"service":{"annotations":{},"enabled":true,"externalTrafficPolicy":"","labels":{},"loadBalancerSourceRanges":[],"type":"LoadBalancer"}}` | --------------------------------------------------------------------------- # @section Standalone Traefik mode |
 | traefik.cloudflare.existingSecretName | string | `""` | Existing Secret name with Cloudflare credentials. |
 | traefik.cloudflare.generatedSecret.apiToken | string | `""` | One token reused for both DNS and zone scopes when the app supports it. |
 | traefik.cloudflare.generatedSecret.create | bool | `false` | Create a chart-managed Cloudflare Secret. |
@@ -925,6 +989,7 @@ See `examples/values-blueprints.yaml` for a complete working example.
 | traefik.cloudflare.keys.dnsApiToken | string | `"dnsApiToken"` | Key inside the existing Secret containing DNS API token. |
 | traefik.cloudflare.keys.email | string | `"email"` | Key inside the existing Secret containing Cloudflare email. |
 | traefik.cloudflare.keys.zoneApiToken | string | `"zoneApiToken"` | Key inside the existing Secret containing zone API token. |
+| traefik.colocateWithGerbil | string | `"auto"` | Pin the chart-managed Traefik Pods onto the node currently running Gerbil, using a required podAffinity on kubernetes.io/hostname. Only meaningful together with `gerbil.hostGateway.enabled`.   auto     - follow gerbil.hostGateway.enabled (default)   required - always pin   disabled - never pin Suppressed automatically when it could not be satisfied (single mode, Gerbil disabled, or a startupMode that keeps Gerbil at zero replicas), because a required affinity against a workload that never schedules would leave Traefik Pending forever. The term is IgnoredDuringExecution: if Gerbil moves, already-running Traefik Pods stay put and keep returning 502 until they are restarted. |
 | traefik.commonAnnotations | object | `{}` | Annotations added to all standalone Traefik resources rendered by this chart. |
 | traefik.commonLabels | object | `{}` | Labels added to all standalone Traefik resources rendered by this chart. |
 | traefik.config.acmeCaServer | string | `"https://acme-v02.api.letsencrypt.org/directory"` | ACME CA directory URL. |

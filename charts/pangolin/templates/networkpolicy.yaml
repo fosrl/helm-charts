@@ -176,7 +176,21 @@ regression, so an existing narrow configuration is carried over untouched.
 {{- $pangolinIngress = append $pangolinIngress (dict "from" (list (dict "podSelector" (dict "matchLabels" $selController))) "ports" (list (dict "protocol" "TCP" "port" $root.Values.pangolin.service.ports.internalApi))) -}}
 {{- end -}}
 {{- if $renderGerbil -}}
+{{- /*
+A hostNetwork Pod is not matched by a podSelector on any mainstream CNI: its traffic
+sources from the node IP. In host gateway mode this rule therefore has to be expressed
+as node address blocks, otherwise Gerbil's --remoteConfig polling is blackholed by this
+chart's own default policy.
+*/ -}}
+{{- if eq (include "pangolin.gerbil.hostGateway.enabled" $root) "true" -}}
+{{- $gerbilNodeFrom := list -}}
+{{- range $cidr := ((($npGerbil.hostGateway) | default dict).nodeCIDRs | default (list "10.0.0.0/8" "172.16.0.0/12" "192.168.0.0/16" "100.64.0.0/10")) -}}
+{{- $gerbilNodeFrom = append $gerbilNodeFrom (dict "ipBlock" (dict "cidr" $cidr)) -}}
+{{- end -}}
+{{- $pangolinIngress = append $pangolinIngress (dict "from" $gerbilNodeFrom "ports" (list (dict "protocol" "TCP" "port" $root.Values.pangolin.service.ports.internalApi))) -}}
+{{- else -}}
 {{- $pangolinIngress = append $pangolinIngress (dict "from" (list (dict "podSelector" (dict "matchLabels" $selGerbil))) "ports" (list (dict "protocol" "TCP" "port" $root.Values.pangolin.service.ports.internalApi))) -}}
+{{- end -}}
 {{- end -}}
 {{- /*
 The AI gateway port is reached by Traefik, not by the cluster at large: every AI

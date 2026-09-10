@@ -1,0 +1,110 @@
+# Example: Gerbil host gateway mode (transitional tunnel data path)
+#
+# Topology: deployment.type=controller + deployment.mode=multi
+# Database:  database.mode=cloudnativepg (chart default)
+#
+# THE PROBLEM
+#
+# Pangolin advertises the backends behind a Newt site as raw WireGuard peer addresses,
+# for example http://100.89.128.4:44602. Gerbil creates its WireGuard interface in
+# whatever network namespace it runs in, so under Kubernetes those addresses exist
+# inside the Gerbil Pod and nowhere else. An externally installed Traefik dials an
+# address it has no route to and every tunnel-backed resource returns 502 - while the
+# tunnel is healthy, Newt is connected, and the dashboard reports the router as fine.
+#
+# Docker Compose deployments never hit this because Traefik is given Gerbil's network
+# namespace outright (network_mode: service:gerbil). Separate Kubernetes Pods have no
+# equivalent.
+#
+# WHAT THIS PROFILE DOES
+#
+# Runs Gerbil with hostNetwork, so wg0 and its connected route are created in the NODE
+# network namespace and any Pod on that node reaches the tunnel through the node routing
+# table. Traefik is then pinned to the same node.
+#
+# This is a workaround for a missing portable data path, not the intended architecture -
+# see https://github.com/fosrl/helm-charts/issues/20, which stays open.
+#
+# WHAT IT DOES NOT SOLVE
+#
+#   - Tunnel backends remain unreachable from Pods on any other node.
+#   - It does not survive a Gerbil reschedule: the affinity is
+#     IgnoredDuringExecution, so running Traefik Pods stay put and keep returning 502
+#     until they are restarted.
+#   - It depends on your CNI masquerading Pod egress that leaves the node (the default
+#     for Flannel, Calico with natOutgoing, and Cilium). Without that SNAT the remote
+#     peer sees the Traefik Pod IP as source and drops the reply. The chart can neither
+#     detect nor fix this.
+#   - No Gerbil HA: one per node, replicaCount pinned to 1.
+#   - It does not remove NET_ADMIN, and it adds a Pod Security Admission `privileged`
+#     requirement for the namespace.
+#
+# If your targets already run in this cluster, none of this is needed: a `local` site
+# with a Kubernetes Service FQDN (<name>.<namespace>.svc) as the target host is served
+# without a tunnel at all.
+#
+# Usage:
+#   helm install pangolin charts/pangolin \
+#     -f charts/pangolin/examples/values-host-gateway.yaml \
+#     --namespace pangolin --create-namespace
+
+deployment:
+  type: controller
+  mode: multi
+  # Namespace of the externally installed Traefik. It MUST be scheduled onto the same
+  # node as Gerbil - `helm get notes` prints the podAffinity snippet to add to its
+  # values, with your real release name and namespace filled in.
+  traefikNamespace: traefik-system
+
+namespace:
+  create: true
+  name: pangolin
+  podSecurity:
+    # hostNetwork requires `privileged`; `baseline` forbids it and the chart fails with
+    # PANGOLIN-072 rather than letting the Pod be rejected at admission.
+    enforce: privileged
+    warn: baseline
+    audit: baseline
+
+pangolin:
+  config:
+    app:
+      # REPLACE: the public URL of your Pangolin dashboard.
+      dashboard_url: "https://pangolin.yourdomain.example"
+    domains:
+      domain1:
+        # REPLACE: your base domain.
+        base_domain: yourdomain.example
+        cert_resolver: letsencrypt
+    gerbil:
+      # REPLACE: where external WireGuard peers reach Gerbil.
+      base_endpoint: "vpn.yourdomain.example"
+
+gerbil:
+  enabled: true
+  # `delayed` and `disabledUntilSetup` keep the Deployment at zero replicas, so there
+  # would be no gateway to co-locate with.
+  startupMode: normal
+  # Gerbil binds its ports on the node, so a second replica cannot start beside it.
+  replicaCount: 1
+  hostGateway:
+    enabled: true
+  persistence:
+    enabled: true
+  service:
+    type: ClusterIP
+
+networkPolicy:
+  enabled: true
+  gerbil:
+    hostGateway:
+      # A hostNetwork Pod is not matched by a podSelector - its traffic sources from the
+      # node IP - so the Gerbil -> Pangolin rule is expressed as node address blocks.
+      # Narrow this to your actual node subnet.
+      nodeCIDRs:
+        - 192.168.0.0/16
+
+cnpg-operator:
+  enabled: false
+cnpg-cluster:
+  enabled: true

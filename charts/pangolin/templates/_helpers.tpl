@@ -686,6 +686,73 @@ the opposite, and there the bare name does not resolve at all: Badger then answe
 router as healthy. server.internal_hostname also drives the Pangolin UI URL and the AI
 gateway URL in the same generated configuration, so resolving it once fixes all three.
 */ -}}
+{{- define "pangolin.gerbil.hostGateway.enabled" -}}
+{{- if (((.Values.gerbil).hostGateway) | default dict).enabled -}}true{{- else -}}false{{- end -}}
+{{- end -}}
+
+{{- define "pangolin.gerbil.hostGateway.dnsPolicy" -}}
+{{- (((.Values.gerbil).hostGateway) | default dict).dnsPolicy | default "ClusterFirstWithHostNet" -}}
+{{- end -}}
+
+{{- /*
+A required podAffinity against a workload that never schedules leaves the dependent
+Pods Pending forever, so co-location is suppressed unless a separate Gerbil Pod really
+does run: single mode puts Gerbil in the shared Pod, and a non-normal startupMode keeps
+the Deployment at zero replicas.
+*/ -}}
+{{- define "pangolin.gerbil.colocationSupported" -}}
+{{- if and (eq (include "pangolin.gerbil.resourcesEnabled" .) "true") (eq .Values.deployment.mode "multi") (eq (include "pangolin.gerbil.startupMode" .) "normal") -}}
+true{{- else -}}false{{- end -}}
+{{- end -}}
+
+{{- define "pangolin.traefik.colocateWithGerbil" -}}
+{{- $mode := (.Values.traefik).colocateWithGerbil | default "auto" -}}
+{{- /* Only meaningful when this chart actually renders a Traefik workload to pin;
+       deployment-traefik.yaml is gated on the same conditions. */ -}}
+{{- $chartManagedTraefik := and (.Values.traefik).enabled (eq .Values.deployment.type "standalone") (eq .Values.deployment.mode "multi") -}}
+{{- if not $chartManagedTraefik -}}
+false
+{{- else if eq (include "pangolin.gerbil.colocationSupported" .) "false" -}}
+false
+{{- else if eq $mode "required" -}}
+true
+{{- else if eq $mode "disabled" -}}
+false
+{{- else -}}
+{{- include "pangolin.gerbil.hostGateway.enabled" . -}}
+{{- end -}}
+{{- end -}}
+
+{{- /*
+Deliberately required..., not preferred...: a preferred term lets the scheduler place
+Traefik on a node without the tunnel route, which surfaces as a silent 502 rather than a
+visible Pending. `namespaces` is explicit because Traefik is frequently deployed to
+deployment.traefikNamespace while Gerbil stays in the release namespace, and podAffinity
+otherwise defaults to the Pod's own namespace.
+*/ -}}
+{{- define "pangolin.gerbil.colocationTerm" -}}
+labelSelector:
+  matchLabels:
+    {{- include "pangolin.gerbil.selectorLabels" . | nindent 4 }}
+namespaces:
+  - {{ include "pangolin.namespace" . }}
+topologyKey: kubernetes.io/hostname
+{{- end -}}
+
+{{- /* Merged into global.affinity rather than replacing it. */ -}}
+{{- define "pangolin.traefik.affinity" -}}
+{{- $affinity := deepCopy (.Values.global.affinity | default dict) -}}
+{{- if eq (include "pangolin.traefik.colocateWithGerbil" .) "true" -}}
+{{- $podAffinity := deepCopy (get $affinity "podAffinity" | default dict) -}}
+{{- $required := concat (get $podAffinity "requiredDuringSchedulingIgnoredDuringExecution" | default list) (list (include "pangolin.gerbil.colocationTerm" . | fromYaml)) -}}
+{{- $_ := set $podAffinity "requiredDuringSchedulingIgnoredDuringExecution" $required -}}
+{{- $_ := set $affinity "podAffinity" $podAffinity -}}
+{{- end -}}
+{{- if gt (len $affinity) 0 -}}
+{{- toYaml $affinity -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "pangolin.clusterDomain" -}}
 {{- .Values.global.clusterDomain | default "cluster.local" -}}
 {{- end -}}
@@ -1089,6 +1156,29 @@ Traefik as a container inside the single-mode Pod.
 {{- fail (printf "PANGOLIN-070: pangolin.extraVolumeMounts already mounts %q, which is where the chart mounts the SQLite directory derived from database.sqlite.path. Two mounts on one path make the Pod spec invalid; choose a different path or a different database.sqlite.path." $sqliteMountPath) -}}
 {{- end -}}
 {{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* Host gateway mode: fail on the combinations that cannot work rather than letting
+       them surface as a Pending Pod or a silent 502. */ -}}
+{{- if eq (include "pangolin.gerbil.hostGateway.enabled" $root) "true" -}}
+{{- $hgGerbil := default (dict) $root.Values.gerbil -}}
+{{- if ne $root.Values.deployment.mode "multi" -}}
+{{- fail "PANGOLIN-069: gerbil.hostGateway.enabled=true requires deployment.mode=multi. In single mode Gerbil shares a Pod with Pangolin, so hostNetwork would bind every component's ports on the node." -}}
+{{- end -}}
+{{- if not (default false (get $hgGerbil "enabled")) -}}
+{{- fail "PANGOLIN-070: gerbil.hostGateway.enabled=true requires gerbil.enabled=true." -}}
+{{- end -}}
+{{- if gt (int (default 1 (get $hgGerbil "replicaCount"))) 1 -}}
+{{- fail "PANGOLIN-071: gerbil.hostGateway.enabled=true requires gerbil.replicaCount=1. Gerbil binds its WireGuard and internal API ports on the node, so a second replica cannot start alongside it." -}}
+{{- end -}}
+{{- $hgNamespace := default (dict) $root.Values.namespace -}}
+{{- $hgPodSecurity := default (dict) (get $hgNamespace "podSecurity") -}}
+{{- if and (default false (get $hgNamespace "create")) (ne (default "" (get $hgPodSecurity "enforce")) "privileged") -}}
+{{- fail "PANGOLIN-072: gerbil.hostGateway.enabled=true requires namespace.podSecurity.enforce=privileged when the chart creates the namespace. Pod Security Admission level baseline forbids hostNetwork." -}}
+{{- end -}}
+{{- if and $root.Values.deployment.installTraefikController (not (get (default (dict) (index $root.Values "traefikController")) "affinity")) -}}
+{{- fail "PANGOLIN-073: gerbil.hostGateway.enabled=true with deployment.installTraefikController=true requires an explicit traefikController.affinity. Helm cannot inject affinity into a subchart at render time, so the co-location term has to be set in your own values - run `helm get notes` for the exact snippet." -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}

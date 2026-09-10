@@ -3,6 +3,7 @@
 {{- $root := . -}}
 {{- $gerbil := .Values.gerbil -}}
 {{- $startupMode := include "pangolin.gerbil.startupMode" . -}}
+{{- $hostGateway := eq (include "pangolin.gerbil.hostGateway.enabled" .) "true" -}}
 {{- $fullname := printf "%s-gerbil" (include "pangolin.fullname" .) -}}
 {{- $namespace := include "pangolin.namespace" . -}}
 {{- $saName := include "pangolin.serviceAccountName.gerbil" . -}}
@@ -54,6 +55,14 @@ spec:
     spec:
       serviceAccountName: {{ $saName }}
       automountServiceAccountToken: {{ $root.Values.serviceAccount.gerbil.automountServiceAccountToken }}
+      {{- if $hostGateway }}
+      # Host gateway mode: Gerbil creates wg0 and its connected route in the node network
+      # namespace, so Pods scheduled onto this node can reach the tunnel subnet.
+      # ClusterFirstWithHostNet is mandatory here - Gerbil still has to resolve the
+      # Pangolin Service for --remoteConfig.
+      hostNetwork: true
+      dnsPolicy: {{ include "pangolin.gerbil.hostGateway.dnsPolicy" $root }}
+      {{- end }}
       terminationGracePeriodSeconds: {{ $root.Values.runtime.terminationGracePeriodSeconds | default 30 }}
       {{- if $root.Values.global.priorityClassName }}
       priorityClassName: {{ $root.Values.global.priorityClassName }}
