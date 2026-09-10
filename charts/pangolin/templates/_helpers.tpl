@@ -696,8 +696,8 @@ those on the container filesystem.
 {{- define "pangolin.sqlite.mountPath" -}}
 {{- $path := ((.Values.database).sqlite | default dict).path | default "/app/data/pangolin.db" -}}
 {{- $dir := dir $path -}}
-{{- if or (eq $dir ".") (eq $dir "/") -}}
-{{- fail (printf "PANGOLIN-068: database.sqlite.path must be an absolute file path inside a directory that can be mounted, got %q." $path) -}}
+{{- if or (not (hasPrefix "/" $path)) (eq $dir ".") (eq $dir "/") (hasSuffix "/" $path) -}}
+{{- fail (printf "PANGOLIN-068: database.sqlite.path must be an absolute file path inside a directory that can be mounted, got %q. A relative path yields a relative mountPath, which the API server rejects." $path) -}}
 {{- end -}}
 {{- $dir -}}
 {{- end -}}
@@ -1027,6 +1027,27 @@ strategy:
 {{- end -}}
 {{- if not (or $hasLegacyKubeApi $hasKubeApiEndpoints) -}}
 {{- fail "PANGOLIN-067: networkPolicy.controller.egress.kubernetesApi.enabled=true but no destination is configured, which would leave the controller unable to reach the Kubernetes API. Populate networkPolicy.controller.egress.kubernetesApi.endpoints[].cidrs (the chart default covers RFC1918/CGNAT/link-local on TCP 443 and 6443), or set kubernetesApi.enabled=false and supply the rule yourself via networkPolicy.controller.extraEgress." -}}
+{{- end -}}
+{{- end -}}
+{{- /* PANGOLIN-069: SQLite is a single-writer file database. Two Pangolin Pods writing the
+       same file corrupts it, and the chart cannot prevent that once the volume is shared. */ -}}
+{{- if eq (include "pangolin.sqlite.persistenceEnabled" $root) "true" -}}
+{{- $sqliteReplicas := int ((($root.Values.pangolin).replicaCount) | default 1) -}}
+{{- if gt $sqliteReplicas 1 -}}
+{{- fail (printf "PANGOLIN-069: pangolin.replicaCount is %d while database.mode=sqlite with persistence enabled. SQLite has a single writer, so a shared volume across replicas corrupts the database. Keep replicaCount at 1, or move to database.mode=cloudnativepg or external for a replicated deployment." $sqliteReplicas) -}}
+{{- end -}}
+{{- /* PANGOLIN-070: the chart's own SQLite volume and an identically named extraVolume would
+       render two entries with the same name, which the API server rejects. */ -}}
+{{- $sqliteMountPath := include "pangolin.sqlite.mountPath" $root -}}
+{{- range $volume := (($root.Values.pangolin).extraVolumes | default list) -}}
+{{- if eq ($volume.name | default "") "pangolin-sqlite" -}}
+{{- fail "PANGOLIN-070: pangolin.extraVolumes contains a volume named pangolin-sqlite, which is the name the chart uses for the SQLite volume. Rename your volume: two volumes with one name make the Pod spec invalid." -}}
+{{- end -}}
+{{- end -}}
+{{- range $mount := (($root.Values.pangolin).extraVolumeMounts | default list) -}}
+{{- if eq ($mount.mountPath | default "") $sqliteMountPath -}}
+{{- fail (printf "PANGOLIN-070: pangolin.extraVolumeMounts already mounts %q, which is where the chart mounts the SQLite directory derived from database.sqlite.path. Two mounts on one path make the Pod spec invalid; choose a different path or a different database.sqlite.path." $sqliteMountPath) -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}

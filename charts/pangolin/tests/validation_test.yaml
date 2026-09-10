@@ -314,3 +314,105 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "PANGOLIN-067.*combines except with 2 cidrs"
+
+  - it: rejects a relative SQLite path that would yield a relative mountPath
+    set:
+      database:
+        mode: sqlite
+        sqlite:
+          path: data/pangolin.db
+          persistence:
+            enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "PANGOLIN-068"
+
+  - it: rejects a SQLite path with no mountable parent directory
+    set:
+      database:
+        mode: sqlite
+        sqlite:
+          path: /pangolin.db
+          persistence:
+            enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "PANGOLIN-068"
+
+  - it: accepts a deeply nested absolute SQLite path
+    set:
+      database:
+        mode: sqlite
+        sqlite:
+          path: /var/lib/pangolin/nested/deep/p.db
+          persistence:
+            enabled: true
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: rejects more than one Pangolin replica on a persisted SQLite database
+    set:
+      database:
+        mode: sqlite
+        sqlite:
+          persistence:
+            enabled: true
+      pangolin:
+        replicaCount: 3
+    asserts:
+      - failedTemplate:
+          errorPattern: "PANGOLIN-069"
+
+  - it: allows more than one replica when SQLite is not in use
+    set:
+      pangolin:
+        replicaCount: 3
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: rejects an extraVolume that collides with the SQLite volume name
+    set:
+      database:
+        mode: sqlite
+        sqlite:
+          persistence:
+            enabled: true
+      pangolin:
+        extraVolumes:
+          - name: pangolin-sqlite
+            emptyDir: {}
+    asserts:
+      - failedTemplate:
+          errorPattern: "PANGOLIN-070"
+
+  - it: rejects an extraVolumeMount that collides with the SQLite mount path
+    set:
+      database:
+        mode: sqlite
+        sqlite:
+          persistence:
+            enabled: true
+      pangolin:
+        extraVolumeMounts:
+          - name: other
+            mountPath: /app/data
+    asserts:
+      - failedTemplate:
+          errorPattern: "PANGOLIN-070"
+
+  - it: accepts extra volumes that do not collide with the SQLite volume
+    set:
+      database:
+        mode: sqlite
+        sqlite:
+          persistence:
+            enabled: true
+      pangolin:
+        extraVolumes:
+          - name: scratch
+            emptyDir: {}
+        extraVolumeMounts:
+          - name: scratch
+            mountPath: /scratch
+    asserts:
+      - notFailedTemplate: {}
