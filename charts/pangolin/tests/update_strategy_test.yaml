@@ -1,0 +1,203 @@
+suite: Rollout strategy
+templates:
+  - templates/deployment-pangolin.yaml
+  - templates/deployment-gerbil.yaml
+  - templates/deployment-controller.yaml
+  - templates/deployment-embedded-postgres.yaml
+  - templates/deployment-single.yaml
+tests:
+  - it: keeps the chart-wide RollingUpdate for a component without persistent storage
+    template: templates/deployment-controller.yaml
+    set:
+      deployment.type: controller
+    asserts:
+      - equal:
+          path: spec.strategy.type
+          value: RollingUpdate
+      - equal:
+          path: spec.strategy.rollingUpdate.maxSurge
+          value: 1
+      - equal:
+          path: spec.strategy.rollingUpdate.maxUnavailable
+          value: 0
+
+  - it: switches Gerbil to Recreate because its default PVC is ReadWriteOnce
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - equal:
+          path: spec.strategy.type
+          value: Recreate
+      - notExists:
+          path: spec.strategy.rollingUpdate
+
+  - it: leaves Gerbil on RollingUpdate when persistence is disabled
+    template: templates/deployment-gerbil.yaml
+    set:
+      gerbil:
+        persistence:
+          enabled: false
+    asserts:
+      - equal:
+          path: spec.strategy.type
+          value: RollingUpdate
+
+  - it: leaves Gerbil on RollingUpdate when the volume is ReadWriteMany
+    template: templates/deployment-gerbil.yaml
+    set:
+      gerbil:
+        persistence:
+          enabled: true
+          accessModes:
+            - ReadWriteMany
+    asserts:
+      - equal:
+          path: spec.strategy.type
+          value: RollingUpdate
+
+  - it: switches Pangolin to Recreate when the SQLite volume is ReadWriteOnce
+    template: templates/deployment-pangolin.yaml
+    set:
+      database:
+        mode: sqlite
+        sqlite:
+          persistence:
+            enabled: true
+    asserts:
+      - equal:
+          path: spec.strategy.type
+          value: Recreate
+      - notExists:
+          path: spec.strategy.rollingUpdate
+
+  - it: leaves Pangolin on RollingUpdate when the SQLite volume is ReadWriteMany
+    template: templates/deployment-pangolin.yaml
+    set:
+      database:
+        mode: sqlite
+        sqlite:
+          persistence:
+            enabled: true
+            accessModes:
+              - ReadWriteMany
+    asserts:
+      - equal:
+          path: spec.strategy.type
+          value: RollingUpdate
+
+  - it: leaves Pangolin on RollingUpdate when SQLite is not persisted
+    template: templates/deployment-pangolin.yaml
+    set:
+      database:
+        mode: sqlite
+    asserts:
+      - equal:
+          path: spec.strategy.type
+          value: RollingUpdate
+
+  - it: switches single mode to Recreate for any of its three volumes
+    template: templates/deployment-single.yaml
+    set:
+      deployment.mode: single
+      deployment.type: controller
+      database:
+        mode: sqlite
+        sqlite:
+          persistence:
+            enabled: true
+    asserts:
+      - equal:
+          path: spec.strategy.type
+          value: Recreate
+
+  - it: honours an explicit per-component strategy over the derived one
+    template: templates/deployment-gerbil.yaml
+    set:
+      gerbil:
+        deployment:
+          updateStrategy:
+            type: RollingUpdate
+            rollingUpdate:
+              maxUnavailable: 1
+    asserts:
+      - equal:
+          path: spec.strategy.type
+          value: RollingUpdate
+      - equal:
+          path: spec.strategy.rollingUpdate.maxUnavailable
+          value: 1
+
+  - it: never emits the Deployment-only fields on a StatefulSet
+    template: templates/deployment-embedded-postgres.yaml
+    set:
+      database:
+        mode: embedded
+        embedded:
+          enabled: true
+          auth:
+            generatedSecret:
+              password: test-password
+    asserts:
+      - equal:
+          path: spec.updateStrategy.type
+          value: RollingUpdate
+      - notExists:
+          path: spec.updateStrategy.rollingUpdate.maxSurge
+      - notExists:
+          path: spec.updateStrategy.rollingUpdate.maxUnavailable
+      - notExists:
+          path: spec.strategy
+
+  - it: translates a Recreate default into a StatefulSet-legal strategy
+    template: templates/deployment-embedded-postgres.yaml
+    set:
+      runtime:
+        updateStrategy:
+          type: Recreate
+      database:
+        mode: embedded
+        embedded:
+          enabled: true
+          auth:
+            generatedSecret:
+              password: test-password
+    asserts:
+      - equal:
+          path: spec.updateStrategy.type
+          value: RollingUpdate
+
+  - it: carries partition through to a StatefulSet
+    template: templates/deployment-embedded-postgres.yaml
+    set:
+      runtime:
+        updateStrategy:
+          type: RollingUpdate
+          rollingUpdate:
+            partition: 2
+      database:
+        mode: embedded
+        embedded:
+          enabled: true
+          auth:
+            generatedSecret:
+              password: test-password
+    asserts:
+      - equal:
+          path: spec.updateStrategy.rollingUpdate.partition
+          value: 2
+
+  - it: drops rollingUpdate when an explicit Recreate is given to a Deployment
+    template: templates/deployment-controller.yaml
+    set:
+      deployment.type: controller
+      runtime:
+        updateStrategy:
+          type: Recreate
+          rollingUpdate:
+            maxSurge: 1
+            maxUnavailable: 0
+    asserts:
+      - equal:
+          path: spec.strategy.type
+          value: Recreate
+      - notExists:
+          path: spec.strategy.rollingUpdate

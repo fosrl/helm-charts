@@ -30,10 +30,7 @@ spec:
   {{- if $root.Values.runtime.minReadySeconds }}
   minReadySeconds: {{ $root.Values.runtime.minReadySeconds }}
   {{- end }}
-  {{- with $root.Values.runtime.updateStrategy }}
-  strategy:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
+  {{- include "pangolin.updateStrategy" (dict "root" $root "override" ($tf.deployment.updateStrategy | default dict) "blockSurge" (eq (include "pangolin.traefik.blocksSurge" $root) "true")) | nindent 2 }}
   template:
     metadata:
       labels:

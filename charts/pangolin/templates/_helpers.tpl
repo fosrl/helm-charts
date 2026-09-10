@@ -702,6 +702,77 @@ those on the container filesystem.
 {{- $dir -}}
 {{- end -}}
 
+{{- /*
+Rollout strategy for one workload.
+
+`runtime.updateStrategy` is the chart-wide default and `<component>.deployment.updateStrategy`
+overrides it. A workload that cannot have two Pods alive at once is forced to Recreate instead:
+that is the case when it holds a PVC which is not ReadWriteMany, because the surged Pod cannot
+attach the volume the running one still holds. Surging such a workload under the chart default
+(maxSurge 1 / maxUnavailable 0) deadlocks the rollout permanently - the new Pod never becomes
+Ready and the old Pod is never allowed to terminate.
+
+StatefulSets take a different schema: maxSurge is not a field there at all and maxUnavailable: 0
+is rejected by the API server, so the Deployment shape is translated rather than reused. A
+StatefulSet already replaces Pods one at a time without surging, so no Recreate equivalent is needed.
+*/ -}}
+{{- define "pangolin.persistence.blocksSurge" -}}
+{{- $persistence := .persistence | default dict -}}
+{{- if $persistence.enabled -}}
+{{- $modes := $persistence.accessModes | default (list "ReadWriteOnce") -}}
+{{- if not (has "ReadWriteMany" $modes) -}}true{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "pangolin.sqlite.blocksSurge" -}}
+{{- $persistence := ((.Values.database).sqlite | default dict).persistence | default dict -}}
+{{- if eq (include "pangolin.sqlite.persistenceEnabled" .) "true" -}}
+{{- include "pangolin.persistence.blocksSurge" (dict "persistence" (merge (dict "enabled" true) $persistence)) -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "pangolin.gerbil.blocksSurge" -}}
+{{- include "pangolin.persistence.blocksSurge" (dict "persistence" ((.Values.gerbil).persistence | default dict)) -}}
+{{- end -}}
+
+{{- define "pangolin.traefik.blocksSurge" -}}
+{{- include "pangolin.persistence.blocksSurge" (dict "persistence" ((.Values.traefik).persistence | default dict)) -}}
+{{- end -}}
+
+{{- define "pangolin.updateStrategy" -}}
+{{- $root := .root -}}
+{{- $workloadType := .workloadType | default "Deployment" -}}
+{{- $override := .override | default dict -}}
+{{- $blockSurge := .blockSurge | default false -}}
+{{- $strategy := dict -}}
+{{- if gt (len $override) 0 -}}
+{{- $strategy = $override -}}
+{{- else if $blockSurge -}}
+{{- $strategy = dict "type" "Recreate" -}}
+{{- else -}}
+{{- $strategy = ($root.Values.runtime.updateStrategy | default dict) -}}
+{{- end -}}
+{{- if gt (len $strategy) 0 -}}
+{{- $type := $strategy.type | default "RollingUpdate" -}}
+{{- if eq $workloadType "StatefulSet" -}}
+{{- $rollingUpdate := $strategy.rollingUpdate | default dict -}}
+updateStrategy:
+  type: {{ ternary "OnDelete" "RollingUpdate" (eq $type "OnDelete") }}
+{{- if and (ne $type "OnDelete") (hasKey $rollingUpdate "partition") }}
+  rollingUpdate:
+    partition: {{ $rollingUpdate.partition | int }}
+{{- end }}
+{{- else -}}
+{{- $out := deepCopy $strategy -}}
+{{- if eq $type "Recreate" -}}
+{{- $_ := unset $out "rollingUpdate" -}}
+{{- end -}}
+strategy:
+  {{- toYaml $out | nindent 2 }}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "pangolin.validate" -}}
 {{- $root := . -}}
 

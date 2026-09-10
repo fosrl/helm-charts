@@ -477,6 +477,10 @@ pangolin:
   # -- Workload kind for Pangolin in multi mode.
   workloadType: Deployment # @schema type: string ; enum: [Deployment, StatefulSet]
   deployment:
+    # -- Rollout strategy for this component, overriding `runtime.updateStrategy`.
+    # Left empty the chart picks it: a component holding a PVC that is not ReadWriteMany
+    # is switched to Recreate, because a surged Pod could never attach the volume.
+    updateStrategy: {} # @schema type: object
     # -- Labels applied to Pangolin Deployment/StatefulSet metadata.
     labels: {} # @schema type: object ; additionalProperties: { type: string }
     # -- Annotations applied to Pangolin Deployment/StatefulSet metadata.
@@ -1002,6 +1006,10 @@ controller:
   # -- Controller workload type.
   workloadType: Deployment # @schema type: string ; enum: [Deployment, StatefulSet]
   deployment:
+    # -- Rollout strategy for this component, overriding `runtime.updateStrategy`.
+    # Left empty the chart picks it: a component holding a PVC that is not ReadWriteMany
+    # is switched to Recreate, because a surged Pod could never attach the volume.
+    updateStrategy: {} # @schema type: object
     labels: {} # @schema type: object ; additionalProperties: { type: string }
     annotations: {} # @schema type: object ; additionalProperties: { type: string }
     podLabels: {} # @schema type: object ; additionalProperties: { type: string }
@@ -1174,6 +1182,10 @@ traefik:
   # -- Number of standalone Traefik replicas in multi mode.
   replicaCount: 1 # @schema type: integer ; minimum: 1
   deployment:
+    # -- Rollout strategy for this component, overriding `runtime.updateStrategy`.
+    # Left empty the chart picks it: a component holding a PVC that is not ReadWriteMany
+    # is switched to Recreate, because a surged Pod could never attach the volume.
+    updateStrategy: {} # @schema type: object
     labels: {} # @schema type: object ; additionalProperties: { type: string }
     annotations: {} # @schema type: object ; additionalProperties: { type: string }
     podLabels: {} # @schema type: object ; additionalProperties: { type: string }
@@ -1335,6 +1347,10 @@ gerbil:
   # -- Number of Gerbil replicas in multi mode.
   replicaCount: 1 # @schema type: integer ; minimum: 1
   deployment:
+    # -- Rollout strategy for this component, overriding `runtime.updateStrategy`.
+    # Left empty the chart picks it: a component holding a PVC that is not ReadWriteMany
+    # is switched to Recreate, because a surged Pod could never attach the volume.
+    updateStrategy: {} # @schema type: object
     labels: {} # @schema type: object ; additionalProperties: { type: string }
     annotations: {} # @schema type: object ; additionalProperties: { type: string }
     podLabels: {} # @schema type: object ; additionalProperties: { type: string }
@@ -1497,6 +1513,10 @@ database:
     commonAnnotations: {} # @schema type: object ; additionalProperties: { type: string }
     enabled: false # @schema type: boolean
     deployment:
+      # -- Rollout strategy for this component, overriding `runtime.updateStrategy`.
+      # Left empty the chart picks it: a component holding a PVC that is not ReadWriteMany
+      # is switched to Recreate, because a surged Pod could never attach the volume.
+      updateStrategy: {} # @schema type: object
       labels: {} # @schema type: object ; additionalProperties: { type: string }
       annotations: {} # @schema type: object ; additionalProperties: { type: string }
       podLabels: {} # @schema type: object ; additionalProperties: { type: string }

@@ -244,6 +244,10 @@
                             "additionalProperties": {
                                 "type": "string"
                             }
+                        },
+                        "updateStrategy": {
+                            "description": "Rollout strategy for this component, overriding `runtime.updateStrategy`. Left empty the chart picks it: a component holding a PVC that is not ReadWriteMany is switched to Recreate, because a surged Pod could never attach the volume.",
+                            "type": "object"
                         }
                     }
                 },
@@ -965,6 +969,10 @@
                                     "additionalProperties": {
                                         "type": "string"
                                     }
+                                },
+                                "updateStrategy": {
+                                    "description": "Rollout strategy for this component, overriding `runtime.updateStrategy`. Left empty the chart picks it: a component holding a PVC that is not ReadWriteMany is switched to Recreate, because a surged Pod could never attach the volume.",
+                                    "type": "object"
                                 }
                             }
                         },
@@ -1360,6 +1368,10 @@
                             "additionalProperties": {
                                 "type": "string"
                             }
+                        },
+                        "updateStrategy": {
+                            "description": "Rollout strategy for this component, overriding `runtime.updateStrategy`. Left empty the chart picks it: a component holding a PVC that is not ReadWriteMany is switched to Recreate, because a surged Pod could never attach the volume.",
+                            "type": "object"
                         }
                     }
                 },
@@ -3347,6 +3359,10 @@
                             "additionalProperties": {
                                 "type": "string"
                             }
+                        },
+                        "updateStrategy": {
+                            "description": "Rollout strategy for this component, overriding `runtime.updateStrategy`. Left empty the chart picks it: a component holding a PVC that is not ReadWriteMany is switched to Recreate, because a surged Pod could never attach the volume.",
+                            "type": "object"
                         }
                     }
                 },
@@ -4289,6 +4305,10 @@
                             "additionalProperties": {
                                 "type": "string"
                             }
+                        },
+                        "updateStrategy": {
+                            "description": "Rollout strategy for this component, overriding `runtime.updateStrategy`. Left empty the chart picks it: a component holding a PVC that is not ReadWriteMany is switched to Recreate, because a surged Pod could never attach the volume.",
+                            "type": "object"
                         }
                     }
                 },

@@ -37,10 +37,7 @@ spec:
   {{- if $root.Values.runtime.minReadySeconds }}
   minReadySeconds: {{ $root.Values.runtime.minReadySeconds }}
   {{- end }}
-  {{- with $root.Values.runtime.updateStrategy }}
-  strategy:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
+  {{- include "pangolin.updateStrategy" (dict "root" $root "override" ($pangolin.deployment.updateStrategy | default dict) "blockSurge" (or (eq (include "pangolin.sqlite.blocksSurge" $root) "true") (eq (include "pangolin.gerbil.blocksSurge" $root) "true") (eq (include "pangolin.traefik.blocksSurge" $root) "true"))) | nindent 2 }}
   template:
     metadata:
       labels:
