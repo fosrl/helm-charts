@@ -278,6 +278,35 @@ networkPolicy:
         # Each item supports standard NetworkPolicyPeer fields (namespaceSelector, podSelector, ipBlock).
         # Applies only when `networkPolicy.pangolin.externalIngress.external=true`.
         from: [] # @schema type: array ; item: object
+      aiGateway:
+        # -- Allow the Traefik this chart knows about to reach the AI gateway port.
+        # Every AI gateway resource is a route Traefik terminates and forwards to this port
+        # on the Pangolin Pod, so the path needs a rule - but only for Traefik, which is why
+        # this is source-scoped instead of an open port.
+        #
+        # The peer is derived from the topology:
+        #   chart-managed standalone Traefik -> the Pod this chart renders
+        #   bundled Traefik subchart         -> the Pods that subchart renders, plus a
+        #                                       namespaceSelector when
+        #                                       `traefikController.namespaceOverride` moves
+        #                                       them out of the release namespace
+        #   externally installed Traefik     -> nothing is derivable; name it in `from` below
+        #
+        # `deployment.mode=single` needs no rule: Traefik runs in the Pangolin Pod and
+        # reaches the gateway over loopback, which NetworkPolicy does not govern.
+        fromTraefik: true # @schema type: boolean
+        # -- Additional source peers allowed to reach the Pangolin AI gateway port.
+        # Each item supports standard NetworkPolicyPeer fields (namespaceSelector, podSelector, ipBlock).
+        # This is the supported mechanism for an externally installed Traefik: the chart
+        # cannot select a workload it did not render, so name it here. For example:
+        #   from:
+        #     - namespaceSelector:
+        #         matchLabels:
+        #           kubernetes.io/metadata.name: traefik
+        #       podSelector:
+        #         matchLabels:
+        #           app.kubernetes.io/name: traefik
+        from: [] # @schema type: array ; item: object
     externalIngress:
       # -- Allow external ingress on Pangolin public port.
       external: true # @schema type: boolean
@@ -289,11 +318,13 @@ networkPolicy:
       next: null # @schema type: [boolean, "null"]
       # -- Allow external ingress on Pangolin integration API port.
       integration: false # @schema type: boolean
-      # -- Allow ingress on the Pangolin AI gateway port.
-      # On by default, like the external (3000) and dashboard (3002) ports: Traefik reaches
-      # the gateway by connecting to this port on the Pangolin Pod, so closing it makes every
-      # AI gateway route fail even though the port is published on the Service.
-      aiGateway: true # @schema type: boolean
+      # -- Allow ingress on the Pangolin AI gateway port from every source.
+      # Off by default. The gateway proxies to model providers on the caller's behalf and
+      # holds the virtual API keys that pay for it, so it is not a port to hand to every Pod
+      # in the cluster. The supported path is the source-scoped rule under
+      # `networkPolicy.pangolin.ingress.aiGateway`; turn this on only for a caller that
+      # cannot be expressed as a peer there.
+      aiGateway: false # @schema type: boolean
       # -- Require `pangolin.config.flags.enable_integration_api=true` before opening integration ingress.
       requireIntegrationFlag: true # @schema type: boolean
 
