@@ -37,3 +37,37 @@ tests:
       - matchRegex:
           path: raw
           pattern: 'helm upgrade RELEASE-NAME <chart-path-or-repo/chart> --namespace NAMESPACE --set gerbil\.startupMode=normal'
+
+  # An external Traefik is the normal controller-mode topology, and the chart cannot
+  # select it. Say so at install time rather than letting AI gateway routes time out.
+  - it: says the AI gateway has no source when controller mode has no Traefik it can select
+    set:
+      networkPolicy.enabled: true
+    asserts:
+      - matchRegex:
+          path: raw
+          pattern: 'Nothing may reach the Pangolin AI gateway port \(3005\)\.'
+      - matchRegex:
+          path: raw
+          pattern: 'networkPolicy\.pangolin\.ingress\.aiGateway\.from'
+
+  - it: stays quiet once the AI gateway has a source
+    set:
+      networkPolicy.enabled: true
+      deployment.installTraefikController: true
+    asserts:
+      - notMatchRegex:
+          path: raw
+          pattern: 'Nothing may reach the Pangolin AI gateway port'
+
+  - it: stays quiet when an external Traefik is named explicitly
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.pangolin.ingress.aiGateway.from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+    asserts:
+      - notMatchRegex:
+          path: raw
+          pattern: 'Nothing may reach the Pangolin AI gateway port'

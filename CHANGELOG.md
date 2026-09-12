@@ -53,7 +53,9 @@ This changelog is chart-scoped to support multiple charts over time.
   subchart including a `namespaceSelector` when `traefikController.namespaceOverride`
   moves it - and `from` names an externally installed Traefik, which the chart cannot
   select. `deployment.mode=single` derives nothing: Traefik reaches the gateway over
-  loopback there.
+  loopback there. In controller mode with an external Traefik, NOTES says at install time
+  that the port has no source and what to set, instead of letting AI gateway routes time
+  out silently.
 
 #### Changed
 

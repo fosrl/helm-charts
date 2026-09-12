@@ -77,6 +77,20 @@ If Pangolin/Gerbil require outbound 443, set networkPolicy.allowExternalEgressHt
 {{- end }}
 {{- if .Values.networkPolicy.enabled }}
 External access depends on your ingress/service exposure and NetworkPolicy rules.
+{{- $npPangolin := .Values.networkPolicy.pangolin | default dict }}
+{{- $aiGw := ($npPangolin.ingress | default dict).aiGateway | default dict }}
+{{- $aiGwFromTraefik := true }}
+{{- if kindIs "bool" $aiGw.fromTraefik }}{{- $aiGwFromTraefik = $aiGw.fromTraefik }}{{- end }}
+{{- $aiGwHasPeer := or (gt (len ($aiGw.from | default list)) 0) (and $aiGwFromTraefik .Values.deployment.installTraefikController) }}
+{{- if and (not $aiGwHasPeer) (not (($npPangolin.externalIngress | default dict).aiGateway)) }}
+
+Nothing may reach the Pangolin AI gateway port ({{ .Values.pangolin.service.ports.aiGateway }}).
+Controller mode expects a Traefik this chart did not render, and a NetworkPolicy cannot
+select a workload it does not know. Give it one:
+	networkPolicy.pangolin.ingress.aiGateway.from  (namespaceSelector/podSelector for your
+	Traefik Pods - see values.yaml for a worked example)
+Only AI gateway resources are affected; every other route already works.
+{{- end }}
 {{- end }}
 
 {{- else if eq .Values.deployment.type "standalone" }}
