@@ -27,7 +27,12 @@ Sources:
 | Pangolin PostgreSQL image tag | `postgresql-1.22.2` |
 | pangolin-kube-controller tag | `0.1.0-alpha.1` |
 | Gerbil tag | `1.5.1` |
-| Traefik tag | `v3.6.15` |
+| Traefik tag | `v3.7.13` |
+
+The chart can run Traefik two ways and both are on the same minor. `images.traefik.tag`
+is the chart-managed standalone Traefik; the bundled official Traefik chart
+(`deployment.installTraefikController`) is pinned at `41.5.0`, whose appVersion is
+`v3.7.13`. Keep them aligned: two minors means two sets of upstream fixes to track.
 
 Sources:
 
