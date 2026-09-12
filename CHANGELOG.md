@@ -45,9 +45,15 @@ This changelog is chart-scoped to support multiple charts over time.
   maxmind_asn_path}`, `flags.{disable_virtual_api_keys_ui, enable_acme_cert_sync,
   disable_private_http_placeholder}` and `traefik.{site_types, static_domains,
   rate_limit}`. Optional keys are emitted only when set so Pangolin's defaults apply.
-- `pangolin.service.ports.aiGateway` (3005), exposed on the Service and the workload, with
-  an opt-in `networkPolicy.pangolin.externalIngress.aiGateway` rule. The rendered
-  `server.*_port` values now derive from these ports so they cannot drift.
+- `pangolin.service.ports.aiGateway` (3005), exposed on the Service and the workload. The
+  rendered `server.*_port` values now derive from these ports so they cannot drift.
+- `networkPolicy.pangolin.ingress.aiGateway` grants the AI gateway port to the Traefik
+  that terminates its routes and to nothing else. `fromTraefik` (default `true`) derives
+  the peer from the topology - the chart-managed standalone Traefik, or the bundled
+  subchart including a `namespaceSelector` when `traefikController.namespaceOverride`
+  moves it - and `from` names an externally installed Traefik, which the chart cannot
+  select. `deployment.mode=single` derives nothing: Traefik reaches the gateway over
+  loopback there.
 
 #### Changed
 
@@ -69,9 +75,10 @@ This changelog is chart-scoped to support multiple charts over time.
   is never widened by an upgrade.
 - `networkPolicy.pangolin.externalIngress.next` defaults to `null` (derive from the
   dashboard route). An explicit boolean still wins.
-- `networkPolicy.pangolin.externalIngress.aiGateway` defaults to `true`. Traefik reaches
-  the AI gateway by connecting to port 3005 on the Pangolin Pod, so the previous `false`
-  blocked every AI gateway route while the port was published on the Service.
+- `networkPolicy.pangolin.externalIngress.aiGateway` stays `false`. It is the blanket
+  switch, and a NetworkPolicy rule with no `from` is every source: turning it on to let
+  Traefik through would hand every Pod in the cluster the model providers behind the
+  gateway. Use `networkPolicy.pangolin.ingress.aiGateway` instead.
 - `newtInstances[].useNativeMainInterface` and `useNativeInterface` now both require
   `global.nativeMode.enabled=true` and are rejected without it. `global.nativeMode.enabled`
   on its own no longer makes a Pod root and privileged: it is a permission gate, and an

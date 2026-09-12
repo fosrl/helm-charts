@@ -773,6 +773,15 @@ strategy:
 {{- end -}}
 {{- end -}}
 
+{{- /*
+True whenever this chart renders a Traefik container itself, in either mode:
+deployment-traefik.yaml covers standalone+multi and deployment-single.yaml runs
+Traefik as a container inside the single-mode Pod.
+*/ -}}
+{{- define "pangolin.traefik.chartManagedAnyMode" -}}
+{{- if and (.Values.traefik).enabled (eq .Values.deployment.type "standalone") -}}true{{- else -}}false{{- end -}}
+{{- end -}}
+
 {{- define "pangolin.validate" -}}
 {{- $root := . -}}
 
