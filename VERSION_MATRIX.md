@@ -49,8 +49,11 @@ These are upstream requirements, not chart policy.
 | `>= 1.19.0` | `>= 1.13.0` | — | `>= v1.4.1` | Browser-based RDP/SSH/VNC and the SSH resource type. |
 | `>= 1.22.0` | `>= 1.13.0` | `>= 1.5.0` | `>= v1.6.0` | AI gateway. Gerbil `1.5.0` is required only for **private** AI gateway resources. |
 
-Badger `v1.6.0`, `v1.6.1` and `v1.7.0` are functionally identical; the later tags were
-re-released to work around a Traefik plugin registry outage.
+Badger `v1.6.0`, `v1.6.1` and `v1.7.0` carry no behavioural difference. From the source
+diff: `v1.6.0..v1.6.1` changes one character in a comment, and `v1.6.1..v1.7.0` changes
+two README links, adds two doc comments, rewrites `stringOrDefault` into an equivalent
+form and sets `version.Version` to `1.7.0` (`v1.6.1` still reported `1.6.0`). No claim is
+made here about why the tags were cut - the commit messages do not say.
 
 > [!IMPORTANT]
 > Badger is a Traefik plugin, so it is loaded by your Traefik installation rather than by
