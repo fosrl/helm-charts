@@ -59,6 +59,9 @@ This changelog is chart-scoped to support multiple charts over time.
 
 - Bumped Pangolin appVersion to `1.22.2`, the Gerbil image to `1.5.1` and the chart to
   `0.1.0-alpha.2`. The chart remains a prerelease.
+- `images.traefik.tag` moves from `v3.6.15` to `v3.7.13`. The v3.6 line is out of upstream
+  security support, and the bundled Traefik chart already installs v3.7.13, so the two ways
+  this chart can run Traefik no longer sit on different minors.
 - **BREAKING:** `pangolin.config.gerbil.use_subdomain` is removed - Pangolin dropped it
   from its config schema, so the chart was emitting a key upstream no longer knows.
 - **BREAKING:** the top-level `monitoring.*` tree and `runtime.hostNetwork` are removed.

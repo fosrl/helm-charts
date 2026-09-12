@@ -479,8 +479,10 @@ images:
     registry: docker.io # @schema type: string
     # -- Traefik image repository.
     repository: traefik # @schema type: string
-    # -- Traefik image tag.
-    tag: v3.6.15 # @schema type: string
+    # -- Traefik image tag for the chart-managed standalone Traefik.
+    # Kept on the same minor as the bundled Traefik chart
+    # (`deployment.installTraefikController`), which ships v3.7.13.
+    tag: v3.7.13 # @schema type: string
     # -- Traefik image digest. Overrides tag when set.
     digest: "" # @schema type: string
     # -- Traefik image pull policy.
