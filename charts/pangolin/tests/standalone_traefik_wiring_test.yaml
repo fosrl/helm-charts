@@ -228,3 +228,30 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  # The peer for the bundled Traefik is derived, because a policy in this chart cannot ask
+  # another chart what it labelled its Pods. It mirrors `traefik.labelselector` in the
+  # pinned Traefik 41.5.0: name from `nameOverride` (this chart sets `traefik`, and the
+  # alias never reaches it) and instance from `<release>-<namespace>`. Chart.lock pins the
+  # version; revisit this if that pin moves, because a mismatch blackholes every AI gateway
+  # route without failing anything.
+  - it: opens the AI gateway to the bundled Traefik the subchart installs
+    template: templates/networkpolicy.yaml
+    set:
+      deployment.installTraefikController: true
+      networkPolicy.enabled: true
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-pangolin-ingress
+    asserts:
+      - contains:
+          path: spec.ingress
+          content:
+            from:
+              - podSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: traefik
+                    app.kubernetes.io/instance: RELEASE-NAME-NAMESPACE
+            ports:
+              - protocol: TCP
+                port: 3005
