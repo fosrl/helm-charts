@@ -1,0 +1,76 @@
+{{- /*
+RBAC for the chart-managed Traefik.
+
+deployment-traefik.yaml and the Traefik container in deployment-single.yaml both run
+--providers.kubernetescrd and --providers.kubernetesingress, and neither can read anything
+without these rules. rbac.yaml only covers the controller, so before this the standalone
+Traefik started, logged permission errors for every watch, and served nothing from either
+Kubernetes provider.
+*/ -}}
+{{- $root := . -}}
+{{- $tf := $root.Values.traefik | default dict -}}
+{{- $standalone := eq (include "pangolin.traefik.chartManagedAnyMode" $root) "true" -}}
+{{- if and $root.Values.rbac.create $standalone }}
+{{- $fullname := printf "%s-traefik" (include "pangolin.fullname" $root) -}}
+{{- $namespace := include "pangolin.namespace" $root -}}
+{{- $saName := include "pangolin.serviceAccountName" $root -}}
+{{- $rbacAnns := mergeOverwrite (dict) (include "pangolin.global.commonAnnotations" $root | fromYaml) (include "pangolin.component.commonAnnotations" (dict "root" $root "component" "traefik") | fromYaml) -}}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "pangolin.labels" $root | nindent 4 }}
+    {{- include "pangolin.component.commonLabels" (dict "root" $root "component" "traefik") | nindent 4 }}
+  {{- if gt (len $rbacAnns) 0 }}
+  annotations:
+    {{- toYaml $rbacAnns | nindent 4 }}
+  {{- end }}
+rules:
+  - apiGroups: [""]
+    resources: ["services", "secrets", "nodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses", "ingressclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses/status"]
+    verbs: ["update"]
+  - apiGroups: ["traefik.io"]
+    resources:
+      - ingressroutes
+      - ingressroutetcps
+      - ingressrouteudps
+      - middlewares
+      - middlewaretcps
+      - serverstransports
+      - serverstransporttcps
+      - tlsoptions
+      - tlsstores
+      - traefikservices
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "pangolin.labels" $root | nindent 4 }}
+    {{- include "pangolin.component.commonLabels" (dict "root" $root "component" "traefik") | nindent 4 }}
+  {{- if gt (len $rbacAnns) 0 }}
+  annotations:
+    {{- toYaml $rbacAnns | nindent 4 }}
+  {{- end }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $fullname }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $saName }}
+    namespace: {{ $namespace }}
+{{- end }}
