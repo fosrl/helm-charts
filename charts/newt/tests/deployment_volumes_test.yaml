@@ -145,3 +145,77 @@ tests:
           path: spec.template.spec.volumes
           content:
             name: config-persistence
+
+  # #25: the same bare-dash toYaml pattern lived here; the indent happened to be deeper
+  # than the eaten dash so it parsed, but the output carried stray bare dashes.
+  - it: renders multiple extra volumes and mounts without stray dashes
+    set:
+      newtInstances:
+        - name: main-tunnel
+          enabled: true
+          auth:
+            existingSecretName: newt-cred
+          extraVolumes:
+            - name: one
+              emptyDir: {}
+            - name: two
+              persistentVolumeClaim:
+                claimName: two-claim
+          extraVolumeMounts:
+            - name: one
+              mountPath: /one
+            - name: two
+              mountPath: /two
+              readOnly: true
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: one
+            emptyDir: {}
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: two
+            persistentVolumeClaim:
+              claimName: two-claim
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: two
+            mountPath: /two
+            readOnly: true
+
+  - it: keeps chart-owned mounts alongside the extras
+    set:
+      global:
+        updownScripts:
+          s: echo hi
+      newtInstances:
+        - name: main-tunnel
+          enabled: true
+          auth:
+            existingSecretName: newt-cred
+          updown:
+            enabled: true
+            script: s
+          extraVolumes:
+            - name: extra
+              emptyDir: {}
+          extraVolumeMounts:
+            - name: extra
+              mountPath: /extra
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: updown-script
+            mountPath: /opt/newt/updown
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: extra
+            mountPath: /extra
+      - lengthEqual:
+          path: spec.template.spec.containers[0].volumeMounts
+          count: 2

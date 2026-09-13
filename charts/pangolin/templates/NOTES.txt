@@ -194,3 +194,21 @@ Tip: Supply blueprint files to Newt agents using --blueprint-file or
   --provisioning-blueprint-file pointing to the blueprint YAML content.
   See https://docs.pangolin.net/manage/blueprints for details.
 {{- end }}
+
+{{- if .Values.networkPolicy.enabled }}
+{{- $npKubeApi := ((.Values.networkPolicy.controller | default dict).egress | default dict).kubernetesApi | default dict }}
+{{- if or (ne (default "" (get $npKubeApi "cidr")) "") (gt (len (.Values.networkPolicy.kubernetesApiCIDRs | default list)) 0) }}
+DEPRECATED: networkPolicy.controller.egress.kubernetesApi.cidr and
+networkPolicy.kubernetesApiCIDRs are superseded by
+networkPolicy.controller.egress.kubernetesApi.endpoints, which allows a port list per CIDR
+group. Your current values still take precedence and render unchanged; migrate with:
+
+  networkPolicy:
+    controller:
+      egress:
+        kubernetesApi:
+          endpoints:
+            - cidrs: [{{ join ", " (concat (ternary (list (get $npKubeApi "cidr")) (list) (ne (default "" (get $npKubeApi "cidr")) "")) (.Values.networkPolicy.kubernetesApiCIDRs | default list)) }}]
+              ports: [{{ default 443 (get $npKubeApi "port") }}]
+{{- end }}
+{{- end }}

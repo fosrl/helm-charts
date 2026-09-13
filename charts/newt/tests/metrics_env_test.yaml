@@ -1,0 +1,208 @@
+suite: metrics environment and port wiring
+templates:
+  - templates/deployment.yaml
+tests:
+  # #16: without NEWT_METRICS_PROMETHEUS_ENABLED Newt does not serve /metrics at all,
+  # so the Service, PodMonitor and ServiceMonitor the chart renders scraped a closed port.
+  - it: enables the Prometheus exporter when metrics are enabled
+    set:
+      global:
+        metrics:
+          enabled: true
+      newtInstances:
+        - name: main-tunnel
+          enabled: true
+          auth:
+            existingSecretName: newt-cred
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: NEWT_METRICS_PROMETHEUS_ENABLED
+            value: "true"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: NEWT_ADMIN_ADDR
+            value: ":2112"
+
+  - it: does not enable the exporter when metrics are disabled
+    set:
+      newtInstances:
+        - name: main-tunnel
+          enabled: true
+          auth:
+            existingSecretName: newt-cred
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: NEWT_METRICS_PROMETHEUS_ENABLED
+            value: "true"
+
+  # The container port has to be the address Newt binds, not a second independent value.
+  - it: declares the metrics container port from adminAddr
+    set:
+      global:
+        metrics:
+          enabled: true
+      newtInstances:
+        - name: main-tunnel
+          enabled: true
+          auth:
+            existingSecretName: newt-cred
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: metrics
+            containerPort: 2112
+            protocol: TCP
+
+  - it: follows a custom adminAddr for both the env var and the container port
+    set:
+      global:
+        metrics:
+          enabled: true
+          adminAddr: "0.0.0.0:9464"
+      newtInstances:
+        - name: main-tunnel
+          enabled: true
+          auth:
+            existingSecretName: newt-cred
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: NEWT_ADMIN_ADDR
+            value: "0.0.0.0:9464"
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: metrics
+            containerPort: 9464
+            protocol: TCP
+
+  # Compatibility bridge: an existing values file that only set the deprecated
+  # metrics.port must keep the port number it already had.
+  - it: honours the deprecated metrics.port as the listen port
+    set:
+      global:
+        metrics:
+          enabled: true
+          port: 9099
+      newtInstances:
+        - name: main-tunnel
+          enabled: true
+          auth:
+            existingSecretName: newt-cred
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: NEWT_ADMIN_ADDR
+            value: ":9099"
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: metrics
+            containerPort: 9099
+            protocol: TCP
+
+  # Newt's own default is loopback, so the chart leaves the env var off and scraping
+  # stays deliberately unavailable.
+  - it: omits NEWT_ADMIN_ADDR for the upstream loopback default
+    set:
+      global:
+        metrics:
+          enabled: true
+          adminAddr: "127.0.0.1:2112"
+      newtInstances:
+        - name: main-tunnel
+          enabled: true
+          auth:
+            existingSecretName: newt-cred
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: NEWT_ADMIN_ADDR
+            value: "127.0.0.1:2112"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: NEWT_METRICS_PROMETHEUS_ENABLED
+            value: "true"
+
+  # newt.effectiveMetrics used to emit Go's map-print form instead of JSON, so a
+  # per-instance metrics block never reached the container it belonged to.
+  - it: resolves a per-instance metrics override into the container
+    set:
+      global:
+        metrics:
+          enabled: false
+      newtInstances:
+        - name: main-tunnel
+          enabled: true
+          allowGlobalOverride: true
+          auth:
+            existingSecretName: newt-cred
+          metrics:
+            enabled: true
+            adminAddr: "0.0.0.0:9500"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: NEWT_METRICS_PROMETHEUS_ENABLED
+            value: "true"
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: metrics
+            containerPort: 9500
+            protocol: TCP
+
+  - it: emits the OTLP and region env vars from the resolved metrics config
+    set:
+      global:
+        metrics:
+          enabled: true
+          otlpEnabled: true
+          region: eu-central
+          asyncBytes: true
+          otel:
+            exporterOtlpEndpoint: http://collector:4317
+            exporterOtlpProtocol: grpc
+            serviceName: newt
+      newtInstances:
+        - name: main-tunnel
+          enabled: true
+          auth:
+            existingSecretName: newt-cred
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: NEWT_METRICS_OTLP_ENABLED
+            value: "true"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: NEWT_REGION
+            value: eu-central
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: NEWT_METRICS_ASYNC_BYTES
+            value: "true"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTEL_EXPORTER_OTLP_ENDPOINT
+            value: http://collector:4317
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTEL_SERVICE_NAME
+            value: newt

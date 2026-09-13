@@ -1,0 +1,43 @@
+suite: metrics Service port wiring
+templates:
+  - templates/service-metrics.yaml
+tests:
+  # The Service used to publish port 2112 while targeting 9090, so it pointed at a port
+  # nothing was bound to. Targeting the container port by name makes that undriftable.
+  - it: targets the metrics container port by name
+    set:
+      global:
+        metrics:
+          enabled: true
+          service:
+            enabled: true
+      newtInstances:
+        - name: main-tunnel
+          enabled: true
+          auth:
+            existingSecretName: newt-cred
+    asserts:
+      - equal:
+          path: spec.ports[0].targetPort
+          value: metrics
+      - equal:
+          path: spec.ports[0].name
+          value: metrics
+
+  - it: still targets by name when adminAddr moves the port
+    set:
+      global:
+        metrics:
+          enabled: true
+          adminAddr: "0.0.0.0:9464"
+          service:
+            enabled: true
+      newtInstances:
+        - name: main-tunnel
+          enabled: true
+          auth:
+            existingSecretName: newt-cred
+    asserts:
+      - equal:
+          path: spec.ports[0].targetPort
+          value: metrics

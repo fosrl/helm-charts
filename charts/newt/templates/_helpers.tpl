@@ -354,30 +354,40 @@ imagePullSecrets:
 - name: ENFORCE_HC_CERT
   value: "true"
 {{- end }}
-{{- /* Metrics and OTEL env vars */ -}}
+{{- /* Metrics and OTEL env vars. Resolved through newt.effectiveMetrics so a
+       per-instance metrics block configures the container it belongs to - the
+       container port already came from the effective metrics while every env var
+       came from global, so an instance could declare metrics and get a port with
+       no exporter behind it. */ -}}
 {{- $gm := (default (dict) $root.Values.global.metrics) -}}
-{{- if $gm.pprofEnabled }}
+{{- $m := (include "newt.effectiveMetrics" (list $inst $gm)) | fromJson -}}
+{{- if $m.pprofEnabled }}
 - name: NEWT_PPROF_ENABLED
   value: "true"
 {{- end }}
-{{- if $gm.enabled }}
-{{- if and $gm.adminAddr (ne $gm.adminAddr "127.0.0.1:2112") }}
+{{- if $m.enabled }}
+{{- /* #16: Newt serves /metrics only when this is set, so without it the Service,
+       PodMonitor and ServiceMonitor the chart renders all scraped a closed port. */}}
+- name: NEWT_METRICS_PROMETHEUS_ENABLED
+  value: "true"
+{{- $listenAddr := include "newt.metrics.listenAddr" $m }}
+{{- if ne $listenAddr "127.0.0.1:2112" }}
 - name: NEWT_ADMIN_ADDR
-  value: {{ $gm.adminAddr | quote }}
+  value: {{ $listenAddr | quote }}
 {{- end }}
-{{- if $gm.asyncBytes }}
+{{- if $m.asyncBytes }}
 - name: NEWT_METRICS_ASYNC_BYTES
   value: "true"
 {{- end }}
-{{- if $gm.region }}
+{{- if $m.region }}
 - name: NEWT_REGION
-  value: {{ $gm.region | quote }}
+  value: {{ $m.region | quote }}
 {{- end }}
-{{- if $gm.otlpEnabled }}
+{{- if $m.otlpEnabled }}
 - name: NEWT_METRICS_OTLP_ENABLED
   value: "true"
 {{- end }}
-{{- $otel := (default (dict) $gm.otel) -}}
+{{- $otel := (default (dict) $m.otel) -}}
 {{- if $otel.exporterOtlpEndpoint }}
 - name: OTEL_EXPORTER_OTLP_ENDPOINT
   value: {{ $otel.exporterOtlpEndpoint | quote }}
@@ -502,15 +512,44 @@ args:
   Usage: include "newt.effectiveMetrics" (list $inst $gm)
   Returns: JSON-encoded merged metrics (global merged with instance.metrics when allowGlobalOverride is true), parsed back to map via fromJson when used.
 */ -}}
+{{- /*
+newt.metrics.listenAddr resolves the address Newt is actually told to bind
+(NEWT_ADMIN_ADDR), and is the single source of truth for the metrics port (#16).
+
+`metrics.port` predates `adminAddr` and used to drive the container port, the
+Service targetPort and the scrape annotation while Newt kept listening on
+adminAddr - so the chart advertised a port nothing was bound to. It is now
+deprecated, but an explicitly non-default `metrics.port` combined with a default
+adminAddr is still honoured as the listen port, so existing values files keep
+rendering the port numbers they already had.
+*/ -}}
+{{- define "newt.metrics.listenAddr" -}}
+{{- $m := . -}}
+{{- $addr := default ":2112" $m.adminAddr -}}
+{{- $legacyPort := $m.port | default 9090 -}}
+{{- if and (eq $addr ":2112") (ne (int $legacyPort) 9090) -}}
+{{- printf ":%v" $legacyPort -}}
+{{- else -}}
+{{- $addr -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "newt.metrics.listenPort" -}}
+{{- default "2112" (regexFind "[0-9]+$" (include "newt.metrics.listenAddr" .)) -}}
+{{- end -}}
+
 {{- define "newt.effectiveMetrics" -}}
   {{- $inst := index . 0 -}}
   {{- $gm := index . 1 -}}
   {{- $allow := default false $inst.allowGlobalOverride -}}
+  {{- /* Emit raw JSON: every caller pipes the result through `fromJson`. Converting
+         here as well made the template emit Go's map-print form ("map[enabled:true]"),
+         which `fromJson` could not parse - so the merged metrics config silently came
+         back empty and the metrics container port was never rendered (#16). */ -}}
   {{- if $allow -}}
     {{- $im := (default (dict) $inst.metrics) -}}
-    {{- $res := mergeOverwrite (deepCopy $gm) $im -}}
-    {{- printf "%s" (toJson $res) | fromJson -}}
+    {{- toJson (mergeOverwrite (deepCopy $gm) $im) -}}
   {{- else -}}
-    {{- printf "%s" (toJson $gm) | fromJson -}}
+    {{- toJson $gm -}}
   {{- end -}}
 {{- end }}

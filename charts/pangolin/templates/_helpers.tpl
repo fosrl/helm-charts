@@ -672,17 +672,112 @@ limits:
 {{- default .defaultPort (get $service "port") -}}
 {{- end -}}
 
+{{- /*
+SQLite persistence helpers. `database.mode` is the single source of truth for
+whether SQLite is in use; the old `database.sqlite.enabled` toggle was never read
+by any template and is gone.
+*/ -}}
+{{- define "pangolin.sqlite.claimName" -}}
+{{- $persistence := ((.Values.database).sqlite | default dict).persistence | default dict -}}
+{{- $persistence.existingClaim | default (printf "%s-sqlite" (include "pangolin.fullname" .)) -}}
+{{- end -}}
+
+{{- define "pangolin.sqlite.persistenceEnabled" -}}
+{{- $persistence := ((.Values.database).sqlite | default dict).persistence | default dict -}}
+{{- if and (eq (include "pangolin.db.mode" .) "sqlite") ($persistence.enabled | default false) -}}
+true{{- else -}}false{{- end -}}
+{{- end -}}
+
+{{- /*
+Mount the DIRECTORY holding the database file, not the file itself: SQLite writes
+-wal, -shm and journal siblings next to it, and a subPath file mount would leave
+those on the container filesystem.
+*/ -}}
+{{- define "pangolin.sqlite.mountPath" -}}
+{{- $path := ((.Values.database).sqlite | default dict).path | default "/app/data/pangolin.db" -}}
+{{- $dir := dir $path -}}
+{{- if or (not (hasPrefix "/" $path)) (eq $dir ".") (eq $dir "/") (hasSuffix "/" $path) -}}
+{{- fail (printf "PANGOLIN-068: database.sqlite.path must be an absolute file path inside a directory that can be mounted, got %q. A relative path yields a relative mountPath, which the API server rejects." $path) -}}
+{{- end -}}
+{{- $dir -}}
+{{- end -}}
+
+{{- /*
+Rollout strategy for one workload.
+
+`runtime.updateStrategy` is the chart-wide default and `<component>.deployment.updateStrategy`
+overrides it. A workload that cannot have two Pods alive at once is forced to Recreate instead:
+that is the case when it holds a PVC which is not ReadWriteMany, because the surged Pod cannot
+attach the volume the running one still holds. Surging such a workload under the chart default
+(maxSurge 1 / maxUnavailable 0) deadlocks the rollout permanently - the new Pod never becomes
+Ready and the old Pod is never allowed to terminate.
+
+StatefulSets take a different schema: maxSurge is not a field there at all and maxUnavailable: 0
+is rejected by the API server, so the Deployment shape is translated rather than reused. A
+StatefulSet already replaces Pods one at a time without surging, so no Recreate equivalent is needed.
+*/ -}}
+{{- define "pangolin.persistence.blocksSurge" -}}
+{{- $persistence := .persistence | default dict -}}
+{{- if $persistence.enabled -}}
+{{- $modes := $persistence.accessModes | default (list "ReadWriteOnce") -}}
+{{- if not (has "ReadWriteMany" $modes) -}}true{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "pangolin.sqlite.blocksSurge" -}}
+{{- $persistence := ((.Values.database).sqlite | default dict).persistence | default dict -}}
+{{- if eq (include "pangolin.sqlite.persistenceEnabled" .) "true" -}}
+{{- include "pangolin.persistence.blocksSurge" (dict "persistence" (merge (dict "enabled" true) $persistence)) -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "pangolin.gerbil.blocksSurge" -}}
+{{- include "pangolin.persistence.blocksSurge" (dict "persistence" ((.Values.gerbil).persistence | default dict)) -}}
+{{- end -}}
+
+{{- define "pangolin.traefik.blocksSurge" -}}
+{{- include "pangolin.persistence.blocksSurge" (dict "persistence" ((.Values.traefik).persistence | default dict)) -}}
+{{- end -}}
+
+{{- define "pangolin.updateStrategy" -}}
+{{- $root := .root -}}
+{{- $workloadType := .workloadType | default "Deployment" -}}
+{{- $override := .override | default dict -}}
+{{- $blockSurge := .blockSurge | default false -}}
+{{- $strategy := dict -}}
+{{- if gt (len $override) 0 -}}
+{{- $strategy = $override -}}
+{{- else if $blockSurge -}}
+{{- $strategy = dict "type" "Recreate" -}}
+{{- else -}}
+{{- $strategy = ($root.Values.runtime.updateStrategy | default dict) -}}
+{{- end -}}
+{{- if gt (len $strategy) 0 -}}
+{{- $type := $strategy.type | default "RollingUpdate" -}}
+{{- if eq $workloadType "StatefulSet" -}}
+{{- $rollingUpdate := $strategy.rollingUpdate | default dict -}}
+updateStrategy:
+  type: {{ ternary "OnDelete" "RollingUpdate" (eq $type "OnDelete") }}
+{{- if and (ne $type "OnDelete") (hasKey $rollingUpdate "partition") }}
+  rollingUpdate:
+    partition: {{ $rollingUpdate.partition | int }}
+{{- end }}
+{{- else -}}
+{{- $out := deepCopy $strategy -}}
+{{- if eq $type "Recreate" -}}
+{{- $_ := unset $out "rollingUpdate" -}}
+{{- end -}}
+strategy:
+  {{- toYaml $out | nindent 2 }}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "pangolin.validate" -}}
 {{- $root := . -}}
 
 {{- if and (eq $root.Values.deployment.mode "single") (eq $root.Values.deployment.type "controller") (not $root.Values.controller.enabled) -}}
 {{- fail "PANGOLIN-016: deployment.mode=single with deployment.type=controller requires controller.enabled=true." -}}
-{{- end -}}
-
-{{- $gerbilVals := default (dict) $root.Values.gerbil -}}
-{{- $gerbilStartupMode := default "normal" (get $gerbilVals "startupMode") -}}
-{{- if not (has $gerbilStartupMode (list "normal" "delayed")) -}}
-{{- fail "PANGOLIN-062: gerbil.startupMode must be one of [normal, delayed]." -}}
 {{- end -}}
 
 {{- $db := default (dict) $root.Values.database -}}
@@ -884,6 +979,76 @@ limits:
 {{- $hasCreated := (get $extGen "create") | default false -}}
 {{- if and (not $hasExisting) (not $hasCreated) -}}
 {{- fail "PANGOLIN-061: database.mode=external requires a database connection Secret. Either set database.connection.existingSecretName (user-managed Secret) or set database.external.generatedSecret.create=true with database.external.generatedSecret.connectionString or host/username/password/port/database values (chart-managed Secret)." -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* PANGOLIN-067: the controller cannot reconcile Traefik CRDs without egress to the
+       Kubernetes API. Only the contradictory state fails - asking for the rule while
+       leaving it no destination - because that is the one case the chart cannot resolve
+       and the one that used to surface as a controller crash-loop instead. */ -}}
+{{- $np := default (dict) $root.Values.networkPolicy -}}
+{{- $npEnabled := true -}}
+{{- if hasKey $np "enabled" -}}
+{{- $npEnabled = get $np "enabled" -}}
+{{- end -}}
+{{- if and $npEnabled (eq $root.Values.deployment.type "controller") (default false (get (default (dict) $root.Values.controller) "enabled")) -}}
+{{- $npControllerEgress := default (dict) (get (default (dict) (get $np "controller")) "egress") -}}
+{{- $npKubeApi := default (dict) (get $npControllerEgress "kubernetesApi") -}}
+{{- $npControllerEgressEnabled := true -}}
+{{- if hasKey $npControllerEgress "enabled" -}}
+{{- $npControllerEgressEnabled = get $npControllerEgress "enabled" -}}
+{{- end -}}
+{{- $npKubeApiEnabled := true -}}
+{{- if hasKey $npKubeApi "enabled" -}}
+{{- $npKubeApiEnabled = get $npKubeApi "enabled" -}}
+{{- end -}}
+{{- if and $npControllerEgressEnabled $npKubeApiEnabled -}}
+{{- $hasLegacyKubeApi := or (ne (default "" (get $npKubeApi "cidr")) "") (gt (len (default list (get $np "kubernetesApiCIDRs"))) 0) -}}
+{{- $hasKubeApiEndpoints := false -}}
+{{- range $i, $endpoint := (default list (get $npKubeApi "endpoints")) -}}
+{{- $cidrs := default list (get $endpoint "cidrs") -}}
+{{- if eq (len $cidrs) 0 -}}
+{{- fail (printf "PANGOLIN-067: networkPolicy.controller.egress.kubernetesApi.endpoints[%d] has no cidrs. An entry without cidrs is not a destination and was previously skipped in silence, so a misspelled key narrowed the policy without any error. Every entry needs cidrs: [ ... ]." $i) -}}
+{{- end -}}
+{{- range $cidr := $cidrs -}}
+{{- if not (regexMatch "^[0-9A-Fa-f:.]+/[0-9]{1,3}$" (printf "%v" $cidr)) -}}
+{{- fail (printf "PANGOLIN-067: networkPolicy.controller.egress.kubernetesApi.endpoints[%d] contains %q, which is not an address/prefix. Kubernetes rejects an ipBlock without a prefix length, so write for example 10.43.0.1/32 rather than a bare address." $i $cidr) -}}
+{{- end -}}
+{{- end -}}
+{{- if and (gt (len (default list (get $endpoint "except"))) 0) (gt (len $cidrs) 1) -}}
+{{- fail (printf "PANGOLIN-067: networkPolicy.controller.egress.kubernetesApi.endpoints[%d] combines except with %d cidrs. Kubernetes requires every except range to sit inside the cidr it belongs to, and the chart would copy this except onto all of them. Split the entry so each cidr carries its own except." $i (len $cidrs)) -}}
+{{- end -}}
+{{- range $port := (default list (get $endpoint "ports")) -}}
+{{- if or (lt (int $port) 1) (gt (int $port) 65535) -}}
+{{- fail (printf "PANGOLIN-067: networkPolicy.controller.egress.kubernetesApi.endpoints[%d] declares port %v, which is outside 1-65535." $i $port) -}}
+{{- end -}}
+{{- end -}}
+{{- $hasKubeApiEndpoints = true -}}
+{{- end -}}
+{{- if not (or $hasLegacyKubeApi $hasKubeApiEndpoints) -}}
+{{- fail "PANGOLIN-067: networkPolicy.controller.egress.kubernetesApi.enabled=true but no destination is configured, which would leave the controller unable to reach the Kubernetes API. Populate networkPolicy.controller.egress.kubernetesApi.endpoints[].cidrs (the chart default covers RFC1918/CGNAT/link-local on TCP 443 and 6443), or set kubernetesApi.enabled=false and supply the rule yourself via networkPolicy.controller.extraEgress." -}}
+{{- end -}}
+{{- end -}}
+{{- /* PANGOLIN-069: SQLite is a single-writer file database. Two Pangolin Pods writing the
+       same file corrupts it, and the chart cannot prevent that once the volume is shared. */ -}}
+{{- if eq (include "pangolin.sqlite.persistenceEnabled" $root) "true" -}}
+{{- $sqliteReplicas := int ((($root.Values.pangolin).replicaCount) | default 1) -}}
+{{- if gt $sqliteReplicas 1 -}}
+{{- fail (printf "PANGOLIN-069: pangolin.replicaCount is %d while database.mode=sqlite with persistence enabled. SQLite has a single writer, so a shared volume across replicas corrupts the database. Keep replicaCount at 1, or move to database.mode=cloudnativepg or external for a replicated deployment." $sqliteReplicas) -}}
+{{- end -}}
+{{- /* PANGOLIN-070: the chart's own SQLite volume and an identically named extraVolume would
+       render two entries with the same name, which the API server rejects. */ -}}
+{{- $sqliteMountPath := include "pangolin.sqlite.mountPath" $root -}}
+{{- range $volume := (($root.Values.pangolin).extraVolumes | default list) -}}
+{{- if eq ($volume.name | default "") "pangolin-sqlite" -}}
+{{- fail "PANGOLIN-070: pangolin.extraVolumes contains a volume named pangolin-sqlite, which is the name the chart uses for the SQLite volume. Rename your volume: two volumes with one name make the Pod spec invalid." -}}
+{{- end -}}
+{{- end -}}
+{{- range $mount := (($root.Values.pangolin).extraVolumeMounts | default list) -}}
+{{- if eq ($mount.mountPath | default "") $sqliteMountPath -}}
+{{- fail (printf "PANGOLIN-070: pangolin.extraVolumeMounts already mounts %q, which is where the chart mounts the SQLite directory derived from database.sqlite.path. Two mounts on one path make the Pod spec invalid; choose a different path or a different database.sqlite.path." $sqliteMountPath) -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}

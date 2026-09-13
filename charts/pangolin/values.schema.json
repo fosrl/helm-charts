@@ -244,6 +244,10 @@
                             "additionalProperties": {
                                 "type": "string"
                             }
+                        },
+                        "updateStrategy": {
+                            "description": "Rollout strategy for this component, overriding `runtime.updateStrategy`. Left empty the chart picks it: a component holding a PVC that is not ReadWriteMany is switched to Recreate, because a surged Pod could never attach the volume.",
+                            "type": "object"
                         }
                     }
                 },
@@ -965,6 +969,10 @@
                                     "additionalProperties": {
                                         "type": "string"
                                     }
+                                },
+                                "updateStrategy": {
+                                    "description": "Rollout strategy for this component, overriding `runtime.updateStrategy`. Left empty the chart picks it: a component holding a PVC that is not ReadWriteMany is switched to Recreate, because a surged Pod could never attach the volume.",
+                                    "type": "object"
                                 }
                             }
                         },
@@ -1213,11 +1221,8 @@
                     "description": "SQLite backend configuration. Recommended only for development or very small test deployments.",
                     "type": "object",
                     "properties": {
-                        "enabled": {
-                            "type": "boolean"
-                        },
                         "path": {
-                            "description": "SQLite database file path used by Pangolin.",
+                            "description": "SQLite database file path used by Pangolin. Its parent directory is what gets mounted when persistence is enabled, because SQLite writes -wal/-shm/journal siblings next to the database file.",
                             "type": "string",
                             "minLength": 1
                         },
@@ -1245,6 +1250,13 @@
                                 "existingClaim": {
                                     "description": "Existing PVC name to use for SQLite.",
                                     "type": "string"
+                                },
+                                "labels": {
+                                    "description": "Additional labels for the SQLite PVC.",
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "type": "string"
+                                    }
                                 },
                                 "size": {
                                     "description": "PVC size for SQLite data.",
@@ -1356,6 +1368,10 @@
                             "additionalProperties": {
                                 "type": "string"
                             }
+                        },
+                        "updateStrategy": {
+                            "description": "Rollout strategy for this component, overriding `runtime.updateStrategy`. Left empty the chart picks it: a component holding a PVC that is not ReadWriteMany is switched to Recreate, because a surged Pod could never attach the volume.",
+                            "type": "object"
                         }
                     }
                 },
@@ -2431,15 +2447,36 @@
                                     "type": "object",
                                     "properties": {
                                         "cidr": {
-                                            "description": "Single CIDR for Kubernetes API server egress target (for example 10.96.0.1/32). Leave empty to skip this rule unless legacy `networkPolicy.kubernetesApiCIDRs` is set. For multiple CIDRs, use the legacy `networkPolicy.kubernetesApiCIDRs` list.",
+                                            "description": "DEPRECATED: single CIDR for the Kubernetes API server egress target. Superseded by `endpoints`. When set it takes precedence over `endpoints` and is rendered as one rule on `port`.",
                                             "type": "string"
                                         },
                                         "enabled": {
-                                            "description": "Enable egress rule to Kubernetes API server.",
+                                            "description": "Enable egress rules to the Kubernetes API server. The controller cannot reconcile Traefik CRDs without this, so disable it only when you supply an equivalent rule yourself via `networkPolicy.controller.extraEgress`.",
                                             "type": "boolean"
                                         },
+                                        "endpoints": {
+                                            "description": "Kubernetes API server egress destinations. Each entry allows TCP egress to every CIDR in `cidrs` on every port in `ports`; `except` is optional.  Two destinations have to be covered because CNIs disagree about when a NetworkPolicy is evaluated relative to kube-proxy DNAT: pre-DNAT  -\u003e the `kubernetes` Service ClusterIP on 443 (k3s 10.43.0.1, kubeadm 10.96.0.1) post-DNAT -\u003e the control-plane node IP(s) on 6443 (k3s, RKE2) or 443 (managed) Neither address is discoverable at template time, so the default covers the private ranges those addresses fall in, on both ports. It is deliberately not `0.0.0.0/0`: general outbound HTTPS stays behind `networkPolicy.allowExternalEgressHttps`, and this rule must not quietly become internet egress.  Narrow it once you know your cluster's API address, for example: endpoints: - cidrs: [\"10.43.0.1/32\"] ports: [443] - cidrs: [\"192.168.1.10/32\", \"192.168.1.11/32\"] ports: [6443]",
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "cidrs": {
+                                                        "type": "array",
+                                                        "items": {
+                                                            "type": "string"
+                                                        }
+                                                    },
+                                                    "ports": {
+                                                        "type": "array",
+                                                        "items": {
+                                                            "type": "integer"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        },
                                         "port": {
-                                            "description": "Kubernetes API server egress port.",
+                                            "description": "Kubernetes API server egress port used with the deprecated `cidr` and `networkPolicy.kubernetesApiCIDRs` inputs. Ignored by `endpoints`, which carries its own per-entry `ports`.",
                                             "type": "integer",
                                             "maximum": 65535,
                                             "minimum": 1
@@ -2630,7 +2667,7 @@
                     }
                 },
                 "kubernetesApiCIDRs": {
-                    "description": "DEPRECATED: CIDRs allowed for controller egress to Kubernetes API on TCP/443. Prefer `networkPolicy.controller.egress.kubernetesApi.cidr`. Keep this scoped to cluster API ranges when known.",
+                    "description": "DEPRECATED: CIDRs allowed for controller egress to the Kubernetes API on `networkPolicy.controller.egress.kubernetesApi.port`. Superseded by `networkPolicy.controller.egress.kubernetesApi.endpoints`. When this or the deprecated `kubernetesApi.cidr` is set it takes precedence over `endpoints`, so an existing scoped allow-list is never widened by an upgrade.",
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -2651,8 +2688,11 @@
                                     "type": "boolean"
                                 },
                                 "next": {
-                                    "description": "Allow external ingress on Pangolin next port.",
-                                    "type": "boolean"
+                                    "description": "Allow external ingress on the Pangolin next (dashboard) port. `null` (default) derives this from the chart-managed dashboard IngressRoute: the port is opened exactly when a route actually targets it, so enabling the dashboard no longer leaves it blocked (#22) and standalone mode keeps it shut. Set an explicit `true`/`false` to override the derivation.",
+                                    "type": [
+                                        "boolean",
+                                        "null"
+                                    ]
                                 },
                                 "requireIntegrationFlag": {
                                     "description": "Require `pangolin.config.flags.enable_integration_api=true` before opening integration ingress.",
@@ -3319,6 +3359,10 @@
                             "additionalProperties": {
                                 "type": "string"
                             }
+                        },
+                        "updateStrategy": {
+                            "description": "Rollout strategy for this component, overriding `runtime.updateStrategy`. Left empty the chart picks it: a component holding a PVC that is not ReadWriteMany is switched to Recreate, because a surged Pod could never attach the volume.",
+                            "type": "object"
                         }
                     }
                 },
@@ -4261,6 +4305,10 @@
                             "additionalProperties": {
                                 "type": "string"
                             }
+                        },
+                        "updateStrategy": {
+                            "description": "Rollout strategy for this component, overriding `runtime.updateStrategy`. Left empty the chart picks it: a component holding a PVC that is not ReadWriteMany is switched to Recreate, because a surged Pod could never attach the volume.",
+                            "type": "object"
                         }
                     }
                 },

@@ -28,10 +28,12 @@ data:
       save_logs: {{ $app.save_logs | default false }}
       log_failed_attempts: {{ if hasKey $app "log_failed_attempts" }}{{ get $app "log_failed_attempts" }}{{ else }}true{{ end }}
       telemetry:
-        anonymous_usage: {{ (($app.telemetry) | default dict).anonymous_usage | default true }}
+        {{- $telemetry := ($app.telemetry) | default dict }}
+        anonymous_usage: {{ if hasKey $telemetry "anonymous_usage" }}{{ get $telemetry "anonymous_usage" }}{{ else }}true{{ end }}
       notifications:
-        product_updates: {{ (($app.notifications) | default dict).product_updates | default true }}
-        new_releases: {{ (($app.notifications) | default dict).new_releases | default true }}
+        {{- $notifications := ($app.notifications) | default dict }}
+        product_updates: {{ if hasKey $notifications "product_updates" }}{{ get $notifications "product_updates" }}{{ else }}true{{ end }}
+        new_releases: {{ if hasKey $notifications "new_releases" }}{{ get $notifications "new_releases" }}{{ else }}true{{ end }}
     domains:
       {{- toYaml ($cfg.domains | default dict) | nindent 6 }}
     server:
@@ -50,7 +52,7 @@ data:
         methods: {{ $cors.methods | default list | toJson }}
         allowed_headers: {{ $cors.allowed_headers | default list | toJson }}
         credentials: {{ $cors.credentials | default false }}
-      trust_proxy: {{ $server.trust_proxy | default 1 }}
+      trust_proxy: {{ if hasKey $server "trust_proxy" }}{{ get $server "trust_proxy" }}{{ else }}1{{ end }}
     gerbil:
       start_port: {{ $gerbil.start_port | default 51820 }}
       clients_start_port: {{ $gerbil.clients_start_port | default 21820 }}
@@ -106,7 +108,7 @@ data:
       smtp_port: {{ $email.smtp_port | default 587 }}
       smtp_user: {{ $email.smtp_user | default "" | quote }}
       smtp_secure: {{ $email.smtp_secure | default false }}
-      smtp_tls_reject_unauthorized: {{ $email.smtp_tls_reject_unauthorized | default true }}
+      smtp_tls_reject_unauthorized: {{ if hasKey $email "smtp_tls_reject_unauthorized" }}{{ get $email "smtp_tls_reject_unauthorized" }}{{ else }}true{{ end }}
       {{- if $email.no_reply }}
       no_reply: {{ $email.no_reply | quote }}
       {{- end }}

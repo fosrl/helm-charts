@@ -89,11 +89,6 @@ If the namespace was chart-managed and is no longer needed:
 ```bash
 kubectl delete namespace <namespace>
 ```
-=======
-# Pangolin chart examples
-
-These files are install-ready value profiles for common deployments.
-
 ## Gerbil LoadBalancer annotations
 
 Use `gerbil.service.annotations` to pass provider-specific Service annotations.

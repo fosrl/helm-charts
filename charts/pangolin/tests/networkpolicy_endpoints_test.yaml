@@ -1,0 +1,62 @@
+suite: NetworkPolicy Kubernetes API endpoints
+templates:
+  - templates/networkpolicy.yaml
+tests:
+  - it: accepts except when the entry has exactly one cidr
+    set:
+      deployment:
+        type: controller
+      controller:
+        enabled: true
+      networkPolicy:
+        enabled: true
+        controller:
+          egress:
+            kubernetesApi:
+              endpoints:
+                - cidrs: ["10.0.0.0/8"]
+                  except: ["10.1.0.0/16"]
+                  ports: [6443]
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-controller-egress
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            ports:
+              - port: 6443
+                protocol: TCP
+            to:
+              - ipBlock:
+                  cidr: 10.0.0.0/8
+                  except:
+                    - 10.1.0.0/16
+
+  - it: accepts an IPv6 endpoint
+    set:
+      deployment:
+        type: controller
+      controller:
+        enabled: true
+      networkPolicy:
+        enabled: true
+        controller:
+          egress:
+            kubernetesApi:
+              endpoints:
+                - cidrs: ["fd00::1/128"]
+                  ports: [6443]
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-controller-egress
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            ports:
+              - port: 6443
+                protocol: TCP
+            to:
+              - ipBlock:
+                  cidr: fd00::1/128

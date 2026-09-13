@@ -23,6 +23,11 @@ newtInstances:
   - name: main-tunnel
     enabled: true
     pangolinEndpoint: "https://pangolin.example.com"
+    # Inline credentials must be set together (pangolinEndpoint + id + secret); with id
+    # missing the chart failed the credential check, so every consumer of this file -
+    # make lint, make unittest, scripts/test.sh render and kubeconform - could not render
+    # the chart at all.
+    id: dev-newt-id
     #auth:
     #  existingSecretName: newt-cred
     # Minimal env map so `templates/configmap-env.yaml` can render

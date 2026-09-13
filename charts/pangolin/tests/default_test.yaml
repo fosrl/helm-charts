@@ -268,7 +268,7 @@ tests:
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
-          value: docker.io/fosrl/pangolin:postgresql-1.18.2
+          value: docker.io/fosrl/pangolin:postgresql-1.18.3
 
   - it: uses sqlite image for pangolin when database mode is sqlite
     set:
@@ -277,7 +277,7 @@ tests:
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
-          value: docker.io/fosrl/pangolin:1.18.2
+          value: docker.io/fosrl/pangolin:1.18.3
 
   - it: respects explicit pangolin image tag override regardless of database mode
     set:

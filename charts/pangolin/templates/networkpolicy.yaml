@@ -6,7 +6,10 @@
 {{- $controllerNpAnns := mergeOverwrite (dict) (include "pangolin.global.commonAnnotations" $root | fromYaml) (include "pangolin.component.commonAnnotations" (dict "root" $root "component" "controller") | fromYaml) -}}
 {{- $gerbilNpAnns := mergeOverwrite (dict) (include "pangolin.global.commonAnnotations" $root | fromYaml) (include "pangolin.component.commonAnnotations" (dict "root" $root "component" "gerbil") | fromYaml) -}}
 {{- $embeddedNpAnns := mergeOverwrite (dict) (include "pangolin.global.commonAnnotations" $root | fromYaml) (($root.Values.database.embedded.commonAnnotations) | default dict) -}}
-{{- $allowExternal := (default true $root.Values.networkPolicy.allowExternalIngress) -}}
+{{- $allowExternal := true -}}
+{{- if kindIs "bool" $root.Values.networkPolicy.allowExternalIngress -}}
+{{- $allowExternal = $root.Values.networkPolicy.allowExternalIngress -}}
+{{- end -}}
 {{- $allowHttpsEgress := (default false $root.Values.networkPolicy.allowExternalEgressHttps) -}}
 {{- $extraIngress := $root.Values.networkPolicy.extraIngress | default list -}}
 {{- $extraEgress := $root.Values.networkPolicy.extraEgress | default list -}}
@@ -26,10 +29,43 @@
 {{- $npPangolinDashboardIngress := $npPangolinIngress.dashboard | default dict -}}
 {{- $pangolinDashboardFrom := $npPangolinDashboardIngress.from | default list -}}
 {{- $npPangolinExternal := $npPangolin.externalIngress | default dict -}}
-{{- $allowPangolinExternal := (default true $npPangolinExternal.external) -}}
-{{- $allowPangolinNext := (default false $npPangolinExternal.next) -}}
+{{- $allowPangolinExternal := true -}}
+{{- if kindIs "bool" $npPangolinExternal.external -}}
+{{- $allowPangolinExternal = $npPangolinExternal.external -}}
+{{- end -}}
+{{- /*
+`next` is the Next.js dashboard port. ingressroute-dashboard.yaml routes every
+request that is not the API PathPrefix to it and is enabled by default, so a flat
+`false` blocked the chart's own default dashboard route (#22). Derive it from that
+route instead of flipping the default to true: that keeps the port closed in
+standalone mode and whenever the dashboard route is turned off, and the two cannot
+drift apart again. An explicit boolean still wins - tested with `kindIs` rather
+than `hasKey` because the value is present-but-null by default.
+*/ -}}
+{{- $dashboardRouteOpensNext := false -}}
+{{- if eq $root.Values.deployment.type "controller" -}}
+{{- $irDashboard := (($root.Values.pangolin).ingressRoute | default dict).dashboard | default dict -}}
+{{- $irEnabled := true -}}
+{{- if hasKey $irDashboard "enabled" -}}
+{{- $irEnabled = $irDashboard.enabled -}}
+{{- end -}}
+{{- $irDashboardRoute := ($irDashboard.routes | default dict).dashboard | default dict -}}
+{{- $irRouteEnabled := true -}}
+{{- if hasKey $irDashboardRoute "enabled" -}}
+{{- $irRouteEnabled = $irDashboardRoute.enabled -}}
+{{- end -}}
+{{- $irRoutePort := ($irDashboardRoute.service | default dict).port | default $root.Values.pangolin.service.ports.next -}}
+{{- $dashboardRouteOpensNext = and $irEnabled $irRouteEnabled (eq (printf "%v" $irRoutePort) (printf "%v" $root.Values.pangolin.service.ports.next)) -}}
+{{- end -}}
+{{- $allowPangolinNext := $dashboardRouteOpensNext -}}
+{{- if kindIs "bool" $npPangolinExternal.next -}}
+{{- $allowPangolinNext = $npPangolinExternal.next -}}
+{{- end -}}
 {{- $allowPangolinIntegration := (default false $npPangolinExternal.integration) -}}
-{{- $requireIntegrationFlag := (default true $npPangolinExternal.requireIntegrationFlag) -}}
+{{- $requireIntegrationFlag := true -}}
+{{- if kindIs "bool" $npPangolinExternal.requireIntegrationFlag -}}
+{{- $requireIntegrationFlag = $npPangolinExternal.requireIntegrationFlag -}}
+{{- end -}}
 {{- $pangolinExtraIngress := $npPangolin.extraIngress | default list -}}
 {{- $pangolinExtraEgress := $npPangolin.extraEgress | default list -}}
 
@@ -51,18 +87,54 @@
 {{- $controllerKubernetesApiEnabled = $npControllerKubernetesApi.enabled -}}
 {{- end -}}
 {{- $controllerKubernetesApiPort := (default 443 $npControllerKubernetesApi.port) -}}
-{{- $controllerKubernetesApiCidrs := list -}}
+{{- $controllerLegacyKubeApiCidrs := list -}}
 {{- if $npControllerKubernetesApi.cidr -}}
-{{- $controllerKubernetesApiCidrs = append $controllerKubernetesApiCidrs $npControllerKubernetesApi.cidr -}}
+{{- $controllerLegacyKubeApiCidrs = append $controllerLegacyKubeApiCidrs $npControllerKubernetesApi.cidr -}}
 {{- end -}}
 {{- if gt (len $legacyKubeApiCidrs) 0 -}}
-{{- $controllerKubernetesApiCidrs = concat $controllerKubernetesApiCidrs $legacyKubeApiCidrs -}}
+{{- $controllerLegacyKubeApiCidrs = concat $controllerLegacyKubeApiCidrs $legacyKubeApiCidrs -}}
+{{- end -}}
+{{- /*
+Build the Kubernetes API egress rules. The deprecated single `cidr` and the
+deprecated top-level `kubernetesApiCIDRs` list win outright over `endpoints`:
+widening an operator's scoped allow-list during an upgrade would be a security
+regression, so an existing narrow configuration is carried over untouched.
+*/ -}}
+{{- $controllerKubeApiRules := list -}}
+{{- if gt (len $controllerLegacyKubeApiCidrs) 0 -}}
+{{- $legacyTo := list -}}
+{{- range $cidr := $controllerLegacyKubeApiCidrs -}}
+{{- $legacyTo = append $legacyTo (dict "ipBlock" (dict "cidr" $cidr)) -}}
+{{- end -}}
+{{- $controllerKubeApiRules = append $controllerKubeApiRules (dict "to" $legacyTo "ports" (list (dict "protocol" "TCP" "port" $controllerKubernetesApiPort))) -}}
+{{- else -}}
+{{- range $endpoint := ($npControllerKubernetesApi.endpoints | default list) -}}
+{{- $endpointCidrs := $endpoint.cidrs | default list -}}
+{{- if gt (len $endpointCidrs) 0 -}}
+{{- $endpointTo := list -}}
+{{- range $cidr := $endpointCidrs -}}
+{{- $ipBlock := dict "cidr" $cidr -}}
+{{- if gt (len ($endpoint.except | default list)) 0 -}}
+{{- $_ := set $ipBlock "except" $endpoint.except -}}
+{{- end -}}
+{{- $endpointTo = append $endpointTo (dict "ipBlock" $ipBlock) -}}
+{{- end -}}
+{{- $endpointPorts := list -}}
+{{- range $port := ($endpoint.ports | default (list 443)) -}}
+{{- $endpointPorts = append $endpointPorts (dict "protocol" "TCP" "port" $port) -}}
+{{- end -}}
+{{- $controllerKubeApiRules = append $controllerKubeApiRules (dict "to" $endpointTo "ports" $endpointPorts) -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}
 {{- $controllerExtraIngress := $npController.extraIngress | default list -}}
 {{- $controllerExtraEgress := $npController.extraEgress | default list -}}
 
 {{- $npDatabase := $root.Values.networkPolicy.database | default dict -}}
-{{- $allowDatabaseEgress := (default true $npDatabase.enabled) -}}
+{{- $allowDatabaseEgress := true -}}
+{{- if kindIs "bool" $npDatabase.enabled -}}
+{{- $allowDatabaseEgress = $npDatabase.enabled -}}
+{{- end -}}
 {{- $databasePort := (default 5432 $npDatabase.port) -}}
 {{- $databaseCnpgPeers := $npDatabase.cnpgPeers | default list -}}
 {{- $databaseExternalCidrs := $npDatabase.externalCIDRs | default list -}}
@@ -70,7 +142,10 @@
 {{- $databaseExtraEgress := $npDatabase.extraEgress | default list -}}
 
 {{- $npGerbil := $root.Values.networkPolicy.gerbil | default dict -}}
-{{- $allowGerbilWireguardUdpEgress := (default true $npGerbil.allowWireguardUdpEgress) -}}
+{{- $allowGerbilWireguardUdpEgress := true -}}
+{{- if kindIs "bool" $npGerbil.allowWireguardUdpEgress -}}
+{{- $allowGerbilWireguardUdpEgress = $npGerbil.allowWireguardUdpEgress -}}
+{{- end -}}
 {{- $gerbilWireguardUdpCidrs := $npGerbil.wireguardUdpCIDRs | default (list "0.0.0.0/0") -}}
 {{- $gerbilExtraIngress := $npGerbil.extraIngress | default list -}}
 {{- $gerbilExtraEgress := $npGerbil.extraEgress | default list -}}
@@ -104,7 +179,11 @@
 {{- $pangolinIngress = append $pangolinIngress $pangolinExternalIngress -}}
 {{- end -}}
 {{- if $allowPangolinNext -}}
-{{- $pangolinIngress = append $pangolinIngress (dict "ports" (list (dict "protocol" "TCP" "port" $root.Values.pangolin.service.ports.next))) -}}
+{{- $pangolinNextIngress := dict "ports" (list (dict "protocol" "TCP" "port" $root.Values.pangolin.service.ports.next)) -}}
+{{- if gt (len $pangolinDashboardFrom) 0 -}}
+{{- $_ := set $pangolinNextIngress "from" $pangolinDashboardFrom -}}
+{{- end -}}
+{{- $pangolinIngress = append $pangolinIngress $pangolinNextIngress -}}
 {{- end -}}
 {{- if and $allowPangolinIntegration (or (not $requireIntegrationFlag) (($root.Values.pangolin.config | default dict).flags | default dict).enable_integration_api) -}}
 {{- $pangolinIngress = append $pangolinIngress (dict "ports" (list (dict "protocol" "TCP" "port" $root.Values.pangolin.service.ports.integration))) -}}
@@ -230,12 +309,8 @@ spec:
 {{- if $renderPangolin -}}
 {{- $controllerEgress = append $controllerEgress (dict "to" (list (dict "podSelector" (dict "matchLabels" $selPangolin))) "ports" (list (dict "protocol" "TCP" "port" $root.Values.pangolin.service.ports.internalApi))) -}}
 {{- end -}}
-{{- if and $controllerKubernetesApiEnabled (gt (len $controllerKubernetesApiCidrs) 0) -}}
-{{- $kubeApiTo := list -}}
-{{- range $cidr := $controllerKubernetesApiCidrs -}}
-{{- $kubeApiTo = append $kubeApiTo (dict "ipBlock" (dict "cidr" $cidr)) -}}
-{{- end -}}
-{{- $controllerEgress = append $controllerEgress (dict "to" $kubeApiTo "ports" (list (dict "protocol" "TCP" "port" $controllerKubernetesApiPort))) -}}
+{{- if $controllerKubernetesApiEnabled -}}
+{{- $controllerEgress = concat $controllerEgress $controllerKubeApiRules -}}
 {{- end -}}
 {{- if $extraEgress -}}
 {{- $controllerEgress = concat $controllerEgress $extraEgress -}}

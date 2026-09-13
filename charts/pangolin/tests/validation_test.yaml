@@ -182,3 +182,237 @@ tests:
       database.external.generatedSecret.connectionString: "postgresql://u:p@h:5432/db"
     asserts:
       - notFailedTemplate: {}
+
+  - it: fails when Kubernetes API egress is enabled with no destination
+    set:
+      database:
+        mode: sqlite
+      deployment:
+        type: controller
+        mode: multi
+      networkPolicy:
+        controller:
+          egress:
+            kubernetesApi:
+              endpoints: []
+    asserts:
+      - failedTemplate:
+          errorPattern: "PANGOLIN-067"
+
+
+  - it: passes when Kubernetes API egress is explicitly opted out
+    set:
+      database:
+        mode: sqlite
+      deployment:
+        type: controller
+        mode: multi
+      networkPolicy:
+        controller:
+          egress:
+            kubernetesApi:
+              enabled: false
+              endpoints: []
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: passes when only the deprecated Kubernetes API cidr is configured
+    set:
+      database:
+        mode: sqlite
+      deployment:
+        type: controller
+        mode: multi
+      networkPolicy:
+        controller:
+          egress:
+            kubernetesApi:
+              endpoints: []
+              cidr: 10.43.0.1/32
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: accepts every documented gerbil startupMode
+    set:
+      database:
+        mode: sqlite
+      gerbil:
+        startupMode: disabledUntilSetup
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: rejects an endpoint entry that carries no cidrs
+    set:
+      database:
+        mode: sqlite
+      deployment:
+        type: controller
+        mode: multi
+      networkPolicy:
+        enabled: true
+        controller:
+          egress:
+            kubernetesApi:
+              endpoints:
+                - ports: [443]
+    asserts:
+      - failedTemplate:
+          errorPattern: "PANGOLIN-067.*has no cidrs"
+
+  - it: rejects an address without a prefix length
+    set:
+      database:
+        mode: sqlite
+      deployment:
+        type: controller
+        mode: multi
+      networkPolicy:
+        enabled: true
+        controller:
+          egress:
+            kubernetesApi:
+              endpoints:
+                - cidrs: ["10.43.0.1"]
+    asserts:
+      - failedTemplate:
+          errorPattern: "PANGOLIN-067.*not an address/prefix"
+
+  - it: rejects a port outside the valid range
+    set:
+      database:
+        mode: sqlite
+      deployment:
+        type: controller
+        mode: multi
+      networkPolicy:
+        enabled: true
+        controller:
+          egress:
+            kubernetesApi:
+              endpoints:
+                - cidrs: ["10.43.0.1/32"]
+                  ports: [70000]
+    asserts:
+      - failedTemplate:
+          errorPattern: "PANGOLIN-067.*outside 1-65535"
+
+  - it: rejects except combined with more than one cidr
+    set:
+      database:
+        mode: sqlite
+      deployment:
+        type: controller
+        mode: multi
+      networkPolicy:
+        enabled: true
+        controller:
+          egress:
+            kubernetesApi:
+              endpoints:
+                - cidrs: ["10.0.0.0/8", "192.168.0.0/16"]
+                  except: ["10.1.0.0/16"]
+    asserts:
+      - failedTemplate:
+          errorPattern: "PANGOLIN-067.*combines except with 2 cidrs"
+
+  - it: rejects a relative SQLite path that would yield a relative mountPath
+    set:
+      database:
+        mode: sqlite
+        sqlite:
+          path: data/pangolin.db
+          persistence:
+            enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "PANGOLIN-068"
+
+  - it: rejects a SQLite path with no mountable parent directory
+    set:
+      database:
+        mode: sqlite
+        sqlite:
+          path: /pangolin.db
+          persistence:
+            enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "PANGOLIN-068"
+
+  - it: accepts a deeply nested absolute SQLite path
+    set:
+      database:
+        mode: sqlite
+        sqlite:
+          path: /var/lib/pangolin/nested/deep/p.db
+          persistence:
+            enabled: true
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: rejects more than one Pangolin replica on a persisted SQLite database
+    set:
+      database:
+        mode: sqlite
+        sqlite:
+          persistence:
+            enabled: true
+      pangolin:
+        replicaCount: 3
+    asserts:
+      - failedTemplate:
+          errorPattern: "PANGOLIN-069"
+
+  - it: allows more than one replica when SQLite is not in use
+    set:
+      pangolin:
+        replicaCount: 3
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: rejects an extraVolume that collides with the SQLite volume name
+    set:
+      database:
+        mode: sqlite
+        sqlite:
+          persistence:
+            enabled: true
+      pangolin:
+        extraVolumes:
+          - name: pangolin-sqlite
+            emptyDir: {}
+    asserts:
+      - failedTemplate:
+          errorPattern: "PANGOLIN-070"
+
+  - it: rejects an extraVolumeMount that collides with the SQLite mount path
+    set:
+      database:
+        mode: sqlite
+        sqlite:
+          persistence:
+            enabled: true
+      pangolin:
+        extraVolumeMounts:
+          - name: other
+            mountPath: /app/data
+    asserts:
+      - failedTemplate:
+          errorPattern: "PANGOLIN-070"
+
+  - it: accepts extra volumes that do not collide with the SQLite volume
+    set:
+      database:
+        mode: sqlite
+        sqlite:
+          persistence:
+            enabled: true
+      pangolin:
+        extraVolumes:
+          - name: scratch
+            emptyDir: {}
+        extraVolumeMounts:
+          - name: scratch
+            mountPath: /scratch
+    asserts:
+      - notFailedTemplate: {}

@@ -244,9 +244,11 @@ networkPolicy:
   # -- Additional egress rules appended to all generated NetworkPolicies (global escape hatch).
   # Prefer component-scoped `extraEgress` fields (e.g. `networkPolicy.pangolin.extraEgress`) for precision.
   extraEgress: [] # @schema type: array ; item: object
-  # -- DEPRECATED: CIDRs allowed for controller egress to Kubernetes API on TCP/443.
-  # Prefer `networkPolicy.controller.egress.kubernetesApi.cidr`.
-  # Keep this scoped to cluster API ranges when known.
+  # -- DEPRECATED: CIDRs allowed for controller egress to the Kubernetes API on
+  # `networkPolicy.controller.egress.kubernetesApi.port`.
+  # Superseded by `networkPolicy.controller.egress.kubernetesApi.endpoints`.
+  # When this or the deprecated `kubernetesApi.cidr` is set it takes precedence over
+  # `endpoints`, so an existing scoped allow-list is never widened by an upgrade.
   kubernetesApiCIDRs: [] # @schema type: array ; item: string
 
   dns:
@@ -281,8 +283,12 @@ networkPolicy:
     externalIngress:
       # -- Allow external ingress on Pangolin public port.
       external: true # @schema type: boolean
-      # -- Allow external ingress on Pangolin next port.
-      next: false # @schema type: boolean
+      # -- Allow external ingress on the Pangolin next (dashboard) port.
+      # `null` (default) derives this from the chart-managed dashboard IngressRoute:
+      # the port is opened exactly when a route actually targets it, so enabling the
+      # dashboard no longer leaves it blocked (#22) and standalone mode keeps it shut.
+      # Set an explicit `true`/`false` to override the derivation.
+      next: null # @schema type: [boolean, "null"]
       # -- Allow external ingress on Pangolin integration API port.
       integration: false # @schema type: boolean
       # -- Require `pangolin.config.flags.enable_integration_api=true` before opening integration ingress.
@@ -300,13 +306,46 @@ networkPolicy:
       # even if DNS/Pangolin/Kubernetes API egress rules are configured.
       enabled: true # @schema type: boolean
       kubernetesApi:
-        # -- Enable egress rule to Kubernetes API server.
+        # -- Enable egress rules to the Kubernetes API server. The controller cannot
+        # reconcile Traefik CRDs without this, so disable it only when you supply an
+        # equivalent rule yourself via `networkPolicy.controller.extraEgress`.
         enabled: true # @schema type: boolean
-        # -- Single CIDR for Kubernetes API server egress target (for example 10.96.0.1/32).
-        # Leave empty to skip this rule unless legacy `networkPolicy.kubernetesApiCIDRs` is set.
-        # For multiple CIDRs, use the legacy `networkPolicy.kubernetesApiCIDRs` list.
+        # -- Kubernetes API server egress destinations. Each entry allows TCP egress to
+        # every CIDR in `cidrs` on every port in `ports`; `except` is optional.
+        #
+        # Two destinations have to be covered because CNIs disagree about when a
+        # NetworkPolicy is evaluated relative to kube-proxy DNAT:
+        #   pre-DNAT  -> the `kubernetes` Service ClusterIP on 443 (k3s 10.43.0.1, kubeadm 10.96.0.1)
+        #   post-DNAT -> the control-plane node IP(s) on 6443 (k3s, RKE2) or 443 (managed)
+        # Neither address is discoverable at template time, so the default covers the
+        # private ranges those addresses fall in, on both ports. It is deliberately not
+        # `0.0.0.0/0`: general outbound HTTPS stays behind
+        # `networkPolicy.allowExternalEgressHttps`, and this rule must not quietly
+        # become internet egress.
+        #
+        # Narrow it once you know your cluster's API address, for example:
+        #   endpoints:
+        #     - cidrs: ["10.43.0.1/32"]
+        #       ports: [443]
+        #     - cidrs: ["192.168.1.10/32", "192.168.1.11/32"]
+        #       ports: [6443]
+        endpoints: # @schema type: array ; item: object
+          - cidrs:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 100.64.0.0/10
+              - 169.254.0.0/16
+            ports:
+              - 443
+              - 6443
+        # -- DEPRECATED: single CIDR for the Kubernetes API server egress target.
+        # Superseded by `endpoints`. When set it takes precedence over `endpoints` and is
+        # rendered as one rule on `port`.
         cidr: "" # @schema type: string
-        # -- Kubernetes API server egress port.
+        # -- Kubernetes API server egress port used with the deprecated `cidr` and
+        # `networkPolicy.kubernetesApiCIDRs` inputs. Ignored by `endpoints`, which carries
+        # its own per-entry `ports`.
         port: 443 # @schema type: integer ; minimum: 1 ; maximum: 65535
     metrics:
       # -- Enable controller metrics ingress rule on controller service port.
@@ -438,6 +477,10 @@ pangolin:
   # -- Workload kind for Pangolin in multi mode.
   workloadType: Deployment # @schema type: string ; enum: [Deployment, StatefulSet]
   deployment:
+    # -- Rollout strategy for this component, overriding `runtime.updateStrategy`.
+    # Left empty the chart picks it: a component holding a PVC that is not ReadWriteMany
+    # is switched to Recreate, because a surged Pod could never attach the volume.
+    updateStrategy: {} # @schema type: object
     # -- Labels applied to Pangolin Deployment/StatefulSet metadata.
     labels: {} # @schema type: object ; additionalProperties: { type: string }
     # -- Annotations applied to Pangolin Deployment/StatefulSet metadata.
@@ -963,6 +1006,10 @@ controller:
   # -- Controller workload type.
   workloadType: Deployment # @schema type: string ; enum: [Deployment, StatefulSet]
   deployment:
+    # -- Rollout strategy for this component, overriding `runtime.updateStrategy`.
+    # Left empty the chart picks it: a component holding a PVC that is not ReadWriteMany
+    # is switched to Recreate, because a surged Pod could never attach the volume.
+    updateStrategy: {} # @schema type: object
     labels: {} # @schema type: object ; additionalProperties: { type: string }
     annotations: {} # @schema type: object ; additionalProperties: { type: string }
     podLabels: {} # @schema type: object ; additionalProperties: { type: string }
@@ -1135,6 +1182,10 @@ traefik:
   # -- Number of standalone Traefik replicas in multi mode.
   replicaCount: 1 # @schema type: integer ; minimum: 1
   deployment:
+    # -- Rollout strategy for this component, overriding `runtime.updateStrategy`.
+    # Left empty the chart picks it: a component holding a PVC that is not ReadWriteMany
+    # is switched to Recreate, because a surged Pod could never attach the volume.
+    updateStrategy: {} # @schema type: object
     labels: {} # @schema type: object ; additionalProperties: { type: string }
     annotations: {} # @schema type: object ; additionalProperties: { type: string }
     podLabels: {} # @schema type: object ; additionalProperties: { type: string }
@@ -1296,6 +1347,10 @@ gerbil:
   # -- Number of Gerbil replicas in multi mode.
   replicaCount: 1 # @schema type: integer ; minimum: 1
   deployment:
+    # -- Rollout strategy for this component, overriding `runtime.updateStrategy`.
+    # Left empty the chart picks it: a component holding a PVC that is not ReadWriteMany
+    # is switched to Recreate, because a surged Pod could never attach the volume.
+    updateStrategy: {} # @schema type: object
     labels: {} # @schema type: object ; additionalProperties: { type: string }
     annotations: {} # @schema type: object ; additionalProperties: { type: string }
     podLabels: {} # @schema type: object ; additionalProperties: { type: string }
@@ -1458,6 +1513,10 @@ database:
     commonAnnotations: {} # @schema type: object ; additionalProperties: { type: string }
     enabled: false # @schema type: boolean
     deployment:
+      # -- Rollout strategy for this component, overriding `runtime.updateStrategy`.
+      # Left empty the chart picks it: a component holding a PVC that is not ReadWriteMany
+      # is switched to Recreate, because a surged Pod could never attach the volume.
+      updateStrategy: {} # @schema type: object
       labels: {} # @schema type: object ; additionalProperties: { type: string }
       annotations: {} # @schema type: object ; additionalProperties: { type: string }
       podLabels: {} # @schema type: object ; additionalProperties: { type: string }
@@ -1574,8 +1633,9 @@ database:
   # -- SQLite backend configuration.
   # Recommended only for development or very small test deployments.
   sqlite:
-    enabled: false # @schema type: boolean
-    # -- SQLite database file path used by Pangolin.
+    # -- SQLite database file path used by Pangolin. Its parent directory is what gets
+    # mounted when persistence is enabled, because SQLite writes -wal/-shm/journal
+    # siblings next to the database file.
     path: /app/data/pangolin.db # @schema type: string ; minLength: 1
     persistence:
       # -- Persist the SQLite database file on a PersistentVolumeClaim.
@@ -1592,6 +1652,8 @@ database:
         - ReadWriteOnce
       # -- Additional annotations for the SQLite PVC.
       annotations: {} # @schema type: object ; additionalProperties: { type: string }
+      # -- Additional labels for the SQLite PVC.
+      labels: {} # @schema type: object ; additionalProperties: { type: string }
 
   # -- CloudNativePG-backed database configuration.
   # This is the recommended production backend model for Pangolin on Kubernetes.
