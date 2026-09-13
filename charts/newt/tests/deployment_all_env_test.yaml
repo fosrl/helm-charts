@@ -251,11 +251,15 @@ tests:
 
   - it: renders UPDOWN_SCRIPT when enabled
     set:
+      global:
+        updownScripts:
+          hook.sh: echo hi
       newtInstances:
         - name: test-updown
           enabled: true
           updown:
             enabled: true
+            script: hook.sh
             mountPath: /opt/updown
             fileName: script.sh
           extraEnv: {}
