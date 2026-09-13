@@ -66,6 +66,7 @@ jobs:
       - name: Add Helm dependency repositories
         run: |
           helm repo add cloudnative-pg https://cloudnative-pg.github.io/charts
+          helm repo add traefik https://traefik.github.io/charts
           helm repo update
 
       - name: Install helm-unittest plugin

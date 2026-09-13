@@ -53,11 +53,41 @@ data:
         allowed_headers: {{ $cors.allowed_headers | default list | toJson }}
         credentials: {{ $cors.credentials | default false }}
       trust_proxy: {{ if hasKey $server "trust_proxy" }}{{ get $server "trust_proxy" }}{{ else }}1{{ end }}
+      {{- /* Derived from the Service/container ports so the config and the listeners
+             cannot drift. */}}
+      external_port: {{ $root.Values.pangolin.service.ports.external }}
+      internal_port: {{ $root.Values.pangolin.service.ports.internalApi }}
+      next_port: {{ $root.Values.pangolin.service.ports.next }}
+      integration_port: {{ $root.Values.pangolin.service.ports.integration }}
+      ai_gateway_port: {{ $root.Values.pangolin.service.ports.aiGateway }}
+      {{- $remoteHeaders := $server.remote_headers | default dict }}
+      remote_headers:
+        user_id: {{ $remoteHeaders.user_id | default "Remote-User-Id" | quote }}
+        virtual_api_key_id: {{ $remoteHeaders.virtual_api_key_id | default "Remote-Virtual-Api-Key-Id" | quote }}
+        user: {{ $remoteHeaders.user | default "Remote-User" | quote }}
+        email: {{ $remoteHeaders.email | default "Remote-Email" | quote }}
+        name: {{ $remoteHeaders.name | default "Remote-Name" | quote }}
+        role: {{ $remoteHeaders.role | default "Remote-Role" | quote }}
+      {{- /* Emitted only when set so Pangolin's own defaults keep applying. */}}
+      {{- with $server.badger_override }}
+      badger_override: {{ . | quote }}
+      {{- end }}
+      {{- with $server.ai_gateway_override }}
+      ai_gateway_override: {{ . | quote }}
+      {{- end }}
+      {{- if $server.enable_ai_gateway_client_ip_header }}
+      enable_ai_gateway_client_ip_header: true
+      {{- end }}
+      {{- with $server.maxmind_db_path }}
+      maxmind_db_path: {{ . | quote }}
+      {{- end }}
+      {{- with $server.maxmind_asn_path }}
+      maxmind_asn_path: {{ . | quote }}
+      {{- end }}
     gerbil:
       start_port: {{ $gerbil.start_port | default 51820 }}
       clients_start_port: {{ $gerbil.clients_start_port | default 21820 }}
       base_endpoint: {{ $gerbil.base_endpoint | default "" | quote }}
-      use_subdomain: {{ $gerbil.use_subdomain | default false }}
       subnet_group: {{ $gerbil.subnet_group | default "100.89.137.0/20" | quote }}
       block_size: {{ $gerbil.block_size | default 24 }}
       site_block_size: {{ $gerbil.site_block_size | default 30 }}
@@ -82,6 +112,15 @@ data:
       {{- if $flags.disable_enterprise_features }}
       disable_enterprise_features: {{ $flags.disable_enterprise_features }}
       {{- end }}
+      {{- if $flags.disable_virtual_api_keys_ui }}
+      disable_virtual_api_keys_ui: {{ $flags.disable_virtual_api_keys_ui }}
+      {{- end }}
+      {{- if hasKey $flags "enable_acme_cert_sync" }}
+      enable_acme_cert_sync: {{ get $flags "enable_acme_cert_sync" }}
+      {{- end }}
+      {{- if $flags.disable_private_http_placeholder }}
+      disable_private_http_placeholder: {{ $flags.disable_private_http_placeholder }}
+      {{- end }}
     {{- if and $cfg.traefik $cfg.traefik.enabled }}
     {{- $traefik := $cfg.traefik }}
     traefik:
@@ -90,6 +129,18 @@ data:
       cert_resolver: {{ $traefik.cert_resolver | default "letsencrypt" | quote }}
       prefer_wildcard_cert: {{ $traefik.prefer_wildcard_cert | default false }}
       additional_middlewares: {{ $traefik.additional_middlewares | default list | toJson }}
+      {{- with $traefik.site_types }}
+      site_types: {{ . | toJson }}
+      {{- end }}
+      {{- with $traefik.static_domains }}
+      static_domains: {{ . | toJson }}
+      {{- end }}
+      {{- $traefikRateLimit := $traefik.rate_limit | default dict }}
+      {{- if or $traefikRateLimit.average $traefikRateLimit.burst }}
+      rate_limit:
+        average: {{ $traefikRateLimit.average | default 30 }}
+        burst: {{ $traefikRateLimit.burst | default 50 }}
+      {{- end }}
     {{- end }}
     {{- if and $cfg.rate_limits $cfg.rate_limits.enabled }}
     {{- $rl := $cfg.rate_limits }}

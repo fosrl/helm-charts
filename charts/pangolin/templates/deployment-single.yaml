@@ -139,6 +139,9 @@ spec:
             - name: integration
               containerPort: {{ $pangolin.service.ports.integration }}
               protocol: TCP
+            - name: ai-gateway
+              containerPort: {{ $pangolin.service.ports.aiGateway }}
+              protocol: TCP
           env:
             - name: SERVER_SECRET
               valueFrom:
@@ -403,6 +406,7 @@ spec:
             - --entrypoints.websecure.address=:8443
             - --providers.kubernetescrd
             - --providers.kubernetesingress
+            {{- include "pangolin.traefik.staticArgs" $root | nindent 12 }}
             {{- if $tf.config.letsencryptEmail }}
             - --certificatesresolvers.letsencrypt.acme.email={{ $tf.config.letsencryptEmail }}
             - --certificatesresolvers.letsencrypt.acme.storage=/data/acme.json

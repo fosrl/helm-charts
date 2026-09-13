@@ -40,9 +40,38 @@ This changelog is chart-scoped to support multiple charts over time.
   (node IP:6443) CNI behaviour.
 - `PANGOLIN-067` fails the render when Kubernetes API egress is enabled with no
   destination configured.
+- The Pangolin 1.22 configuration surface: `server.{ai_gateway_port, ai_gateway_override,
+  badger_override, remote_headers.*, enable_ai_gateway_client_ip_header, maxmind_db_path,
+  maxmind_asn_path}`, `flags.{disable_virtual_api_keys_ui, enable_acme_cert_sync,
+  disable_private_http_placeholder}` and `traefik.{site_types, static_domains,
+  rate_limit}`. Optional keys are emitted only when set so Pangolin's defaults apply.
+- `pangolin.service.ports.aiGateway` (3005), exposed on the Service and the workload. The
+  rendered `server.*_port` values now derive from these ports so they cannot drift.
+- `networkPolicy.pangolin.ingress.aiGateway` grants the AI gateway port to the Traefik
+  that terminates its routes and to nothing else. `fromTraefik` (default `true`) derives
+  the peer from the topology - the chart-managed standalone Traefik, or the bundled
+  subchart including a `namespaceSelector` when `traefikController.namespaceOverride`
+  moves it - and `from` names an externally installed Traefik, which the chart cannot
+  select. `deployment.mode=single` derives nothing: Traefik reaches the gateway over
+  loopback there. In controller mode with an external Traefik, NOTES says at install time
+  that the port has no source and what to set, instead of letting AI gateway routes time
+  out silently.
 
 #### Changed
 
+- Bumped Pangolin appVersion to `1.22.2`, the Gerbil image to `1.5.1` and the chart to
+  `0.1.0-alpha.2`. The chart remains a prerelease.
+- `images.traefik.tag` moves from `v3.6.15` to `v3.7.13`. The v3.6 line is out of upstream
+  security support, and the bundled Traefik chart already installs v3.7.13, so the two ways
+  this chart can run Traefik no longer sit on different minors.
+- **BREAKING:** `pangolin.config.gerbil.use_subdomain` is removed - Pangolin dropped it
+  from its config schema, so the chart was emitting a key upstream no longer knows.
+- **BREAKING:** the top-level `monitoring.*` tree and `runtime.hostNetwork` are removed.
+  No template ever read either of them. The two removals fail differently on upgrade
+  because the schema is strict at the root only: a leftover `monitoring:` block aborts
+  `helm upgrade` with `at '': additional properties 'monitoring' not allowed`, while a
+  leftover `runtime.hostNetwork` is accepted and does nothing. Delete both from your
+  values file. If you need host networking for Gerbil, use `gerbil.hostGateway.*`.
 - **BREAKING:** `database.sqlite.enabled` is removed. It was never read by any template;
   `database.mode=sqlite` is and remains the only switch.
 - `networkPolicy.controller.egress.kubernetesApi.cidr` and
@@ -51,6 +80,37 @@ This changelog is chart-scoped to support multiple charts over time.
   is never widened by an upgrade.
 - `networkPolicy.pangolin.externalIngress.next` defaults to `null` (derive from the
   dashboard route). An explicit boolean still wins.
+- `networkPolicy.pangolin.externalIngress.aiGateway` stays `false`. It is the blanket
+  switch, and a NetworkPolicy rule with no `from` is every source: turning it on to let
+  Traefik through would hand every Pod in the cluster the model providers behind the
+  gateway. Use `networkPolicy.pangolin.ingress.aiGateway` instead.
+- The chart-managed Traefik (`deployment.type=standalone`) now receives Pangolin's
+  generated configuration. It declares the Badger plugin in static configuration
+  (`traefik.badger.*`), polls `/api/v1/traefik-config` over the HTTP provider
+  (`traefik.config.httpProvider.*`), gets the RBAC its Kubernetes providers need, and is
+  allowed through the chart's own NetworkPolicy to Pangolin's internal API. Without these
+  the mode started healthy and served nothing Pangolin created.
+- `deployment.installTraefikController=true` now installs a Traefik. The value and
+  `traefikController` were documented as installing a bundled subchart, but `Chart.yaml`
+  declared no such dependency, so both were inert. The official Traefik chart 41.5.0 is now
+  an optional, pinned dependency gated on that switch. It ships three defaults the subchart
+  cannot get right on its own: `nameOverride: traefik` (the alias would otherwise produce
+  the invalid DNS-1123 name `<release>-traefikController`), `ingressClass.isDefaultClass:
+  false` (an externally installed Traefik is a supported topology and two default
+  IngressClasses are ambiguous), and the Badger plugin declaration. An externally installed
+  Traefik remains fully supported and is unaffected while the switch stays `false`.
+- `newtInstances[].useNativeMainInterface` and `useNativeInterface` now both require
+  `global.nativeMode.enabled=true` and are rejected without it. `global.nativeMode.enabled`
+  on its own no longer makes a Pod root and privileged: it is a permission gate, and an
+  instance is only privileged when it also requests a native interface. If you relied on
+  the gate alone to obtain privilege, set `useNativeInterface: true` on the instances that
+  need it.
+- `--secret-env=NEWT_SECRET` is no longer passed in `useCommandArgs` mode. No Newt release
+  defines that flag, and Newt exits 2 on an unknown flag; it reads `NEWT_SECRET` from the
+  environment, which the chart still injects.
+- `newtInstances[].preferEndpoint` now requires `useCommandArgs: true` and is rejected
+  otherwise. Newt has no `PREFER_ENDPOINT` environment variable, so the default env path
+  silently did nothing.
 
 ---
 
@@ -89,6 +149,13 @@ This changelog is chart-scoped to support multiple charts over time.
 - `newtInstances[].extraVolumes` / `extraVolumeMounts` no longer render stray bare list
   dashes ([#25](https://github.com/fosrl/helm-charts/issues/25)).
 
+#### Added
+
+- Per-instance `disableSSH`, `useNativeMainInterface` / `interfaceMain`, `preferEndpoint`,
+  `udpProxyIdleTimeout` and `authDaemon.*`, covering the options Newt gained through
+  1.16. `authDaemon.keySecretName`/`keySecretKey` reference the pre-shared key from a
+  Secret; it is never inlined into the manifest.
+
 #### Changed
 
 - `global.resources` and `newtInstances[].resources` default to `{}`. The chart no longer
@@ -101,6 +168,13 @@ This changelog is chart-scoped to support multiple charts over time.
 - `global.metrics.adminAddr` is authoritative for the metrics port; the container port,
   Service `targetPort` and scrape annotation all derive from it. `global.metrics.port` is
   deprecated but still honoured as the listen port so existing values files are unchanged.
+- Bumped Newt appVersion to `1.16.0` and the chart to `1.6.0`.
+- Stopped emitting `ACCEPT_CLIENTS`, `KEEP_INTERFACE` and `GENERATE_AND_SAVE_KEY_TO` and
+  their CLI flags. None exist in any Newt release this chart can select - `ACCEPT_CLIENTS`
+  was replaced by `DISABLE_CLIENTS` in Newt 1.7.0 - so the binary already ignored them and
+  removing them changes no behaviour. The values keys are kept: `acceptClients` still
+  gates the client Service and NetworkPolicy rule, and the other two are documented as
+  inert.
 
 ---
 
