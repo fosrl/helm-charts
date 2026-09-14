@@ -1,0 +1,536 @@
+suite: Gerbil host gateway mode
+templates:
+  - templates/deployment-gerbil.yaml
+  - templates/deployment-traefik.yaml
+  - templates/networkpolicy.yaml
+  - templates/validate.yaml
+tests:
+  - it: renders no host networking by default
+    set:
+      database:
+        mode: sqlite
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - notExists:
+          path: spec.template.spec.hostNetwork
+      - notExists:
+          path: spec.template.spec.dnsPolicy
+
+  - it: puts Gerbil in the node network namespace when enabled
+    set:
+      database:
+        mode: sqlite
+      namespace:
+        create: true
+        podSecurity:
+          enforce: privileged
+      gerbil:
+        hostGateway:
+          enabled: true
+      networkPolicy:
+        gerbil:
+          hostGateway:
+            nodeCIDRs:
+              - 192.168.1.10/32
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.hostNetwork
+          value: true
+      # ClusterFirst on a hostNetwork Pod uses the node resolver, where the Pangolin
+      # Service name does not exist - Gerbil would never reach --remoteConfig.
+      - equal:
+          path: spec.template.spec.dnsPolicy
+          value: ClusterFirstWithHostNet
+
+  - it: honours a custom dnsPolicy
+    set:
+      database:
+        mode: sqlite
+      namespace:
+        create: true
+        podSecurity:
+          enforce: privileged
+      gerbil:
+        hostGateway:
+          enabled: true
+          dnsPolicy: ClusterFirst
+      networkPolicy:
+        gerbil:
+          hostGateway:
+            nodeCIDRs:
+              - 192.168.1.10/32
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.dnsPolicy
+          value: ClusterFirst
+
+  # --- co-location contract ------------------------------------------------------
+  # The affinity is only correct if its labelSelector matches what the Gerbil workload
+  # actually carries. Both halves are asserted against the same literal map, so a change
+  # to pangolin.gerbil.selectorLabels breaks exactly one of them.
+  - it: pins the chart-managed Traefik to the Gerbil node
+    set:
+      networkPolicy:
+        gerbil:
+          hostGateway:
+            nodeCIDRs:
+              - 192.168.1.10/32
+      database:
+        mode: sqlite
+      deployment:
+        type: standalone
+        mode: multi
+      controller:
+        enabled: false
+      namespace:
+        create: true
+        name: pangolin
+        podSecurity:
+          enforce: privileged
+      gerbil:
+        enabled: true
+        hostGateway:
+          enabled: true
+      traefik:
+        enabled: true
+        config:
+          letsencryptEmail: ops@example.com
+          dynamicRouters:
+            host: pangolin.example.com
+    template: templates/deployment-traefik.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.affinity.podAffinity.requiredDuringSchedulingIgnoredDuringExecution[0]
+          value:
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: pangolin
+                app.kubernetes.io/instance: RELEASE-NAME
+                app.kubernetes.io/component: gerbil
+            namespaces:
+              - NAMESPACE
+            topologyKey: kubernetes.io/hostname
+
+  - it: selects the Gerbil workload with the labels the affinity term matches
+    set:
+      networkPolicy:
+        gerbil:
+          hostGateway:
+            nodeCIDRs:
+              - 192.168.1.10/32
+      database:
+        mode: sqlite
+      namespace:
+        create: true
+        podSecurity:
+          enforce: privileged
+      gerbil:
+        enabled: true
+        hostGateway:
+          enabled: true
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - equal:
+          path: spec.selector.matchLabels
+          value:
+            app.kubernetes.io/name: pangolin
+            app.kubernetes.io/instance: RELEASE-NAME
+            app.kubernetes.io/component: gerbil
+
+  - it: adds no co-location term when host gateway mode is off
+    set:
+      database:
+        mode: sqlite
+      deployment:
+        type: standalone
+        mode: multi
+      controller:
+        enabled: false
+      traefik:
+        enabled: true
+        config:
+          letsencryptEmail: ops@example.com
+          dynamicRouters:
+            host: pangolin.example.com
+    template: templates/deployment-traefik.yaml
+    asserts:
+      - notExists:
+          path: spec.template.spec.affinity
+
+  - it: honours colocateWithGerbil=disabled
+    set:
+      networkPolicy:
+        gerbil:
+          hostGateway:
+            nodeCIDRs:
+              - 192.168.1.10/32
+      database:
+        mode: sqlite
+      deployment:
+        type: standalone
+        mode: multi
+      controller:
+        enabled: false
+      namespace:
+        create: true
+        podSecurity:
+          enforce: privileged
+      gerbil:
+        enabled: true
+        hostGateway:
+          enabled: true
+      traefik:
+        enabled: true
+        colocateWithGerbil: disabled
+        config:
+          letsencryptEmail: ops@example.com
+          dynamicRouters:
+            host: pangolin.example.com
+    template: templates/deployment-traefik.yaml
+    asserts:
+      - notExists:
+          path: spec.template.spec.affinity
+
+  # A required affinity against a workload kept at zero replicas would leave Traefik
+  # Pending forever, so the term is suppressed instead.
+  - it: suppresses the term when Gerbil is not scheduled
+    set:
+      database:
+        mode: sqlite
+      deployment:
+        type: standalone
+        mode: multi
+      controller:
+        enabled: false
+      gerbil:
+        enabled: true
+        startupMode: delayed
+      traefik:
+        enabled: true
+        colocateWithGerbil: required
+        config:
+          letsencryptEmail: ops@example.com
+          dynamicRouters:
+            host: pangolin.example.com
+    template: templates/deployment-traefik.yaml
+    asserts:
+      - notExists:
+          path: spec.template.spec.affinity
+
+  - it: merges the term with a user-supplied affinity
+    set:
+      networkPolicy:
+        gerbil:
+          hostGateway:
+            nodeCIDRs:
+              - 192.168.1.10/32
+      database:
+        mode: sqlite
+      deployment:
+        type: standalone
+        mode: multi
+      controller:
+        enabled: false
+      namespace:
+        create: true
+        name: pangolin
+        podSecurity:
+          enforce: privileged
+      global:
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+                - matchExpressions:
+                    - key: kubernetes.io/os
+                      operator: In
+                      values: ["linux"]
+      gerbil:
+        enabled: true
+        hostGateway:
+          enabled: true
+      traefik:
+        enabled: true
+        config:
+          letsencryptEmail: ops@example.com
+          dynamicRouters:
+            host: pangolin.example.com
+    template: templates/deployment-traefik.yaml
+    asserts:
+      - exists:
+          path: spec.template.spec.affinity.nodeAffinity
+      - lengthEqual:
+          path: spec.template.spec.affinity.podAffinity.requiredDuringSchedulingIgnoredDuringExecution
+          count: 1
+
+  # --- NetworkPolicy -------------------------------------------------------------
+  - it: allows Gerbil to reach Pangolin from the node address in host gateway mode
+    set:
+      networkPolicy:
+        gerbil:
+          hostGateway:
+            nodeCIDRs:
+              - 192.168.1.10/32
+      database:
+        mode: sqlite
+      namespace:
+        create: true
+        podSecurity:
+          enforce: privileged
+      gerbil:
+        enabled: true
+        hostGateway:
+          enabled: true
+    template: templates/networkpolicy.yaml
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-pangolin-ingress
+    asserts:
+      - contains:
+          path: spec.ingress
+          content:
+            from:
+              - ipBlock:
+                  cidr: 192.168.1.10/32
+            ports:
+              - protocol: TCP
+                port: 3001
+
+  - it: narrows the node CIDRs when configured
+    set:
+      database:
+        mode: sqlite
+      namespace:
+        create: true
+        podSecurity:
+          enforce: privileged
+      gerbil:
+        enabled: true
+        hostGateway:
+          enabled: true
+      networkPolicy:
+        gerbil:
+          hostGateway:
+            nodeCIDRs:
+              - 192.168.1.0/24
+    template: templates/networkpolicy.yaml
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-pangolin-ingress
+    asserts:
+      - contains:
+          path: spec.ingress
+          content:
+            from:
+              - ipBlock:
+                  cidr: 192.168.1.0/24
+            ports:
+              - protocol: TCP
+                port: 3001
+
+  - it: keeps the podSelector rule when host gateway mode is off
+    set:
+      database:
+        mode: sqlite
+    template: templates/networkpolicy.yaml
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-pangolin-ingress
+    asserts:
+      - contains:
+          path: spec.ingress
+          content:
+            from:
+              - podSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: pangolin
+                    app.kubernetes.io/instance: RELEASE-NAME
+                    app.kubernetes.io/component: gerbil
+            ports:
+              - protocol: TCP
+                port: 3001
+
+  # --- prerequisites --------------------------------------------------------------
+  - it: rejects host gateway mode in single deployment mode
+    set:
+      database:
+        mode: sqlite
+      deployment:
+        mode: single
+        type: standalone
+      gerbil:
+        hostGateway:
+          enabled: true
+      networkPolicy:
+        gerbil:
+          hostGateway:
+            nodeCIDRs:
+              - 192.168.1.10/32
+    template: templates/validate.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: "PANGOLIN-071"
+
+  - it: rejects host gateway mode with Gerbil disabled
+    set:
+      networkPolicy:
+        gerbil:
+          hostGateway:
+            nodeCIDRs:
+              - 192.168.1.10/32
+      database:
+        mode: sqlite
+      gerbil:
+        enabled: false
+        hostGateway:
+          enabled: true
+    template: templates/validate.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: "PANGOLIN-072"
+
+  - it: rejects more than one Gerbil replica
+    set:
+      networkPolicy:
+        gerbil:
+          hostGateway:
+            nodeCIDRs:
+              - 192.168.1.10/32
+      database:
+        mode: sqlite
+      namespace:
+        create: true
+        podSecurity:
+          enforce: privileged
+      gerbil:
+        replicaCount: 2
+        hostGateway:
+          enabled: true
+    template: templates/validate.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: "PANGOLIN-073"
+
+  - it: rejects a chart-created namespace that forbids hostNetwork
+    set:
+      database:
+        mode: sqlite
+      namespace:
+        create: true
+        podSecurity:
+          enforce: baseline
+      gerbil:
+        hostGateway:
+          enabled: true
+      networkPolicy:
+        gerbil:
+          hostGateway:
+            nodeCIDRs:
+              - 192.168.1.10/32
+    template: templates/validate.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: "PANGOLIN-074"
+
+  - it: rejects host gateway mode without node CIDRs while a policy is enforced
+    set:
+      database:
+        mode: sqlite
+      namespace:
+        create: true
+        podSecurity:
+          enforce: privileged
+      gerbil:
+        hostGateway:
+          enabled: true
+    template: templates/validate.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: "PANGOLIN-075"
+
+  - it: accepts host gateway mode without node CIDRs when no policy is rendered
+    set:
+      database:
+        mode: sqlite
+      namespace:
+        create: true
+        podSecurity:
+          enforce: privileged
+      networkPolicy:
+        enabled: false
+      gerbil:
+        hostGateway:
+          enabled: true
+    template: templates/validate.yaml
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: accepts host gateway mode against an externally managed namespace
+    set:
+      database:
+        mode: sqlite
+      namespace:
+        create: false
+      gerbil:
+        hostGateway:
+          enabled: true
+      networkPolicy:
+        gerbil:
+          hostGateway:
+            nodeCIDRs:
+              - 192.168.1.10/32
+    template: templates/validate.yaml
+    asserts:
+      - notFailedTemplate: {}
+
+  # hostNetwork binds the WireGuard and internal-API ports in the node network namespace,
+  # so a surged Pod cannot bind them and the rollout would never converge.
+  - it: never surges the Gerbil Deployment in host gateway mode
+    set:
+      database:
+        mode: sqlite
+      namespace:
+        create: true
+        podSecurity:
+          enforce: privileged
+      gerbil:
+        hostGateway:
+          enabled: true
+      networkPolicy:
+        gerbil:
+          hostGateway:
+            nodeCIDRs:
+              - 192.168.1.10/32
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - equal:
+          path: spec.strategy.type
+          value: Recreate
+      - notExists:
+          path: spec.strategy.rollingUpdate
+
+  - it: never surges even when Gerbil persistence is disabled
+    set:
+      database:
+        mode: sqlite
+      namespace:
+        create: true
+        podSecurity:
+          enforce: privileged
+      gerbil:
+        persistence:
+          enabled: false
+        hostGateway:
+          enabled: true
+      networkPolicy:
+        gerbil:
+          hostGateway:
+            nodeCIDRs:
+              - 192.168.1.10/32
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - equal:
+          path: spec.strategy.type
+          value: Recreate

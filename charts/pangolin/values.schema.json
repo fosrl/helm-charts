@@ -1385,6 +1385,25 @@
                         "type": "string"
                     }
                 },
+                "hostGateway": {
+                    "type": "object",
+                    "properties": {
+                        "dnsPolicy": {
+                            "description": "DNS policy applied together with hostNetwork. Gerbil still has to resolve the ClusterFirst uses the node resolver, where that name does not exist.",
+                            "type": "string",
+                            "enum": [
+                                "ClusterFirstWithHostNet",
+                                "ClusterFirst",
+                                "Default",
+                                "None"
+                            ]
+                        },
+                        "enabled": {
+                            "description": "TRANSITIONAL COMPATIBILITY MODE - opt-in, never enabled implicitly.  Gerbil creates its WireGuard interface in whatever network namespace it runs in. Under Kubernetes that is its own Pod namespace, so the tunnel subnet Pangolin advertises as a backend exists there and nowhere else: an externally installed Traefik has no route to it and every tunnel-backed resource returns 502 while the tunnel itself is healthy. Docker Compose avoids this by giving Traefik Gerbil's namespace outright (network_mode: service:gerbil); separate Pods have no equivalent.  With hostNetwork the interface and its connected route are created in the NODE namespace, so Pods scheduled onto that node reach the tunnel through the node routing table.  This is a workaround for a missing portable data path, not the intended architecture. It is expected to be superseded - see the chart README.  Requirements and consequences: - Traefik MUST run on the same node. `traefik.colocateWithGerbil` handles the chart-managed Traefik; `helm get notes` prints the snippet for an external one. - Your CNI must masquerade Pod egress leaving the node (the default for Flannel, Calico with natOutgoing, and Cilium). Without it the remote WireGuard peer sees the Traefik Pod IP as source and drops the reply. - The namespace must permit hostNetwork, i.e. Pod Security Admission `privileged`. - Gerbil binds its ports on the node: one Gerbil per node, replicaCount must be 1.",
+                            "type": "boolean"
+                        }
+                    }
+                },
                 "persistence": {
                     "type": "object",
                     "properties": {
@@ -1728,6 +1747,10 @@
                 "affinity": {
                     "description": "Affinity applied to all Pods.",
                     "type": "object"
+                },
+                "clusterDomain": {
+                    "description": "Cluster DNS domain, used to build in-cluster FQDNs.",
+                    "type": "string"
                 },
                 "commonAnnotations": {
                     "description": "Common annotations applied to all resources rendered by this chart (preferred alias).",
@@ -2405,6 +2428,18 @@
                                 "type": "object"
                             }
                         },
+                        "hostGateway": {
+                            "type": "object",
+                            "properties": {
+                                "nodeCIDRs": {
+                                    "description": "Source CIDRs used for the Gerbil -\u003e Pangolin internal-API rule when `gerbil.hostGateway.enabled=true`. A hostNetwork Pod is not matched by a podSelector on any mainstream CNI - its traffic sources from the node IP - so the is blackholed by this chart's own default policy. There is no safe default: RFC1918 and CGNAT contain every mainstream Pod CIDR (flannel 10.244/16, k3s 10.42/16, Calico 192.168/16), so seeding this with those ranges would admit every Pod in the cluster to Pangolin's internal API instead of just the Gerbil node. Supply your node addresses: kubectl get nodes -o jsonpath='{.items[*].status.addresses[?(@.type==\"InternalIP\")].address}'",
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        },
                         "wireguardUdpCIDRs": {
                             "description": "CIDRs allowed for Gerbil UDP egress when WireGuard egress is enabled.",
                             "type": "array",
@@ -2937,7 +2972,7 @@
                                     "type": "boolean"
                                 },
                                 "internal_hostname": {
-                                    "description": "Internal hostname used by Pangolin when communicating with Gerbil.",
+                                    "description": "Hostname Pangolin advertises for its own internal API. It is resolved by Badger from inside the Traefik Pod and also drives the Pangolin UI and AI gateway URLs in the generated Traefik configuration. Empty (default) derives the in-cluster FQDN `\u003crelease\u003e-pangolin.\u003cnamespace\u003e.svc.\u003cclusterDomain\u003e`, which resolves from any namespace. A bare Service name only resolves when Traefik shares the namespace, so with `deployment.traefikNamespace` set it made Badger answer 404 for every request while the Traefik dashboard still showed the router as healthy.",
                                     "type": "string"
                                 },
                                 "maxmind_asn_path": {
@@ -4068,6 +4103,15 @@
                             }
                         }
                     }
+                },
+                "colocateWithGerbil": {
+                    "description": "Pin the chart-managed Traefik Pods onto the node currently running Gerbil, using a required podAffinity on kubernetes.io/hostname. Only meaningful together with `gerbil.hostGateway.enabled`. auto     - follow gerbil.hostGateway.enabled (default) required - always pin disabled - never pin Suppressed automatically when it could not be satisfied (single mode, Gerbil disabled, or a startupMode that keeps Gerbil at zero replicas), because a required affinity against a workload that never schedules would leave Traefik Pending forever. The term is IgnoredDuringExecution: if Gerbil moves, already-running Traefik Pods stay put and keep returning 502 until they are restarted.",
+                    "type": "string",
+                    "enum": [
+                        "auto",
+                        "required",
+                        "disabled"
+                    ]
                 },
                 "commonAnnotations": {
                     "description": "Annotations added to all standalone Traefik resources rendered by this chart.",

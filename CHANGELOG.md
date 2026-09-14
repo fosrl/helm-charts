@@ -13,6 +13,12 @@ This changelog is chart-scoped to support multiple charts over time.
 
 #### Fixed
 
+- `pangolin.config.server.internal_hostname` now defaults to the in-cluster FQDN instead
+  of the bare Service name. Badger resolves it from inside the Traefik Pod, so with
+  `deployment.traefikNamespace` set it did not resolve at all and Badger answered
+  `404 page not found` for every request while the Traefik dashboard still reported the
+  router healthy. The same value drives the Pangolin UI and AI gateway URLs
+  ([#20](https://github.com/fosrl/helm-charts/issues/20)).
 - `pangolin.extraVolumes` / `pangolin.extraVolumeMounts` no longer abort `helm template`.
   The `- {{- toYaml . | nindent N }}` pattern let the whitespace strip eat the list dash
   ([#25](https://github.com/fosrl/helm-charts/issues/25)).
@@ -56,11 +62,19 @@ This changelog is chart-scoped to support multiple charts over time.
   loopback there. In controller mode with an external Traefik, NOTES says at install time
   that the port has no source and what to set, instead of letting AI gateway routes time
   out silently.
+- `gerbil.hostGateway.enabled`, a transitional opt-in mode that runs Gerbil with
+  `hostNetwork` so tunnel routes land in the node network namespace, plus
+  `traefik.colocateWithGerbil` to pin the chart-managed Traefik to that node and
+  `networkPolicy.gerbil.hostGateway.nodeCIDRs` for the node-sourced NetworkPolicy rule.
+  `PANGOLIN-071`..`075` reject the combinations that cannot work. This is a workaround,
+  not the portable fix: [#20](https://github.com/fosrl/helm-charts/issues/20) stays open.
+- `global.clusterDomain` for clusters that do not use `cluster.local`.
 
 #### Changed
 
-- Bumped Pangolin appVersion to `1.22.2`, the Gerbil image to `1.5.1` and the chart to
-  `0.1.0-alpha.2`. The chart remains a prerelease.
+- Bumped Pangolin appVersion to `1.22.2`, the Gerbil image to `1.5.1`, the
+  pangolin-kube-controller image to `0.1.0-alpha.2` and the chart to `0.1.0-alpha.2`.
+  The chart remains a prerelease.
 - `images.traefik.tag` moves from `v3.6.15` to `v3.7.13`. The v3.6 line is out of upstream
   security support, and the bundled Traefik chart already installs v3.7.13, so the two ways
   this chart can run Traefik no longer sit on different minors.

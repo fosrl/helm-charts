@@ -1,0 +1,28 @@
+{
+  "items": [
+    {
+      "metadata": {
+        "name": "resource1-ext-0-44602"
+      },
+      "endpoints": [
+        {
+          "addresses": [
+            "100.89.128.4"
+          ]
+        }
+      ]
+    },
+    {
+      "metadata": {
+        "name": "pangolin"
+      },
+      "endpoints": [
+        {
+          "addresses": [
+            "10.42.1.5"
+          ]
+        }
+      ]
+    }
+  ]
+}

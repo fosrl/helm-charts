@@ -3,6 +3,7 @@
 {{- $root := . -}}
 {{- $gerbil := .Values.gerbil -}}
 {{- $startupMode := include "pangolin.gerbil.startupMode" . -}}
+{{- $hostGateway := eq (include "pangolin.gerbil.hostGateway.enabled" .) "true" -}}
 {{- $fullname := printf "%s-gerbil" (include "pangolin.fullname" .) -}}
 {{- $namespace := include "pangolin.namespace" . -}}
 {{- $saName := include "pangolin.serviceAccountName.gerbil" . -}}
@@ -54,6 +55,14 @@ spec:
     spec:
       serviceAccountName: {{ $saName }}
       automountServiceAccountToken: {{ $root.Values.serviceAccount.gerbil.automountServiceAccountToken }}
+      {{- if $hostGateway }}
+      # Host gateway mode: Gerbil creates wg0 and its connected route in the node network
+      # namespace, so Pods scheduled onto this node can reach the tunnel subnet.
+      # ClusterFirstWithHostNet is mandatory here - Gerbil still has to resolve the
+      # Pangolin Service for --remoteConfig.
+      hostNetwork: true
+      dnsPolicy: {{ include "pangolin.gerbil.hostGateway.dnsPolicy" $root }}
+      {{- end }}
       terminationGracePeriodSeconds: {{ $root.Values.runtime.terminationGracePeriodSeconds | default 30 }}
       {{- if $root.Values.global.priorityClassName }}
       priorityClassName: {{ $root.Values.global.priorityClassName }}
@@ -127,9 +136,9 @@ spec:
             {{- toYaml $gerbil.args | nindent 12 }}
           {{- else if not $gerbil.command }}
           args:
-            - {{ printf "--reachableAt=http://%s-gerbil:%v" (include "pangolin.fullname" $root) ($gerbil.ports.internalApi | default 3004) | quote }}
+            - {{ printf "--reachableAt=http://%s:%v" (include "pangolin.gerbil.serviceFQDN" $root) ($gerbil.ports.internalApi | default 3004) | quote }}
             - --generateAndSaveKeyTo=/var/config/key
-            - {{ printf "--remoteConfig=http://%s:%v/api/v1/" (include "pangolin.fullname" $root) ($root.Values.pangolin.service.ports.internalApi | default 3001) | quote }}
+            - {{ printf "--remoteConfig=http://%s:%v/api/v1/" (include "pangolin.pangolin.serviceFQDN" $root) ($root.Values.pangolin.service.ports.internalApi | default 3001) | quote }}
           {{- end }}
           ports:
             - name: wg1

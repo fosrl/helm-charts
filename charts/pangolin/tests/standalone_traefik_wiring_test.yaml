@@ -19,7 +19,7 @@ tests:
     asserts:
       - contains:
           path: spec.template.spec.containers[0].args
-          content: "--providers.http.endpoint=http://RELEASE-NAME-pangolin:3001/api/v1/traefik-config"
+          content: "--providers.http.endpoint=http://RELEASE-NAME-pangolin.NAMESPACE.svc.cluster.local:3001/api/v1/traefik-config"
       - contains:
           path: spec.template.spec.containers[0].args
           content: "--providers.http.pollinterval=5s"

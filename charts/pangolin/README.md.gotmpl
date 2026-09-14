@@ -348,6 +348,67 @@ Use this checklist before tagging alpha/RC/stable releases. This runtime validat
 - Check events: `kubectl get events -n <ns> --sort-by=.lastTimestamp | tail -n 50`
 - Controller logs: `kubectl logs -n <ns> deploy/<release>-pangolin --since=10m` (adjust name if overridden)
 
+## Tunnel data path
+
+Pangolin advertises the backends behind a Newt site as raw WireGuard peer addresses, for
+example `http://100.89.128.4:44602`. Gerbil creates its WireGuard interface in whatever
+network namespace it runs in, so under Kubernetes those addresses exist inside the Gerbil
+Pod and nowhere else. An externally installed Traefik has no route to them: every
+tunnel-backed resource returns `502` while the tunnel itself is healthy, Newt is
+connected, and the dashboard reports the router as `Success`.
+
+Docker Compose deployments avoid this by giving Traefik Gerbil's network namespace
+outright (`network_mode: service:gerbil`). Separate Kubernetes Pods have no equivalent.
+This is tracked in [#20](https://github.com/fosrl/helm-charts/issues/20), which remains
+open.
+
+### If your targets run in this cluster
+
+Nothing below is needed. A `local` site whose target host is a Kubernetes Service FQDN
+(`<name>.<namespace>.svc`) is served without a tunnel at all.
+
+### Host gateway mode (transitional)
+
+`gerbil.hostGateway.enabled=true` runs Gerbil with `hostNetwork`, so `wg0` and its
+connected route are created in the **node** network namespace and any Pod scheduled onto
+that node reaches the tunnel through the node routing table. Traefik must then run on the
+same node:
+
+- The **chart-managed** Traefik (`deployment.type=standalone` with `traefik.enabled=true`)
+  is pinned automatically by `traefik.colocateWithGerbil`, a required `podAffinity` on
+  `kubernetes.io/hostname`.
+- For an **externally installed** Traefik, `helm get notes` prints the exact snippet to
+  add to its values, with your release name and namespace filled in.
+
+See `examples/values-host-gateway.yaml`.
+
+This is a workaround for a missing portable data path, not the intended architecture.
+Be clear about what it does **not** solve:
+
+| Limitation | Consequence |
+| --- | --- |
+| Only the Gerbil node has the route | Tunnel backends stay unreachable from Pods on every other node. |
+| The affinity is `IgnoredDuringExecution` | If Gerbil is rescheduled, running Traefik Pods stay put and keep returning `502` until restarted. |
+| Requires CNI egress masquerading | Default for Flannel, Calico (`natOutgoing`) and Cilium. Without that SNAT the remote peer sees the Traefik Pod IP as source and drops the reply. The chart can neither detect nor fix this. |
+| Gerbil binds node ports | One Gerbil per node; `gerbil.replicaCount` must stay `1`, so there is no Gerbil HA. |
+| `hostNetwork` needs a privileged namespace | Pod Security Admission must be `privileged`; `baseline` forbids it. `NET_ADMIN` is still required as before. |
+| Not available in `single` mode | Gerbil shares a Pod with Pangolin there, so `hostNetwork` would bind every component's ports on the node. |
+
+The chart refuses the combinations that cannot work rather than letting them surface as a
+Pending Pod or a silent `502`: `PANGOLIN-071` (single mode), `PANGOLIN-072` (Gerbil
+disabled), `PANGOLIN-073` (more than one replica) and `PANGOLIN-074` (chart-created
+namespace without `privileged`).
+
+### NetworkPolicy
+
+A `hostNetwork` Pod is not matched by a `podSelector` on any mainstream CNI — its traffic
+sources from the node IP. In host gateway mode the Gerbil → Pangolin internal-API rule is
+therefore expressed as node address blocks
+(`networkPolicy.gerbil.hostGateway.nodeCIDRs`). There is deliberately no default: the
+private ranges contain every mainstream Pod CIDR, so `PANGOLIN-075` fails the render
+until you set your own node addresses. Without such a rule the chart's own default
+policy would blackhole Gerbil's `--remoteConfig` polling.
+
 ## Gerbil networking model
 
 - Gerbil always opens UDP ports on the Pod.

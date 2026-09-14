@@ -176,7 +176,21 @@ regression, so an existing narrow configuration is carried over untouched.
 {{- $pangolinIngress = append $pangolinIngress (dict "from" (list (dict "podSelector" (dict "matchLabels" $selController))) "ports" (list (dict "protocol" "TCP" "port" $root.Values.pangolin.service.ports.internalApi))) -}}
 {{- end -}}
 {{- if $renderGerbil -}}
+{{- /*
+A hostNetwork Pod is not matched by a podSelector on any mainstream CNI: its traffic
+sources from the node IP. In host gateway mode this rule therefore has to be expressed
+as node address blocks, otherwise Gerbil's --remoteConfig polling is blackholed by this
+chart's own default policy.
+*/ -}}
+{{- if eq (include "pangolin.gerbil.hostGateway.enabled" $root) "true" -}}
+{{- $gerbilNodeFrom := list -}}
+{{- range $cidr := ((($npGerbil.hostGateway) | default dict).nodeCIDRs | default list) -}}
+{{- $gerbilNodeFrom = append $gerbilNodeFrom (dict "ipBlock" (dict "cidr" $cidr)) -}}
+{{- end -}}
+{{- $pangolinIngress = append $pangolinIngress (dict "from" $gerbilNodeFrom "ports" (list (dict "protocol" "TCP" "port" $root.Values.pangolin.service.ports.internalApi))) -}}
+{{- else -}}
 {{- $pangolinIngress = append $pangolinIngress (dict "from" (list (dict "podSelector" (dict "matchLabels" $selGerbil))) "ports" (list (dict "protocol" "TCP" "port" $root.Values.pangolin.service.ports.internalApi))) -}}
+{{- end -}}
 {{- end -}}
 {{- /* A chart-managed Traefik polls the generated configuration from the same internal API
        port. Without this rule the HTTP provider is blackholed by the chart's own policy and

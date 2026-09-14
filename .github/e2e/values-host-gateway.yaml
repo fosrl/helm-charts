@@ -1,0 +1,61 @@
+# Values for the host gateway data-path check in .github/workflows/pangolin-tunnel-e2e.yaml.
+#
+# Standalone + multi so the chart renders its own Traefik and the co-location affinity is
+# actually exercised. SQLite keeps the install to a single workload with no database
+# dependency; this run is about the network path, not persistence.
+deployment:
+  type: standalone
+  mode: multi
+
+controller:
+  enabled: false
+
+database:
+  mode: sqlite
+
+networkPolicy:
+  # kind's default CNI does not enforce NetworkPolicy, so rendering it here would prove
+  # nothing. Its rules are covered by the unit tests instead.
+  enabled: false
+
+namespace:
+  create: false
+
+pangolin:
+  config:
+    app:
+      dashboard_url: https://pangolin.example.test
+    domains:
+      domain1:
+        base_domain: example.test
+        cert_resolver: letsencrypt
+    gerbil:
+      base_endpoint: gerbil.example.test
+
+gerbil:
+  enabled: true
+  startupMode: normal
+  replicaCount: 1
+  hostGateway:
+    enabled: true
+  waitForPangolin:
+    enabled: false
+  persistence:
+    enabled: false
+  service:
+    type: ClusterIP
+
+traefik:
+  enabled: true
+  colocateWithGerbil: required
+  persistence:
+    enabled: false
+  config:
+    letsencryptEmail: ops@example.test
+    dynamicRouters:
+      host: pangolin.example.test
+
+cnpg-operator:
+  enabled: false
+cnpg-cluster:
+  enabled: false

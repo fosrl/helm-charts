@@ -371,7 +371,7 @@ tests:
     asserts:
       - equal:
           path: spec.template.spec.containers[0].args[0]
-          value: "--reachableAt=http://RELEASE-NAME-pangolin-gerbil:3004"
+          value: "--reachableAt=http://RELEASE-NAME-pangolin-gerbil.NAMESPACE.svc.cluster.local:3004"
 
   - it: gerbil renders default args with correct generateAndSaveKeyTo
     template: templates/deployment-gerbil.yaml
@@ -385,7 +385,7 @@ tests:
     asserts:
       - equal:
           path: spec.template.spec.containers[0].args[2]
-          value: "--remoteConfig=http://RELEASE-NAME-pangolin:3001/api/v1/"
+          value: "--remoteConfig=http://RELEASE-NAME-pangolin.NAMESPACE.svc.cluster.local:3001/api/v1/"
 
   - it: gerbil default args have exactly three entries
     template: templates/deployment-gerbil.yaml

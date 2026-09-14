@@ -226,3 +226,64 @@ group. Your current values still take precedence and render unchanged; migrate w
               ports: [{{ default 443 (get $npKubeApi "port") }}]
 {{- end }}
 {{- end }}
+
+{{- if eq (include "pangolin.gerbil.hostGateway.enabled" .) "true" }}
+
+Tunnel data path: Gerbil is running in HOST GATEWAY MODE (hostNetwork=true).
+
+wg0 and its connected route are created in the node network namespace, so only Pods
+scheduled onto that node can reach tunnel backends. This is a transitional
+compatibility mode, not the final architecture - see fosrl/helm-charts#20.
+{{- if eq (include "pangolin.traefik.colocateWithGerbil" .) "true" }}
+
+The chart-managed Traefik is pinned to the Gerbil node via a required podAffinity.
+{{- else if eq (include "pangolin.traefik.chartManaged" .) "true" }}
+
+The chart manages Traefik, but it is NOT pinned to the Gerbil node. Every tunnel-backed
+resource served by a Traefik Pod on another node will return 502. Set
+traefik.colocateWithGerbil=true, and make sure Gerbil is actually scheduled
+(gerbil.startupMode must not hold the Deployment at zero replicas).
+{{- else }}
+
+Traefik is not managed by this chart. Add the following to its Helm values so it
+follows Gerbil, otherwise every tunnel-backed resource will return 502:
+
+  affinity:
+    podAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ include "pangolin.name" . }}
+              app.kubernetes.io/instance: {{ .Release.Name }}
+              app.kubernetes.io/component: gerbil
+          namespaces:
+            - {{ include "pangolin.namespace" . }}
+          topologyKey: kubernetes.io/hostname
+{{- end }}
+
+Verify the path from a Traefik Pod - a response, not a timeout, means it works:
+
+  kubectl -n <traefik-namespace> exec deploy/<traefik-deployment> -- \
+    wget -qO- http://<tunnel-ip>:<port>
+
+Two limits worth knowing before you rely on this:
+  - It depends on your CNI masquerading Pod egress that leaves the node (the default
+    for Flannel, Calico with natOutgoing, and Cilium). Without that SNAT the remote
+    WireGuard peer sees the Traefik Pod IP as source and drops the reply.
+  - The affinity is IgnoredDuringExecution. If Gerbil is rescheduled to another node,
+    already-running Traefik Pods stay where they are and keep returning 502 until you
+    restart them:  kubectl -n <traefik-namespace> rollout restart deploy/<traefik>
+{{- else if and (eq .Values.deployment.type "controller") (eq .Values.deployment.mode "multi") (eq (include "pangolin.gerbil.resourcesEnabled" .) "true") }}
+
+NOTE: tunnel backends are only reachable from Gerbil's own network namespace.
+Pangolin advertises them as WireGuard peer addresses, so an externally installed
+Traefik has no route to them and tunnel-backed resources return 502 while the tunnel
+itself is healthy (fosrl/helm-charts#20).
+
+Workarounds, in order of preference:
+  - Use a `local` site whose target is a Kubernetes Service FQDN
+    (<name>.<namespace>.svc) - no tunnel is involved and nothing extra is needed.
+  - Enable the transitional host gateway mode and co-locate Traefik with Gerbil:
+      --set gerbil.hostGateway.enabled=true
+    It requires Pod Security Admission level `privileged` in this namespace.
+{{- end }}
