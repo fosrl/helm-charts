@@ -196,6 +196,34 @@
                             "description": "Enable lease-based leader election.",
                             "type": "boolean"
                         },
+                        "gerbilBridge": {
+                            "type": "object",
+                            "properties": {
+                                "cidrs": {
+                                    "description": "Only backends inside these CIDRs are rewritten. Empty uses `pangolin.config.gerbil.subnet_group`, so there is one source of truth. The gate is required rather than advisory: Pangolin `local` sites advertise real, routable addresses, and rewriting those would break them. Values are masked before comparison, so a non-canonical block such as `100.89.137.0/20` behaves as the `100.89.128.0/20` it denotes.",
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                },
+                                "enabled": {
+                                    "description": "Publish tunnel backends through the Gerbil bridge. Pangolin advertises the backends behind a Newt site as raw WireGuard peer addresses, which exist only inside Gerbil's network namespace. The controller materialises them faithfully, so Traefik dials an address it has no route to and every tunnel-backed resource returns 502 while the tunnel itself is healthy. With this enabled the controller asks Gerbil for a port on its Pod IP serving each such backend and publishes that instead. Requires `gerbil.bridge.enabled`; the two are separate switches so Gerbil can be rolled out first. Needs a controller image that supports `GERBIL_BRIDGE_ENABLED`.",
+                                    "type": "boolean"
+                                },
+                                "failOpen": {
+                                    "description": "Keep reconciling when Gerbil is unreachable. Default `false` aborts the reconcile and retries, leaving the objects that currently work in place - the advertised addresses are known to be unreachable, so publishing them and reporting success would be worse. `true` publishes them anyway, which reconciles everything else at the cost of 502s on tunnel-backed resources until Gerbil returns.",
+                                    "type": "boolean"
+                                },
+                                "timeout": {
+                                    "description": "Timeout for calls to Gerbil's bridge API.",
+                                    "type": "string"
+                                },
+                                "url": {
+                                    "description": "Gerbil's internal API root. Empty derives it from the chart's own Gerbil Service and `gerbil.ports.internalApi`.",
+                                    "type": "string"
+                                }
+                            }
+                        },
                         "leaseLockNamespace": {
                             "description": "Namespace used for the leader election Lease. Defaults to targetNamespace when empty.",
                             "type": "string"
@@ -1309,6 +1337,44 @@
                         "type": "string"
                     }
                 },
+                "bridge": {
+                    "type": "object",
+                    "properties": {
+                        "advertiseAddress": {
+                            "description": "Address the bridge advertises to the controller. Empty uses the Pod IP from the downward API, which is correct in nearly every case.",
+                            "type": "string"
+                        },
+                        "bindAddress": {
+                            "description": "Address the bridge listeners bind to. The default listens on every interface; binding the Pod IP specifically would make every listener fail whenever that address is unknown or stale.",
+                            "type": "string"
+                        },
+                        "dialTimeout": {
+                            "description": "Timeout for the bridge's connections into the tunnel.",
+                            "type": "string"
+                        },
+                        "enabled": {
+                            "description": "Forward tunnel backends through Gerbil's own Pod IP. An alternative to `hostGateway` that removes its constraints. Gerbil listens on its Pod IP - which every CNI already routes - and proxies into the tunnel in userspace, dialling with the WireGuard interface address as the source so the remote peer accepts and can answer it. Traefik may then run on any node, needs no co-location, and nothing depends on the CNI masquerading. Requires `controller.config.gerbilBridge.enabled` as well: the bridge allocates the ports, and the pangolin-kube-controller is what publishes them in place of the unreachable tunnel addresses. The two switches are separate so Gerbil can be rolled out first. Needs a Gerbil image that supports `--bridge-enabled`.",
+                            "type": "boolean"
+                        },
+                        "portRange": {
+                            "type": "object",
+                            "properties": {
+                                "end": {
+                                    "description": "Last port of the range, inclusive. One port is consumed per tunnel backend, and the range is expressed as a single NetworkPolicy `port`/`endPort` pair, so keep it contiguous.",
+                                    "type": "integer",
+                                    "minimum": 1024,
+                                    "maximum": 65535
+                                },
+                                "start": {
+                                    "description": "First port of the range the bridge allocates listeners from. The default sits above the Linux ephemeral port range (`net.ipv4.ip_local_port_range`, 32768-60999) so bridge listeners do not race Gerbil's own outbound connections for a port.",
+                                    "type": "integer",
+                                    "minimum": 1024,
+                                    "maximum": 65535
+                                }
+                            }
+                        }
+                    }
+                },
                 "command": {
                     "description": "Override the Gerbil container entrypoint (command). When empty the container image's default entrypoint is used.",
                     "type": "array",
@@ -1384,6 +1450,10 @@
                         },
                         "enabled": {
                             "description": "Run Gerbil as a node-level tunnel gateway (`hostNetwork: true`). Gerbil creates its WireGuard interface in whatever network namespace it runs in. In a Pod namespace the tunnel subnet is reachable from the Gerbil Pod only, so an externally installed Traefik cannot dial the backends Pangolin advertises and every tunnel-backed resource returns 502. With `hostNetwork` the interface and its connected route are created in the node namespace, and any Pod scheduled onto that node reaches the tunnel through the node's routing table - no manual node routes required. Traefik must run on the same node; see `traefik.colocateWithGerbil` for the chart-managed Traefik and the `helm get notes` output for the snippet to apply to an externally installed Traefik. Requirements and consequences: the CNI must masquerade Pod egress leaving the node (the default for Flannel, Calico `natOutgoing` and Cilium); the namespace must allow `hostNetwork`, i.e. Pod Security Admission level `privileged`; Gerbil binds its WireGuard and internal API ports on the node, so only one Gerbil instance can run per node; and Gerbil's WireGuard iptables rules are written to the node's tables.",
+                            "type": "boolean"
+                        },
+                        "masquerade": {
+                            "description": "Have Gerbil install the SNAT rule itself instead of relying on the CNI. Only relevant with `enabled: true`. Traffic forwarded through the node into the tunnel still carries the originating Pod's address as source, which sits outside the remote WireGuard peer's `AllowedIPs`; the peer drops it and has no route to reply on. Every mainstream CNI masquerades Pod egress leaving the node and so provides this implicitly, which is why host gateway mode works without it. Set this to stop depending on that. Requires Gerbil to be able to write nat-table rules on the node.",
                             "type": "boolean"
                         }
                     }

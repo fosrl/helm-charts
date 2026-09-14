@@ -182,3 +182,53 @@ tests:
       database.external.generatedSecret.connectionString: "postgresql://u:p@h:5432/db"
     asserts:
       - notFailedTemplate: {}
+
+  - it: fails when the tunnel bridge is enabled without Gerbil
+    set:
+      gerbil.bridge.enabled: true
+      gerbil.enabled: false
+    asserts:
+      - failedTemplate:
+          errorMessage: "PANGOLIN-071: gerbil.bridge.enabled=true requires gerbil.enabled=true."
+
+  - it: fails when the tunnel bridge is enabled in single mode
+    set:
+      gerbil.bridge.enabled: true
+      deployment.mode: single
+    asserts:
+      - failedTemplate:
+          errorMessage: "PANGOLIN-071: gerbil.bridge.enabled=true requires deployment.mode=multi. In single mode Traefik already shares Gerbil's network namespace, so tunnel backends are reachable without the bridge."
+
+  - it: fails when the tunnel bridge port range is inverted
+    set:
+      gerbil.bridge.enabled: true
+      gerbil.bridge.portRange.start: 61999
+      gerbil.bridge.portRange.end: 61000
+    asserts:
+      - failedTemplate:
+          errorMessage: "PANGOLIN-072: gerbil.bridge.portRange.start (61999) must not exceed gerbil.bridge.portRange.end (61000)."
+
+  - it: fails when the tunnel bridge range covers a port Gerbil already binds
+    set:
+      gerbil.bridge.enabled: true
+      gerbil.bridge.portRange.start: 51000
+      gerbil.bridge.portRange.end: 52000
+    asserts:
+      - failedTemplate:
+          errorMessage: "PANGOLIN-073: gerbil.ports.wg1 (51820) falls inside gerbil.bridge.portRange 51000-52000. The bridge would try to bind a port Gerbil already listens on."
+
+  - it: fails when the controller bridge is enabled in standalone mode
+    set:
+      controller.config.gerbilBridge.enabled: true
+      deployment.type: standalone
+      traefik.enabled: false
+    asserts:
+      - failedTemplate:
+          errorMessage: "PANGOLIN-074: controller.config.gerbilBridge.enabled=true requires deployment.type=controller. Only the pangolin-kube-controller publishes backends as Kubernetes objects; standalone Traefik reads the config directly."
+
+  - it: passes with the tunnel bridge enabled on both sides
+    set:
+      gerbil.bridge.enabled: true
+      controller.config.gerbilBridge.enabled: true
+    asserts:
+      - notFailedTemplate: {}

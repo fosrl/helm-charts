@@ -22,6 +22,7 @@ These values files are intended to be copy/pasteable starting points.
 | Standalone + Traefik | `values-standalone-traefik.yaml` | Standalone topology close to installer style; less recommended for K8s production | **No** (uses `namespace.create=true`) |
 | Gerbil LoadBalancer | `values-gerbil-loadbalancer.yaml` | Expose Gerbil WireGuard ports via Kubernetes LoadBalancer | **No** (uses `namespace.create=true`) |
 | Gerbil host gateway | `values-host-gateway.yaml` | Make tunnel backends reachable from an externally installed Traefik in controller + multi mode | **No** (uses `namespace.create=true`) |
+| Gerbil tunnel bridge | `values-tunnel-bridge.yaml` | Same goal without hostNetwork, privileged PSA or Traefik co-location; needs Gerbil and controller images that support the bridge | **No** (uses `namespace.create=true`) |
 | Single mode controller | `values-single-controller.yaml` | Demonstrate `deployment.mode=single` in controller mode (trade-off profile) | **No** (uses `namespace.create=true`) |
 | Single mode standalone | `values-single-standalone.yaml` | Demonstrate `deployment.mode=single` in standalone mode (trade-off profile) | **No** (uses `namespace.create=true`) |
 
@@ -52,9 +53,18 @@ creates that interface inside its own Pod network namespace. In
 Traefik therefore cannot reach those backends and returns 502 for every
 tunnel-backed resource, while still reporting the router as healthy.
 
-Use `values-host-gateway.yaml` to run Gerbil as a node-level gateway
-(`hostNetwork`) and co-locate Traefik with it. See the "Tunnel data path"
-section of the chart README for the full mechanism, requirements and limits.
+Two profiles fix this:
+
+- `values-tunnel-bridge.yaml` forwards through Gerbil's own Pod IP, so Traefik
+  runs anywhere and nothing needs `hostNetwork`, a `privileged` PSA level or the
+  CNI's masquerade. Prefer this where the Gerbil and controller images support
+  it.
+- `values-host-gateway.yaml` moves the tunnel interface into the node network
+  namespace and pins Traefik to that node. Works with any image version, at the
+  cost of those requirements.
+
+See the "Tunnel data path" section of the chart README for both mechanisms, the
+full comparison, and their limits.
 
 ## First-run behavior and Gerbil notes
 

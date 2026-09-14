@@ -313,6 +313,20 @@ spec:
 {{- if gt (len $internalApiFrom) 0 -}}
 {{- $gerbilIngress = append $gerbilIngress (dict "from" $internalApiFrom "ports" (list (dict "protocol" "TCP" "port" ($root.Values.gerbil.ports.internalApi | default 3004)))) -}}
 {{- end -}}
+{{- /*
+The tunnel bridge is dialled by Traefik, which is a separate workload this
+chart does not necessarily render and which frequently lives in another
+namespace. There is no selector that reliably identifies it, so the range is
+opened to any client that can already reach the Pod - the ports only forward to
+tunnel backends that were explicitly registered. Restrict it further with
+networkPolicy.gerbil.extraIngress if the deployment warrants it.
+
+port/endPort expresses the contiguous range as one rule; it is GA since 1.25 and
+the chart requires 1.30+.
+*/ -}}
+{{- if eq (include "pangolin.gerbil.bridge.enabled" $root) "true" -}}
+{{- $gerbilIngress = append $gerbilIngress (dict "ports" (list (dict "protocol" "TCP" "port" (include "pangolin.gerbil.bridge.portStart" $root | int) "endPort" (include "pangolin.gerbil.bridge.portEnd" $root | int)))) -}}
+{{- end -}}
 
 {{- $gerbilEgress := list -}}
 {{- if $dnsEnabled -}}

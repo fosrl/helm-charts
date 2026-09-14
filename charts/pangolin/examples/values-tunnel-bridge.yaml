@@ -1,0 +1,117 @@
+# Example: Gerbil tunnel bridge (portable tunnel data path)
+#
+# Topology: deployment.type=controller + deployment.mode=multi
+# Database:  database.mode=cloudnativepg (default)
+#
+# THE PROBLEM
+#
+# Pangolin advertises the backends behind a Newt site as raw WireGuard peer
+# addresses, e.g. http://100.89.128.4:44602. Gerbil creates its WireGuard
+# interface in whatever network namespace it runs in, so under Kubernetes those
+# addresses exist inside the Gerbil Pod and nowhere else. The
+# pangolin-kube-controller materialises them faithfully into a headless Service
+# and an EndpointSlice, an externally installed Traefik dials an address it has
+# no route to, and every tunnel-backed resource returns 502 - while the tunnel
+# is healthy, Newt is connected, and the dashboard reports the router as fine.
+#
+# Docker Compose deployments never hit this because Traefik is given Gerbil's
+# network namespace outright (network_mode: service:gerbil). Separate
+# Kubernetes Pods have no equivalent.
+#
+# THE FIX IN THIS PROFILE
+#
+# Gerbil listens on its own Pod IP - which every CNI already routes - and
+# forwards into the tunnel in userspace, dialling with the WireGuard interface
+# address as the source so the remote peer accepts it and can reply. The
+# controller asks Gerbil for the port serving each tunnel backend and publishes
+# that instead of the unreachable address.
+#
+#   Traefik Pod (any node) -> <gerbil pod IP>:<bridgePort> -> wg0 -> Newt
+#
+# Compared with examples/values-host-gateway.yaml this needs no hostNetwork, no
+# privileged Pod Security Admission level, no co-location of Traefik with
+# Gerbil, and nothing from the CNI's masquerade configuration. Traefik stays a
+# normal, horizontally scalable Deployment on any node.
+#
+# REQUIREMENTS
+#
+#   - A Gerbil image supporting `--bridge-enabled`
+#   - A pangolin-kube-controller image supporting `GERBIL_BRIDGE_ENABLED`
+#
+# Both switches below are needed: Gerbil allocates the ports and the controller
+# publishes them. They are separate so a rollout can enable Gerbil first - the
+# bridge simply sits idle until the controller starts asking for ports.
+#
+# Usage:
+#   helm install pangolin charts/pangolin \
+#     -f examples/values-tunnel-bridge.yaml \
+#     --namespace pangolin --create-namespace
+
+deployment:
+  type: controller
+  mode: multi
+  # Namespace of the externally installed Traefik. It needs no special
+  # scheduling: the bridge address is reachable from every node.
+  traefikNamespace: traefik-system
+
+namespace:
+  create: true
+  name: pangolin
+  podSecurity:
+    # `baseline` is enough - unlike host gateway mode, nothing here needs
+    # hostNetwork.
+    enforce: baseline
+    warn: baseline
+    audit: baseline
+
+pangolin:
+  config:
+    app:
+      # REPLACE: the public URL of your Pangolin dashboard.
+      dashboard_url: "https://pangolin.yourdomain.example"
+    gerbil:
+      # REPLACE: where external WireGuard peers reach Gerbil.
+      base_endpoint: "vpn.yourdomain.example"
+      # The tunnel subnet. controller.config.gerbilBridge.cidrs defaults to
+      # this value, so the two cannot drift apart.
+      subnet_group: "100.89.137.0/20"
+
+gerbil:
+  enabled: true
+  # `delayed` keeps the Deployment at replicas=0, so there would be no bridge.
+  startupMode: normal
+  replicaCount: 1
+  bridge:
+    enabled: true
+    # Defaults are correct for almost every cluster:
+    #   bindAddress: "0.0.0.0"   listen on every interface
+    #   advertiseAddress: ""     use the Pod IP from the downward API
+    #   portRange: 61000-61999   above the Linux ephemeral range, one port per
+    #                            tunnel backend, opened as a single
+    #                            NetworkPolicy port/endPort rule
+    #   dialTimeout: 5s
+  persistence:
+    enabled: true
+  service:
+    type: ClusterIP
+
+controller:
+  enabled: true
+  config:
+    gerbilBridge:
+      enabled: true
+      # url defaults to the chart's own Gerbil Service.
+      # cidrs defaults to pangolin.config.gerbil.subnet_group. Only backends
+      # inside it are rewritten - Pangolin `local` sites advertise real,
+      # routable addresses that must be left alone.
+      #
+      # failOpen: false (default) aborts the reconcile when Gerbil is
+      # unreachable and retries, leaving the objects that currently work in
+      # place. Set true to publish the raw tunnel addresses instead, which
+      # reconciles everything else at the cost of 502s until Gerbil returns.
+      failOpen: false
+
+cnpg-operator:
+  enabled: false
+cnpg-cluster:
+  enabled: true

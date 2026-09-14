@@ -1015,6 +1015,42 @@ controller:
     # INSECURE: plaintext HTTP is only acceptable for same-namespace in-cluster traffic protected by NetworkPolicy.
     # For production, prefer HTTPS/mTLS (set an HTTPS configEndpoint and enable controller.tls).
     allowInsecureHttp: null # @schema type: [boolean, "null"]
+    gerbilBridge:
+      # -- Publish tunnel backends through the Gerbil bridge.
+      #
+      # Pangolin advertises the backends behind a Newt site as raw WireGuard
+      # peer addresses, which exist only inside Gerbil's network namespace. The
+      # controller materialises them faithfully, so Traefik dials an address it
+      # has no route to and every tunnel-backed resource returns 502 while the
+      # tunnel itself is healthy.
+      #
+      # With this enabled the controller asks Gerbil for a port on its Pod IP
+      # serving each such backend and publishes that instead. Requires
+      # `gerbil.bridge.enabled`; the two are separate switches so Gerbil can be
+      # rolled out first. Needs a controller image that supports
+      # `GERBIL_BRIDGE_ENABLED`.
+      enabled: false # @schema type: boolean
+      # -- Gerbil's internal API root. Empty derives it from the chart's own
+      # Gerbil Service and `gerbil.ports.internalApi`.
+      url: "" # @schema type: string
+      # -- Only backends inside these CIDRs are rewritten. Empty uses
+      # `pangolin.config.gerbil.subnet_group`, so there is one source of truth.
+      #
+      # The gate is required rather than advisory: Pangolin `local` sites
+      # advertise real, routable addresses, and rewriting those would break
+      # them. Values are masked before comparison, so a non-canonical block such
+      # as `100.89.137.0/20` behaves as the `100.89.128.0/20` it denotes.
+      cidrs: [] # @schema type: array ; items: { type: string }
+      # -- Timeout for calls to Gerbil's bridge API.
+      timeout: 10s # @schema type: string
+      # -- Keep reconciling when Gerbil is unreachable.
+      #
+      # Default `false` aborts the reconcile and retries, leaving the objects
+      # that currently work in place - the advertised addresses are known to be
+      # unreachable, so publishing them and reporting success would be worse.
+      # `true` publishes them anyway, which reconciles everything else at the
+      # cost of 502s on tunnel-backed resources until Gerbil returns.
+      failOpen: false # @schema type: boolean
   waitForPangolin:
     # -- Wait for Pangolin CONFIG_ENDPOINT before starting controller.
     enabled: true # @schema type: boolean
@@ -1356,6 +1392,53 @@ gerbil:
     # name for `--remoteConfig`, and with the default `ClusterFirst` a
     # hostNetwork Pod uses the node resolver, where that name does not exist.
     dnsPolicy: ClusterFirstWithHostNet # @schema type: string ; enum: [ClusterFirstWithHostNet, ClusterFirst, Default, None]
+    # -- Have Gerbil install the SNAT rule itself instead of relying on the CNI.
+    #
+    # Only relevant with `enabled: true`. Traffic forwarded through the node
+    # into the tunnel still carries the originating Pod's address as source,
+    # which sits outside the remote WireGuard peer's `AllowedIPs`; the peer
+    # drops it and has no route to reply on. Every mainstream CNI masquerades
+    # Pod egress leaving the node and so provides this implicitly, which is why
+    # host gateway mode works without it. Set this to stop depending on that.
+    #
+    # Requires Gerbil to be able to write nat-table rules on the node.
+    masquerade: false # @schema type: boolean
+  bridge:
+    # -- Forward tunnel backends through Gerbil's own Pod IP.
+    #
+    # An alternative to `hostGateway` that removes its constraints. Gerbil
+    # listens on its Pod IP - which every CNI already routes - and proxies into
+    # the tunnel in userspace, dialling with the WireGuard interface address as
+    # the source so the remote peer accepts and can answer it. Traefik may then
+    # run on any node, needs no co-location, and nothing depends on the CNI
+    # masquerading.
+    #
+    # Requires `controller.config.gerbilBridge.enabled` as well: the bridge
+    # allocates the ports, and the pangolin-kube-controller is what publishes
+    # them in place of the unreachable tunnel addresses. The two switches are
+    # separate so Gerbil can be rolled out first.
+    #
+    # Needs a Gerbil image that supports `--bridge-enabled`.
+    enabled: false # @schema type: boolean
+    # -- Address the bridge listeners bind to. The default listens on every
+    # interface; binding the Pod IP specifically would make every listener fail
+    # whenever that address is unknown or stale.
+    bindAddress: "0.0.0.0" # @schema type: string
+    # -- Address the bridge advertises to the controller. Empty uses the Pod IP
+    # from the downward API, which is correct in nearly every case.
+    advertiseAddress: "" # @schema type: string
+    portRange:
+      # -- First port of the range the bridge allocates listeners from.
+      # The default sits above the Linux ephemeral port range
+      # (`net.ipv4.ip_local_port_range`, 32768-60999) so bridge listeners do not
+      # race Gerbil's own outbound connections for a port.
+      start: 61000 # @schema type: integer ; minimum: 1024 ; maximum: 65535
+      # -- Last port of the range, inclusive. One port is consumed per tunnel
+      # backend, and the range is expressed as a single NetworkPolicy
+      # `port`/`endPort` pair, so keep it contiguous.
+      end: 61999 # @schema type: integer ; minimum: 1024 ; maximum: 65535
+    # -- Timeout for the bridge's connections into the tunnel.
+    dialTimeout: 5s # @schema type: string
   waitForPangolin:
     # -- Wait for Pangolin internal API before starting Gerbil.
     enabled: true # @schema type: boolean

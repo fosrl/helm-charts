@@ -25,6 +25,19 @@ This changelog is chart-scoped to support multiple charts over time.
 - `examples/values-host-gateway.yaml` and a "Tunnel data path" README section covering the mechanism, the
   CNI-masquerade requirement, the support matrix per `deployment.type`/`mode`, and the unsupported
   node-route alternative.
+- `gerbil.bridge.*` and `controller.config.gerbilBridge.*` wire up the Gerbil tunnel bridge: Gerbil
+  listens on its own Pod IP and forwards into the tunnel in userspace, and the controller publishes
+  those ports instead of the WireGuard peer addresses Traefik cannot route to. Unlike host gateway
+  mode this needs no `hostNetwork`, no `privileged` Pod Security Admission level, no co-location of
+  Traefik with Gerbil, and nothing from the CNI's masquerade configuration, so Traefik stays a normal
+  Deployment on any node. Requires Gerbil and pangolin-kube-controller images that support it, and
+  both switches — Gerbil allocates the ports, the controller publishes them.
+  ([#20](https://github.com/fosrl/helm-charts/issues/20))
+- `gerbil.hostGateway.masquerade` has Gerbil install the SNAT rule itself, so host gateway mode no
+  longer depends on the CNI providing an equivalent for egress leaving the node.
+- `examples/values-tunnel-bridge.yaml` and a "Tunnel bridge" README section covering the mechanism,
+  the comparison against host gateway mode, port allocation and naming stability, the fail-open/
+  fail-closed behaviour, and how to verify it.
 - A cluster-level E2E workflow (`.github/workflows/pangolin-e2e.yaml`) replacing the install smoke test
   removed in `f52097e`. It installs the chart into a three-node kind cluster and runs
   `scripts/e2e/assert-tunnel-backends.sh`, which fails when the controller publishes an EndpointSlice
@@ -49,7 +62,9 @@ This changelog is chart-scoped to support multiple charts over time.
 
 - New validations `PANGOLIN-067`..`PANGOLIN-070` guard host gateway mode: `deployment.mode=multi`,
   `gerbil.enabled=true`, `gerbil.replicaCount=1`, and PSA `enforce=privileged` for chart-created
-  namespaces.
+  namespaces. `PANGOLIN-071`..`PANGOLIN-074` guard the tunnel bridge: `gerbil.enabled=true` and
+  `deployment.mode=multi`, a well-ordered port range, a range that does not cover a port Gerbil
+  already binds, and `deployment.type=controller` for the controller-side switch.
 - `examples/README.md` lost a leftover merge-conflict marker that split it into two documents, and
   `examples/values-e2e-kind.yaml` no longer points at the deleted `pangolin-e2e.yaml` workflow. It now
   states that the profile keeps Gerbil at `replicas: 0` and never exercises the tunnel data path.

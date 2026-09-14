@@ -153,6 +153,15 @@ spec:
             - name: internal-api
               containerPort: {{ $gerbil.ports.internalApi | default 3004 }}
               protocol: TCP
+            {{- if eq (include "pangolin.gerbil.bridge.enabled" $root) "true" }}
+            {{- /* Declared for discoverability only. The bridge allocates
+                   listeners across the whole range at runtime, and containerPort
+                   is informational, so enumerating a thousand entries would add
+                   nothing but noise. */}}
+            - name: bridge
+              containerPort: {{ include "pangolin.gerbil.bridge.portStart" $root }}
+              protocol: TCP
+            {{- end }}
           {{- $gerbilEnv := include "pangolin.gerbilEnv" $root | trim }}
           {{- if $gerbilEnv }}
           env:

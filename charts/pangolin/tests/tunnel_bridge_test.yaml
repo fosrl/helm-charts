@@ -1,0 +1,205 @@
+suite: Gerbil tunnel bridge wiring
+templates:
+  - templates/deployment-gerbil.yaml
+  - templates/configmap-controller.yaml
+  - templates/networkpolicy.yaml
+tests:
+  - it: renders no bridge wiring by default
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - isNull:
+          path: spec.template.spec.containers[0].env
+      - notContains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: bridge
+            containerPort: 61000
+            protocol: TCP
+
+  - it: leaves the controller ConfigMap untouched by default
+    template: templates/configmap-controller.yaml
+    asserts:
+      - notExists:
+          path: data.GERBIL_BRIDGE_ENABLED
+      - notExists:
+          path: data.GERBIL_BRIDGE_CIDRS
+
+  - it: enables the bridge on Gerbil with the Pod IP from the downward API
+    set:
+      gerbil.bridge.enabled: true
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: BRIDGE_ENABLED
+            value: "true"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: BRIDGE_BIND_ADDRESS
+            value: "0.0.0.0"
+      # The advertised address must be the Pod's own, which only the downward
+      # API can supply; the controller publishes it in EndpointSlices.
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POD_IP
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: BRIDGE_PORT_RANGE
+            value: "61000-61999"
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: bridge
+            containerPort: 61000
+            protocol: TCP
+
+  - it: prefers an explicit advertise address over the downward API
+    set:
+      gerbil.bridge.enabled: true
+      gerbil.bridge.advertiseAddress: "10.42.1.37"
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: BRIDGE_ADVERTISE_ADDRESS
+            value: "10.42.1.37"
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POD_IP
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
+
+  - it: honours a custom port range
+    set:
+      gerbil.bridge.enabled: true
+      gerbil.bridge.portRange.start: 62000
+      gerbil.bridge.portRange.end: 62099
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: BRIDGE_PORT_RANGE
+            value: "62000-62099"
+
+  - it: does not enable the bridge when Gerbil resources are not rendered
+    set:
+      gerbil.bridge.enabled: true
+      gerbil.startupMode: disabledUntilSetup
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: wires the controller to the in-cluster Gerbil Service by default
+    set:
+      controller.config.gerbilBridge.enabled: true
+    template: templates/configmap-controller.yaml
+    asserts:
+      - equal:
+          path: data.GERBIL_BRIDGE_ENABLED
+          value: "true"
+      - equal:
+          path: data.GERBIL_BRIDGE_URL
+          value: http://RELEASE-NAME-pangolin-gerbil.NAMESPACE.svc.cluster.local:3004
+      # Defaulted from pangolin.config.gerbil.subnet_group so the CIDR gate and
+      # the address allocator cannot drift apart.
+      - equal:
+          path: data.GERBIL_BRIDGE_CIDRS
+          value: 100.89.137.0/20
+      - equal:
+          path: data.GERBIL_BRIDGE_TIMEOUT
+          value: 10s
+      - equal:
+          path: data.GERBIL_BRIDGE_FAIL_OPEN
+          value: "false"
+
+  - it: follows a customised tunnel subnet
+    set:
+      controller.config.gerbilBridge.enabled: true
+      pangolin.config.gerbil.subnet_group: 10.200.0.0/16
+    template: templates/configmap-controller.yaml
+    asserts:
+      - equal:
+          path: data.GERBIL_BRIDGE_CIDRS
+          value: 10.200.0.0/16
+
+  - it: allows explicit CIDRs and URL to override the derived values
+    set:
+      controller.config.gerbilBridge.enabled: true
+      controller.config.gerbilBridge.url: http://gerbil.other:3004
+      controller.config.gerbilBridge.cidrs:
+        - 100.89.128.0/20
+        - 100.90.128.0/20
+      controller.config.gerbilBridge.failOpen: true
+    template: templates/configmap-controller.yaml
+    asserts:
+      - equal:
+          path: data.GERBIL_BRIDGE_URL
+          value: http://gerbil.other:3004
+      - equal:
+          path: data.GERBIL_BRIDGE_CIDRS
+          value: 100.89.128.0/20,100.90.128.0/20
+      - equal:
+          path: data.GERBIL_BRIDGE_FAIL_OPEN
+          value: "true"
+
+  - it: opens the bridge port range to Traefik as a single NetworkPolicy rule
+    set:
+      gerbil.bridge.enabled: true
+    template: templates/networkpolicy.yaml
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-gerbil-ingress
+    asserts:
+      - contains:
+          path: spec.ingress
+          content:
+            ports:
+              - protocol: TCP
+                port: 61000
+                endPort: 61999
+
+  - it: does not open the bridge range when the bridge is off
+    template: templates/networkpolicy.yaml
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-gerbil-ingress
+    asserts:
+      - notContains:
+          path: spec.ingress
+          content:
+            ports:
+              - protocol: TCP
+                port: 61000
+                endPort: 61999
+
+  - it: enables the host gateway masquerade rule only with host gateway mode
+    set:
+      gerbil.hostGateway.enabled: true
+      gerbil.hostGateway.masquerade: true
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: HOST_GATEWAY_MASQUERADE
+            value: "true"
+
+  - it: ignores the masquerade flag without host gateway mode
+    set:
+      gerbil.hostGateway.masquerade: true
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - isNull:
+          path: spec.template.spec.containers[0].env

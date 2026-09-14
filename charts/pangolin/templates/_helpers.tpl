@@ -682,9 +682,91 @@ imagePullSecrets:
 
 {{- define "pangolin.gerbilEnv" -}}
 {{- $gerbil := .Values.gerbil -}}
+{{- if eq (include "pangolin.gerbil.bridge.enabled" .) "true" }}
+- name: BRIDGE_ENABLED
+  value: "true"
+- name: BRIDGE_BIND_ADDRESS
+  value: {{ (($gerbil.bridge).bindAddress | default "0.0.0.0") | quote }}
+{{- if (($gerbil.bridge).advertiseAddress) }}
+- name: BRIDGE_ADVERTISE_ADDRESS
+  value: {{ ($gerbil.bridge).advertiseAddress | quote }}
+{{- else }}
+{{- /* Gerbil advertises this address to the controller, which publishes it in
+       EndpointSlices. It must be the Pod's own address, so it comes from the
+       downward API rather than anything the chart could guess. */}}
+- name: POD_IP
+  valueFrom:
+    fieldRef:
+      fieldPath: status.podIP
+{{- end }}
+- name: BRIDGE_PORT_RANGE
+  value: {{ include "pangolin.gerbil.bridge.portRange" . | quote }}
+- name: BRIDGE_DIAL_TIMEOUT
+  value: {{ (($gerbil.bridge).dialTimeout | default "5s") | quote }}
+{{- end }}
+{{- if and (eq (include "pangolin.gerbil.hostGateway.enabled" .) "true") ((($gerbil.hostGateway).masquerade) | default false) }}
+- name: HOST_GATEWAY_MASQUERADE
+  value: "true"
+{{- end }}
 {{- range $k, $v := ($gerbil.extraEnv | default dict) }}
 - name: {{ $k }}
   value: {{ $v | quote }}
+{{- end -}}
+{{- end -}}
+
+{{- /*
+Gerbil tunnel bridge helpers.
+
+The bridge makes tunnel backends reachable from any Pod by forwarding through
+Gerbil's own Pod IP, so unlike host gateway mode it needs neither hostNetwork
+nor Traefik co-location. It only does anything when the controller is also
+configured to publish the allocated ports.
+*/ -}}
+{{- define "pangolin.gerbil.bridge.enabled" -}}
+{{- $bridge := (.Values.gerbil).bridge | default dict -}}
+{{- if and ($bridge.enabled | default false) (eq (include "pangolin.gerbil.resourcesEnabled" .) "true") -}}
+true{{- else -}}false{{- end -}}
+{{- end -}}
+
+{{- define "pangolin.gerbil.bridge.portRange" -}}
+{{- $range := ((.Values.gerbil).bridge).portRange | default dict -}}
+{{- printf "%v-%v" ($range.start | default 61000) ($range.end | default 61999) -}}
+{{- end -}}
+
+{{- define "pangolin.gerbil.bridge.portStart" -}}
+{{- $range := ((.Values.gerbil).bridge).portRange | default dict -}}
+{{- $range.start | default 61000 -}}
+{{- end -}}
+
+{{- define "pangolin.gerbil.bridge.portEnd" -}}
+{{- $range := ((.Values.gerbil).bridge).portRange | default dict -}}
+{{- $range.end | default 61999 -}}
+{{- end -}}
+
+{{- define "pangolin.controller.gerbilBridge.enabled" -}}
+{{- $cfg := ((.Values.controller).config).gerbilBridge | default dict -}}
+{{- $cfg.enabled | default false -}}
+{{- end -}}
+
+{{- define "pangolin.controller.gerbilBridge.url" -}}
+{{- $cfg := ((.Values.controller).config).gerbilBridge | default dict -}}
+{{- if $cfg.url -}}
+{{- $cfg.url -}}
+{{- else -}}
+{{- printf "http://%s-gerbil.%s.svc.%s:%v" (include "pangolin.fullname" .) (include "pangolin.namespace" .) (include "pangolin.clusterDomain" .) ((.Values.gerbil.ports).internalApi | default 3004) -}}
+{{- end -}}
+{{- end -}}
+
+{{- /*
+Defaults to the tunnel subnet Pangolin allocates site addresses from, so the
+CIDR gate and the allocator cannot drift apart.
+*/ -}}
+{{- define "pangolin.controller.gerbilBridge.cidrs" -}}
+{{- $cfg := ((.Values.controller).config).gerbilBridge | default dict -}}
+{{- if $cfg.cidrs -}}
+{{- join "," $cfg.cidrs -}}
+{{- else -}}
+{{- ((.Values.pangolin.config).gerbil).subnet_group | default "100.89.137.0/20" -}}
 {{- end -}}
 {{- end -}}
 
@@ -838,6 +920,38 @@ limits:
 {{- $podSecurity := default (dict) (get $namespaceVals "podSecurity") -}}
 {{- if and (default false (get $namespaceVals "create")) (ne (default "" (get $podSecurity "enforce")) "privileged") -}}
 {{- fail "PANGOLIN-070: gerbil.hostGateway.enabled=true requires namespace.podSecurity.enforce=privileged when the chart creates the namespace. Pod Security Admission level baseline forbids hostNetwork." -}}
+{{- end -}}
+{{- end -}}
+
+{{- $gerbilBridge := default (dict) (get $gerbil "bridge") -}}
+{{- if default false (get $gerbilBridge "enabled") -}}
+{{- if not (default false (get $gerbil "enabled")) -}}
+{{- fail "PANGOLIN-071: gerbil.bridge.enabled=true requires gerbil.enabled=true." -}}
+{{- end -}}
+{{- if ne $root.Values.deployment.mode "multi" -}}
+{{- fail "PANGOLIN-071: gerbil.bridge.enabled=true requires deployment.mode=multi. In single mode Traefik already shares Gerbil's network namespace, so tunnel backends are reachable without the bridge." -}}
+{{- end -}}
+{{- $bridgeRange := default (dict) (get $gerbilBridge "portRange") -}}
+{{- $bridgeStart := int (default 61000 (get $bridgeRange "start")) -}}
+{{- $bridgeEnd := int (default 61999 (get $bridgeRange "end")) -}}
+{{- if gt $bridgeStart $bridgeEnd -}}
+{{- fail (printf "PANGOLIN-072: gerbil.bridge.portRange.start (%d) must not exceed gerbil.bridge.portRange.end (%d)." $bridgeStart $bridgeEnd) -}}
+{{- end -}}
+{{- $gerbilPorts := default (dict) (get $gerbil "ports") -}}
+{{- range $name, $port := (dict "wg1" (default 51820 (get $gerbilPorts "wg1")) "wg2" (default 21820 (get $gerbilPorts "wg2")) "internalApi" (default 3004 (get $gerbilPorts "internalApi"))) -}}
+{{- if and (ge (int $port) $bridgeStart) (le (int $port) $bridgeEnd) -}}
+{{- fail (printf "PANGOLIN-073: gerbil.ports.%s (%d) falls inside gerbil.bridge.portRange %d-%d. The bridge would try to bind a port Gerbil already listens on." $name (int $port) $bridgeStart $bridgeEnd) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- $controllerBridge := default (dict) (get (default (dict) (get (default (dict) $root.Values.controller) "config")) "gerbilBridge") -}}
+{{- if default false (get $controllerBridge "enabled") -}}
+{{- if ne $root.Values.deployment.type "controller" -}}
+{{- fail "PANGOLIN-074: controller.config.gerbilBridge.enabled=true requires deployment.type=controller. Only the pangolin-kube-controller publishes backends as Kubernetes objects; standalone Traefik reads the config directly." -}}
+{{- end -}}
+{{- if not (default false (get (default (dict) $root.Values.controller) "enabled")) -}}
+{{- fail "PANGOLIN-074: controller.config.gerbilBridge.enabled=true requires controller.enabled=true." -}}
 {{- end -}}
 {{- end -}}
 

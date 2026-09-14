@@ -30,4 +30,12 @@ data:
   LOG_TRAEFIK_CONFIG: {{ ternary "true" "false" .Values.controller.config.logTraefikConfig | quote }}
   CONFIG_TLS_SKIP_VERIFY: {{ ternary "true" "false" .Values.controller.config.configTlsSkipVerify | quote }}
   CONFIG_ALLOW_INSECURE_HTTP: {{ ternary "true" "false" $allowInsecureHttp | quote }}
+{{- $gerbilBridge := (.Values.controller.config).gerbilBridge | default dict }}
+{{- if eq (include "pangolin.controller.gerbilBridge.enabled" .) "true" }}
+  GERBIL_BRIDGE_ENABLED: "true"
+  GERBIL_BRIDGE_URL: {{ include "pangolin.controller.gerbilBridge.url" . | quote }}
+  GERBIL_BRIDGE_CIDRS: {{ include "pangolin.controller.gerbilBridge.cidrs" . | quote }}
+  GERBIL_BRIDGE_TIMEOUT: {{ ($gerbilBridge.timeout | default "10s") | quote }}
+  GERBIL_BRIDGE_FAIL_OPEN: {{ ternary "true" "false" ($gerbilBridge.failOpen | default false) | quote }}
+{{- end }}
 {{- end }}

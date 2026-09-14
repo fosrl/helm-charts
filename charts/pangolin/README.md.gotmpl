@@ -403,11 +403,17 @@ Kubernetes Pods have no equivalent, so the path has to be created explicitly.
 | `deployment.type` | `deployment.mode` | Traefik | Tunnel backends reachable |
 |---|---|---|---|
 | `standalone` | `single` | in the same Pod as Gerbil | Yes - shared network namespace |
-| `standalone` | `multi` | separate Pod rendered by this chart | Only with `gerbil.hostGateway.enabled=true` |
-| `controller` | `single` | external | Only with `gerbil.hostGateway.enabled=true` |
-| `controller` | `multi` | external | Only with `gerbil.hostGateway.enabled=true` |
+| `standalone` | `multi` | separate Pod rendered by this chart | Host gateway mode |
+| `controller` | `single` | external | Host gateway mode |
+| `controller` | `multi` | external | Host gateway mode, or the tunnel bridge |
 
-Resources whose targets already run in the cluster do not need any of this - see
+Two mechanisms are available. **Host gateway mode** moves the tunnel interface
+into the node network namespace and requires Traefik to run on that node.
+The **tunnel bridge** forwards through Gerbil's Pod IP and places no
+restrictions on Traefik at all, but needs a Gerbil and controller image that
+support it. The bridge is the better choice where the images allow it.
+
+Resources whose targets already run in the cluster do not need either - see
 "In-cluster targets" below.
 
 ### Host gateway mode
@@ -523,6 +529,131 @@ or the CNI is not masquerading Pod egress.
 - The chart's Gerbil NetworkPolicies become largely inert: most CNIs do not apply
   Pod NetworkPolicy to `hostNetwork` Pods. Use node-level firewalling if you need
   to restrict this traffic.
+
+### Tunnel bridge
+
+`gerbil.bridge.enabled=true` together with
+`controller.config.gerbilBridge.enabled=true` removes every constraint host
+gateway mode imposes. Gerbil listens on its own **Pod IP** - an address every
+CNI already routes - and forwards into the tunnel in userspace:
+
+```text
+Traefik Pod (any node) --> <gerbil pod IP>:<bridgePort> --> wg0 --> Newt --> target
+```
+
+The outbound half is dialled from inside Gerbil's own network namespace with the
+wg0 address bound as the source. That address is inside the peer's `AllowedIPs`,
+so cryptokey routing accepts it and the peer can reply - which is why this needs
+nothing from the CNI. Concretely, compared with host gateway mode:
+
+| | Host gateway | Tunnel bridge |
+|---|---|---|
+| `hostNetwork` on Gerbil | Required | No |
+| Pod Security Admission level | `privileged` | `baseline` is enough |
+| Traefik placement | Must be on the Gerbil node | Any node |
+| Traefik scaling | Only within one node | Unrestricted |
+| Depends on CNI masquerade | Yes | No |
+| Gerbil instances per node | One | Unrestricted |
+| Ports bound on the node | wg + internal API | None |
+
+The cost is one userspace proxy hop per connection, and both Gerbil and the
+controller must be recent enough to support it (`--bridge-enabled` and
+`GERBIL_BRIDGE_ENABLED` respectively).
+
+#### Enabling it
+
+```yaml
+gerbil:
+  startupMode: normal   # `delayed` keeps the Deployment at replicas=0
+  bridge:
+    enabled: true
+
+controller:
+  config:
+    gerbilBridge:
+      enabled: true
+```
+
+See `examples/values-tunnel-bridge.yaml` for a complete profile. Both switches
+are needed - Gerbil allocates the ports, the controller publishes them - and
+they are separate so a rollout can enable Gerbil first, where the bridge simply
+sits idle until the controller starts asking for ports.
+
+#### How backends are selected
+
+Only backends whose host is a literal IP inside
+`controller.config.gerbilBridge.cidrs` are rewritten. That list defaults to
+`pangolin.config.gerbil.subnet_group`, so there is a single source of truth.
+
+The gate is required rather than advisory. Pangolin `local` sites advertise
+real, routable addresses, and rewriting those would break them. In-cluster
+`.svc` references are never touched either: they already resolve through
+Kubernetes, so a bridge hop would add a failure mode and nothing else.
+
+#### Port allocation and stability
+
+Each tunnel backend gets one port from `gerbil.bridge.portRange`
+(default `61000-61999`). The range sits above the Linux ephemeral port range
+(`net.ipv4.ip_local_port_range`, typically `32768-60999`) so bridge listeners do
+not race Gerbil's own outbound connections, and it is contiguous so the
+NetworkPolicy can express it as a single `port`/`endPort` rule.
+
+Ports are stable while a backend stays registered, and the name of the backend
+Service the controller materialises is derived from the address Pangolin
+advertises rather than from the bridge port - so a Gerbil restart does not
+rename and recreate every Service and EndpointSlice.
+
+A restart does invalidate the ports themselves, and Pangolin's config is
+unchanged across it. The controller detects that through the instance identity
+Gerbil reports and re-publishes, rather than sitting on a "nothing changed"
+decision with stale ports.
+
+#### When Gerbil is unavailable
+
+`controller.config.gerbilBridge.failOpen` decides what happens if Gerbil cannot
+be reached, or reports the bridge disabled:
+
+- `false` (default): the reconcile is aborted and retried with backoff, leaving
+  the objects that currently work in place. The raw addresses are known to be
+  unreachable - that is the whole reason the bridge exists - so publishing them
+  and reporting success would be worse than waiting.
+- `true`: the tunnel backends are published with their raw addresses. Everything
+  else reconciles normally, at the cost of 502s on tunnel-backed resources until
+  Gerbil returns. Useful during a staged rollout or a Gerbil upgrade.
+
+An individual backend that Gerbil refuses - the port range is exhausted, say -
+is degraded on its own: it keeps its advertised address, a warning is logged,
+and every other backend is unaffected.
+
+#### Verifying
+
+```bash
+# what the bridge is currently serving
+kubectl -n <ns> exec deploy/<release>-gerbil -- \
+  wget -qO- http://localhost:3004/bridge/targets
+
+# what the controller published
+kubectl -n <target-ns> get endpointslices \
+  -l app.kubernetes.io/managed-by=pangolin-kube-controller \
+  -o custom-columns=NAME:.metadata.name,ADDR:.endpoints[*].addresses,PORT:.ports[*].port
+```
+
+The addresses should be Gerbil's Pod IP with ports inside the configured range.
+An address still inside the tunnel CIDR means the backend was not rewritten -
+check that it falls inside `gerbilBridge.cidrs` and that Gerbil did not report
+it under `failed`.
+
+#### Operational notes
+
+- The NetworkPolicy opens the whole port range to any client that can already
+  reach the Gerbil Pod. There is no selector that reliably identifies Traefik,
+  which is frequently a workload in another namespace that this chart does not
+  render. The ports only forward to backends that were explicitly registered;
+  restrict further with `networkPolicy.gerbil.extraIngress` if needed.
+- Traffic is proxied in userspace, so Gerbil sees the connection count and
+  bandwidth of every tunnel-backed request. Size its resources accordingly.
+- The bridge terminates TCP. Protocols that need the original client address at
+  the far end will see Gerbil's tunnel address instead.
 
 ### In-cluster targets
 
