@@ -396,18 +396,18 @@ Be clear about what it does **not** solve:
 
 The chart refuses the combinations that cannot work rather than letting them surface as a
 Pending Pod or a silent `502`: `PANGOLIN-071` (single mode), `PANGOLIN-072` (Gerbil
-disabled), `PANGOLIN-073` (more than one replica), `PANGOLIN-074` (chart-created namespace
-without `privileged`), and `PANGOLIN-075` (the Traefik subchart, where Helm cannot inject
-affinity at render time).
+disabled), `PANGOLIN-073` (more than one replica) and `PANGOLIN-074` (chart-created
+namespace without `privileged`).
 
 ### NetworkPolicy
 
 A `hostNetwork` Pod is not matched by a `podSelector` on any mainstream CNI — its traffic
 sources from the node IP. In host gateway mode the Gerbil → Pangolin internal-API rule is
 therefore expressed as node address blocks
-(`networkPolicy.gerbil.hostGateway.nodeCIDRs`), which default to the private ranges.
-Narrow them to your node subnet. Without this the chart's own default policy would
-blackhole Gerbil's `--remoteConfig` polling.
+(`networkPolicy.gerbil.hostGateway.nodeCIDRs`). There is deliberately no default: the
+private ranges contain every mainstream Pod CIDR, so `PANGOLIN-075` fails the render
+until you set your own node addresses. Without such a rule the chart's own default
+policy would blackhole Gerbil's `--remoteConfig` polling.
 
 ## Gerbil networking model
 
@@ -979,7 +979,11 @@ See `examples/values-blueprints.yaml` for a complete working example.
 | serviceAccount.pangolin.create | bool | `true` | Create a ServiceAccount for Pangolin Pods. |
 | serviceAccount.pangolin.labels | object | `{}` | Extra labels added to the Pangolin ServiceAccount. |
 | serviceAccount.pangolin.name | string | `""` | Existing ServiceAccount name. When empty and create=true, a name is generated. |
-| traefik | object | `{"cloudflare":{"existingSecretName":"","generatedSecret":{"apiToken":"","create":false,"dnsApiToken":"","email":"","name":"","zoneApiToken":""},"keys":{"dnsApiToken":"dnsApiToken","email":"email","zoneApiToken":"zoneApiToken"}},"colocateWithGerbil":"auto","commonAnnotations":{},"commonLabels":{},"config":{"acmeCaServer":"https://acme-v02.api.letsencrypt.org/directory","acmeDelayBeforeCheck":0,"adminPort":8085,"certResolver":"letsencrypt","dashboard":false,"dashboardDeclareContainerPort":false,"dynamicRouters":{"host":"example.com"},"httpEntrypoint":"web","httpsEntrypoint":"websecure","insecureSkipVerify":false,"letsencryptEmail":"","logLevel":"INFO"},"deployment":{"annotations":{},"labels":{},"podAnnotations":{},"podLabels":{},"updateStrategy":{}},"enabled":false,"persistence":{"accessModes":["ReadWriteOnce"],"enabled":false,"existingClaim":"","size":"1Gi","storageClass":""},"probes":{"liveness":{"failureThreshold":3,"httpGet":{"path":"/ping","port":8085},"initialDelaySeconds":10,"periodSeconds":30,"timeoutSeconds":5},"readiness":{"failureThreshold":3,"httpGet":{"path":"/ping","port":8085},"initialDelaySeconds":5,"periodSeconds":10,"timeoutSeconds":3},"startup":{"failureThreshold":20,"httpGet":{"path":"/ping","port":8085},"initialDelaySeconds":5,"periodSeconds":5,"timeoutSeconds":3}},"replicaCount":1,"resources":{"limits":{"cpu":"500m","ephemeral-storage":"128Mi","memory":"512Mi"},"requests":{"cpu":"100m","ephemeral-storage":"16Mi","memory":"128Mi"}},"securityContext":{"allowPrivilegeEscalation":true,"readOnlyRootFilesystem":false,"runAsNonRoot":false},"service":{"annotations":{},"enabled":true,"externalTrafficPolicy":"","labels":{},"loadBalancerSourceRanges":[],"type":"LoadBalancer"}}` | --------------------------------------------------------------------------- # @section Standalone Traefik mode |
+| traefik | object | `{"badger":{"enabled":true,"moduleName":"github.com/fosrl/badger","version":"v1.7.0"},"cloudflare":{"existingSecretName":"","generatedSecret":{"apiToken":"","create":false,"dnsApiToken":"","email":"","name":"","zoneApiToken":""},"keys":{"dnsApiToken":"dnsApiToken","email":"email","zoneApiToken":"zoneApiToken"}},"colocateWithGerbil":"auto","commonAnnotations":{},"commonLabels":{},"config":{"acmeCaServer":"https://acme-v02.api.letsencrypt.org/directory","acmeDelayBeforeCheck":0,"adminPort":8085,"certResolver":"letsencrypt","dashboard":false,"dashboardDeclareContainerPort":false,"dynamicRouters":{"host":"example.com"},"httpEntrypoint":"web","httpProvider":{"enabled":true,"endpoint":"","pollInterval":"5s"},"httpsEntrypoint":"websecure","insecureSkipVerify":false,"letsencryptEmail":"","logLevel":"INFO"},"deployment":{"annotations":{},"labels":{},"podAnnotations":{},"podLabels":{},"updateStrategy":{}},"enabled":false,"persistence":{"accessModes":["ReadWriteOnce"],"enabled":false,"existingClaim":"","size":"1Gi","storageClass":""},"probes":{"liveness":{"failureThreshold":3,"httpGet":{"path":"/ping","port":8085},"initialDelaySeconds":10,"periodSeconds":30,"timeoutSeconds":5},"readiness":{"failureThreshold":3,"httpGet":{"path":"/ping","port":8085},"initialDelaySeconds":5,"periodSeconds":10,"timeoutSeconds":3},"startup":{"failureThreshold":20,"httpGet":{"path":"/ping","port":8085},"initialDelaySeconds":5,"periodSeconds":5,"timeoutSeconds":3}},"replicaCount":1,"resources":{"limits":{"cpu":"500m","ephemeral-storage":"128Mi","memory":"512Mi"},"requests":{"cpu":"100m","ephemeral-storage":"16Mi","memory":"128Mi"}},"securityContext":{"allowPrivilegeEscalation":true,"readOnlyRootFilesystem":false,"runAsNonRoot":false},"service":{"annotations":{},"enabled":true,"externalTrafficPolicy":"","labels":{},"loadBalancerSourceRanges":[],"type":"LoadBalancer"}}` | --------------------------------------------------------------------------- # @section Standalone Traefik mode |
+| traefik.badger | object | `{"enabled":true,"moduleName":"github.com/fosrl/badger","version":"v1.7.0"}` | Badger, the Traefik middleware that performs Pangolin's resource authentication. Pangolin's generated dynamic configuration describes the middleware itself, but the plugin must be declared in Traefik's STATIC configuration or Traefik cannot instantiate it and every generated router fails with `unknown plugin type: badger`. The alias is not cosmetic: Pangolin hardcodes "badger" as both the middleware name and the plugin type. |
+| traefik.badger.enabled | bool | `true` | Declare the Badger plugin on the chart-managed Traefik. |
+| traefik.badger.moduleName | string | `"github.com/fosrl/badger"` | Go module path of the plugin. Only change this for a fork. |
+| traefik.badger.version | string | `"v1.7.0"` | Plugin version. Must satisfy the Badger requirement in VERSION_MATRIX.md. Traefik downloads the plugin from GitHub on startup, so the Pod needs egress to github.com unless you pre-seed /plugins-storage. |
 | traefik.cloudflare.existingSecretName | string | `""` | Existing Secret name with Cloudflare credentials. |
 | traefik.cloudflare.generatedSecret.apiToken | string | `""` | One token reused for both DNS and zone scopes when the app supports it. |
 | traefik.cloudflare.generatedSecret.create | bool | `false` | Create a chart-managed Cloudflare Secret. |
@@ -1001,6 +1005,10 @@ See `examples/values-blueprints.yaml` for a complete working example.
 | traefik.config.dashboardDeclareContainerPort | bool | `false` | Expose dashboard port as a declared container port in single mode. |
 | traefik.config.dynamicRouters.host | string | `"example.com"` | Example/default host used by generated dynamic router config. |
 | traefik.config.httpEntrypoint | string | `"web"` | HTTP entrypoint name. |
+| traefik.config.httpProvider | object | `{"enabled":true,"endpoint":"","pollInterval":"5s"}` | Poll Pangolin's generated Traefik configuration over HTTP. This is how a chart-managed Traefik receives the routers, services and middlewares Pangolin generates. Without it Traefik runs with only the Kubernetes providers and serves nothing Pangolin created, which is a healthy-looking Traefik that 404s every resource. In controller mode pangolin-kube-controller translates the same endpoint into CRDs instead, so this is off unless the chart manages Traefik. |
+| traefik.config.httpProvider.enabled | bool | `true` | Enable the HTTP provider. Defaults to on whenever this chart runs Traefik. |
+| traefik.config.httpProvider.endpoint | string | `""` | Override the endpoint. Empty derives it from the Pangolin Service and `pangolin.config.server.internal_port`. |
+| traefik.config.httpProvider.pollInterval | string | `"5s"` | How often Traefik re-reads the generated configuration. |
 | traefik.config.httpsEntrypoint | string | `"websecure"` | HTTPS entrypoint name. |
 | traefik.config.insecureSkipVerify | bool | `false` | Skip TLS verification for upstream serversTransport. |
 | traefik.config.letsencryptEmail | string | `""` | ACME account email. Required when traefik.enabled=true (the chart fails fast if empty). |
@@ -1010,7 +1018,10 @@ See `examples/values-blueprints.yaml` for a complete working example.
 | traefik.persistence.enabled | bool | `false` | Persist Traefik ACME state on a PVC. Strongly recommended when using ACME; required when enabling the dashboard (traefik.config.dashboard=true). |
 | traefik.replicaCount | int | `1` | Number of standalone Traefik replicas in multi mode. |
 | traefik.service.enabled | bool | `true` | Create the public Traefik Service. |
-| traefikController | object | `{}` | Values passed to the Traefik dependency chart (only used when `deployment.installTraefikController=true`). |
+| traefikController | object | `{"experimental":{"plugins":{"badger":{"moduleName":"github.com/fosrl/badger","version":"v1.7.0"}}},"ingressClass":{"isDefaultClass":false},"nameOverride":"traefik"}` | Values passed to the bundled Traefik chart, which is installed only when `deployment.installTraefikController=true`. Everything the official chart accepts can be set here; the defaults below are the ones this chart cannot leave to the subchart.  In controller mode pangolin-kube-controller reads Pangolin's generated configuration and materialises it as Traefik CRDs, so the bundled Traefik needs the Kubernetes providers rather than an HTTP provider. It still needs the Badger plugin declared statically, because the middleware the controller writes into every router references it by alias. |
+| traefikController.experimental.plugins.badger | object | `{"moduleName":"github.com/fosrl/badger","version":"v1.7.0"}` | The alias must be `badger`: Pangolin hardcodes that string as the plugin type in the middleware it generates, and Traefik resolves it against this map. |
+| traefikController.ingressClass.isDefaultClass | bool | `false` | Off by default: an externally installed Traefik is an explicitly supported topology and two default IngressClasses in one cluster is an ambiguous configuration. |
+| traefikController.nameOverride | string | `"traefik"` | Required. The alias makes Helm name subchart resources after it, and `pangolin-traefikController` is not a valid DNS-1123 name, so the API server rejects every object on install. Do not remove this. |
 
 ## Maintainers
 

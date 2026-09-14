@@ -66,7 +66,7 @@ This changelog is chart-scoped to support multiple charts over time.
   `hostNetwork` so tunnel routes land in the node network namespace, plus
   `traefik.colocateWithGerbil` to pin the chart-managed Traefik to that node and
   `networkPolicy.gerbil.hostGateway.nodeCIDRs` for the node-sourced NetworkPolicy rule.
-  `PANGOLIN-069`..`073` reject the combinations that cannot work. This is a workaround,
+  `PANGOLIN-071`..`075` reject the combinations that cannot work. This is a workaround,
   not the portable fix: [#20](https://github.com/fosrl/helm-charts/issues/20) stays open.
 - `global.clusterDomain` for clusters that do not use `cluster.local`.
 
@@ -98,6 +98,21 @@ This changelog is chart-scoped to support multiple charts over time.
   switch, and a NetworkPolicy rule with no `from` is every source: turning it on to let
   Traefik through would hand every Pod in the cluster the model providers behind the
   gateway. Use `networkPolicy.pangolin.ingress.aiGateway` instead.
+- The chart-managed Traefik (`deployment.type=standalone`) now receives Pangolin's
+  generated configuration. It declares the Badger plugin in static configuration
+  (`traefik.badger.*`), polls `/api/v1/traefik-config` over the HTTP provider
+  (`traefik.config.httpProvider.*`), gets the RBAC its Kubernetes providers need, and is
+  allowed through the chart's own NetworkPolicy to Pangolin's internal API. Without these
+  the mode started healthy and served nothing Pangolin created.
+- `deployment.installTraefikController=true` now installs a Traefik. The value and
+  `traefikController` were documented as installing a bundled subchart, but `Chart.yaml`
+  declared no such dependency, so both were inert. The official Traefik chart 41.5.0 is now
+  an optional, pinned dependency gated on that switch. It ships three defaults the subchart
+  cannot get right on its own: `nameOverride: traefik` (the alias would otherwise produce
+  the invalid DNS-1123 name `<release>-traefikController`), `ingressClass.isDefaultClass:
+  false` (an externally installed Traefik is a supported topology and two default
+  IngressClasses are ambiguous), and the Badger plugin declaration. An externally installed
+  Traefik remains fully supported and is unaffected while the switch stays `false`.
 - `newtInstances[].useNativeMainInterface` and `useNativeInterface` now both require
   `global.nativeMode.enabled=true` and are rejected without it. `global.nativeMode.enabled`
   on its own no longer makes a Pod root and privileged: it is a permission gate, and an
@@ -110,6 +125,19 @@ This changelog is chart-scoped to support multiple charts over time.
 - `newtInstances[].preferEndpoint` now requires `useCommandArgs: true` and is rejected
   otherwise. Newt has no `PREFER_ENDPOINT` environment variable, so the default env path
   silently did nothing.
+- `newtInstances[].updown.enabled=true` is rejected when `updown.script` does not name an
+  entry in `global.updownScripts`. The chart used to mount a ConfigMap it never rendered,
+  which left the Pod in `ContainerCreating` with no explanation.
+- Newt health probes now get a writable `emptyDir` at the health file's directory. The
+  default container runs with `readOnlyRootFilesystem: true`, so `global.health.enabled`
+  previously produced probes for a file Newt could never create.
+- `global.podDisruptionBudget.maxUnavailable` is now rendered, and `minAvailable: 0` is no
+  longer discarded. Both were documented; only a hardcoded `minAvailable` was emitted.
+- The Prometheus scrape annotation advertises the port Newt binds instead of the
+  deprecated `metrics.port`.
+- **BREAKING:** the per-instance `<release>-<instance>-env` ConfigMap is no longer created.
+  Nothing mounted it - `extraEnv` is and was rendered directly into the container - so it
+  was a dead object holding a second copy of every value. Remove any external reference to it.
 
 ---
 

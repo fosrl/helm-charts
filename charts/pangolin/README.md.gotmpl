@@ -396,18 +396,18 @@ Be clear about what it does **not** solve:
 
 The chart refuses the combinations that cannot work rather than letting them surface as a
 Pending Pod or a silent `502`: `PANGOLIN-071` (single mode), `PANGOLIN-072` (Gerbil
-disabled), `PANGOLIN-073` (more than one replica), `PANGOLIN-074` (chart-created namespace
-without `privileged`), and `PANGOLIN-075` (the Traefik subchart, where Helm cannot inject
-affinity at render time).
+disabled), `PANGOLIN-073` (more than one replica) and `PANGOLIN-074` (chart-created
+namespace without `privileged`).
 
 ### NetworkPolicy
 
 A `hostNetwork` Pod is not matched by a `podSelector` on any mainstream CNI — its traffic
 sources from the node IP. In host gateway mode the Gerbil → Pangolin internal-API rule is
 therefore expressed as node address blocks
-(`networkPolicy.gerbil.hostGateway.nodeCIDRs`), which default to the private ranges.
-Narrow them to your node subnet. Without this the chart's own default policy would
-blackhole Gerbil's `--remoteConfig` polling.
+(`networkPolicy.gerbil.hostGateway.nodeCIDRs`). There is deliberately no default: the
+private ranges contain every mainstream Pod CIDR, so `PANGOLIN-075` fails the render
+until you set your own node addresses. Without such a rule the chart's own default
+policy would blackhole Gerbil's `--remoteConfig` polling.
 
 ## Gerbil networking model
 

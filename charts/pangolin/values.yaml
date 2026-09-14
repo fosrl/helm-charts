@@ -1297,6 +1297,20 @@ traefik:
   enabled: false # @schema type: boolean
   # -- Number of standalone Traefik replicas in multi mode.
   replicaCount: 1 # @schema type: integer ; minimum: 1
+  # -- Badger, the Traefik middleware that performs Pangolin's resource authentication.
+  # Pangolin's generated dynamic configuration describes the middleware itself, but the
+  # plugin must be declared in Traefik's STATIC configuration or Traefik cannot instantiate
+  # it and every generated router fails with `unknown plugin type: badger`. The alias is not
+  # cosmetic: Pangolin hardcodes "badger" as both the middleware name and the plugin type.
+  badger:
+    # -- Declare the Badger plugin on the chart-managed Traefik.
+    enabled: true # @schema type: boolean
+    # -- Go module path of the plugin. Only change this for a fork.
+    moduleName: github.com/fosrl/badger # @schema type: string ; minLength: 1
+    # -- Plugin version. Must satisfy the Badger requirement in VERSION_MATRIX.md.
+    # Traefik downloads the plugin from GitHub on startup, so the Pod needs egress to
+    # github.com unless you pre-seed /plugins-storage.
+    version: v1.7.0 # @schema type: string ; minLength: 1
   deployment:
     # -- Rollout strategy for this component, overriding `runtime.updateStrategy`.
     # Left empty the chart picks it: a component holding a PVC that is not ReadWriteMany
@@ -1315,6 +1329,20 @@ traefik:
     externalTrafficPolicy: "" # @schema type: string ; enum: ["", Cluster, Local]
     loadBalancerSourceRanges: [] # @schema type: array ; item: string
   config:
+    # -- Poll Pangolin's generated Traefik configuration over HTTP.
+    # This is how a chart-managed Traefik receives the routers, services and middlewares
+    # Pangolin generates. Without it Traefik runs with only the Kubernetes providers and
+    # serves nothing Pangolin created, which is a healthy-looking Traefik that 404s every
+    # resource. In controller mode pangolin-kube-controller translates the same endpoint
+    # into CRDs instead, so this is off unless the chart manages Traefik.
+    httpProvider:
+      # -- Enable the HTTP provider. Defaults to on whenever this chart runs Traefik.
+      enabled: true # @schema type: boolean
+      # -- How often Traefik re-reads the generated configuration.
+      pollInterval: 5s # @schema type: string ; pattern: ^[0-9]+(ms|s|m|h)$
+      # -- Override the endpoint. Empty derives it from the Pangolin Service and
+      # `pangolin.config.server.internal_port`.
+      endpoint: "" # @schema type: string
     # -- Skip TLS verification for upstream serversTransport.
     insecureSkipVerify: false # @schema type: boolean
     # -- Enable Traefik dashboard.
@@ -1425,8 +1453,30 @@ traefik:
 # -----------------------------------------------------------------------------
 
 ## @section Traefik controller subchart overrides
-# -- Values passed to the Traefik dependency chart (only used when `deployment.installTraefikController=true`).
-traefikController: {} # @schema type: object
+# -- Values passed to the bundled Traefik chart, which is installed only when
+# `deployment.installTraefikController=true`. Everything the official chart accepts can be
+# set here; the defaults below are the ones this chart cannot leave to the subchart.
+#
+# In controller mode pangolin-kube-controller reads Pangolin's generated configuration and
+# materialises it as Traefik CRDs, so the bundled Traefik needs the Kubernetes providers
+# rather than an HTTP provider. It still needs the Badger plugin declared statically,
+# because the middleware the controller writes into every router references it by alias.
+traefikController: # @schema type: object
+  # -- Required. The alias makes Helm name subchart resources after it, and
+  # `pangolin-traefikController` is not a valid DNS-1123 name, so the API server rejects
+  # every object on install. Do not remove this.
+  nameOverride: traefik
+  ingressClass:
+    # -- Off by default: an externally installed Traefik is an explicitly supported topology
+    # and two default IngressClasses in one cluster is an ambiguous configuration.
+    isDefaultClass: false
+  experimental:
+    plugins:
+      # -- The alias must be `badger`: Pangolin hardcodes that string as the plugin type in
+      # the middleware it generates, and Traefik resolves it against this map.
+      badger:
+        moduleName: github.com/fosrl/badger
+        version: v1.7.0
 
 # -----------------------------------------------------------------------------
 # Gerbil

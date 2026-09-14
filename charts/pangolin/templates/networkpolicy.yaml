@@ -184,13 +184,19 @@ chart's own default policy.
 */ -}}
 {{- if eq (include "pangolin.gerbil.hostGateway.enabled" $root) "true" -}}
 {{- $gerbilNodeFrom := list -}}
-{{- range $cidr := ((($npGerbil.hostGateway) | default dict).nodeCIDRs | default (list "10.0.0.0/8" "172.16.0.0/12" "192.168.0.0/16" "100.64.0.0/10")) -}}
+{{- range $cidr := ((($npGerbil.hostGateway) | default dict).nodeCIDRs | default list) -}}
 {{- $gerbilNodeFrom = append $gerbilNodeFrom (dict "ipBlock" (dict "cidr" $cidr)) -}}
 {{- end -}}
 {{- $pangolinIngress = append $pangolinIngress (dict "from" $gerbilNodeFrom "ports" (list (dict "protocol" "TCP" "port" $root.Values.pangolin.service.ports.internalApi))) -}}
 {{- else -}}
 {{- $pangolinIngress = append $pangolinIngress (dict "from" (list (dict "podSelector" (dict "matchLabels" $selGerbil))) "ports" (list (dict "protocol" "TCP" "port" $root.Values.pangolin.service.ports.internalApi))) -}}
 {{- end -}}
+{{- end -}}
+{{- /* A chart-managed Traefik polls the generated configuration from the same internal API
+       port. Without this rule the HTTP provider is blackholed by the chart's own policy and
+       Traefik serves nothing Pangolin generated. */ -}}
+{{- if and (eq (include "pangolin.traefik.chartManagedAnyMode" $root) "true") (eq (include "pangolin.traefik.httpProviderEnabled" $root) "true") (not $singleMode) -}}
+{{- $pangolinIngress = append $pangolinIngress (dict "from" (list (dict "podSelector" (dict "matchLabels" $selTraefik))) "ports" (list (dict "protocol" "TCP" "port" $root.Values.pangolin.service.ports.internalApi))) -}}
 {{- end -}}
 {{- /*
 The AI gateway port is reached by Traefik, not by the cluster at large: every AI

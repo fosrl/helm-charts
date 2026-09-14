@@ -90,6 +90,7 @@ spec:
             - --entrypoints.websecure.address=:8443
             - --providers.kubernetescrd
             - --providers.kubernetesingress
+            {{- include "pangolin.traefik.staticArgs" $root | nindent 12 }}
             {{- if $tf.config.letsencryptEmail }}
             - --certificatesresolvers.letsencrypt.acme.email={{ $tf.config.letsencryptEmail }}
             - --certificatesresolvers.letsencrypt.acme.storage=/data/acme.json
