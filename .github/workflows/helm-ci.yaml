@@ -3,7 +3,7 @@ name: Helm Chart CI
 on:
   pull_request:
   push:
-    branches: [ dev-clone, main ]
+    branches: [ dev, main ]
 
 jobs:
   # lint-test:
@@ -66,6 +66,7 @@ jobs:
       - name: Add Helm dependency repositories
         run: |
           helm repo add cloudnative-pg https://cloudnative-pg.github.io/charts
+          helm repo add traefik https://traefik.github.io/charts
           helm repo update
 
       - name: Install helm-unittest plugin

@@ -1,0 +1,101 @@
+suite: Newt command args mode
+templates:
+  - templates/deployment.yaml
+tests:
+  # Newt registers its flags on flag.CommandLine, which is ExitOnError, so an unknown
+  # flag makes it exit 2 before the tunnel is established.
+  - it: never passes a flag Newt does not define
+    set:
+      newtInstances:
+        - name: args-mode
+          enabled: true
+          useCommandArgs: true
+          pangolinEndpoint: "https://pangolin.example.com"
+          id: abc123
+          secret: s3cret
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: "--secret-env=NEWT_SECRET"
+
+  - it: still injects NEWT_SECRET from the environment in args mode
+    set:
+      newtInstances:
+        - name: args-mode
+          enabled: true
+          useCommandArgs: true
+          pangolinEndpoint: "https://pangolin.example.com"
+          id: abc123
+          secret: s3cret
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: NEWT_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: RELEASE-NAME-newt-args-mode
+                key: NEWT_SECRET
+
+  # A user-supplied newtInstances entry replaces the chart defaults wholesale, so the
+  # nested option maps are absent. Rendering must not depend on the operator restating them.
+  - it: renders a minimal instance in args mode without a nil dereference
+    set:
+      newtInstances:
+        - name: minimal
+          enabled: true
+          useCommandArgs: true
+          pangolinEndpoint: "https://pangolin.example.com"
+          id: abc123
+          secret: s3cret
+    asserts:
+      - notFailedTemplate: {}
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--endpoint=https://pangolin.example.com"
+
+  - it: renders prefer-endpoint as a CLI flag when args mode is on
+    set:
+      newtInstances:
+        - name: args-mode
+          enabled: true
+          useCommandArgs: true
+          preferEndpoint: "1.2.3.4:51820"
+          pangolinEndpoint: "https://pangolin.example.com"
+          id: abc123
+          secret: s3cret
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--prefer-endpoint=1.2.3.4:51820"
+
+  # No Newt release reads a PREFER_ENDPOINT environment variable, so the env-var default
+  # would silently do nothing.
+  - it: rejects preferEndpoint outside args mode instead of ignoring it
+    set:
+      newtInstances:
+        - name: env-mode
+          enabled: true
+          preferEndpoint: "1.2.3.4:51820"
+          auth:
+            existingSecretName: newt-auth
+    asserts:
+      - failedTemplate:
+          errorPattern: "preferEndpoint only reaches Newt as the --prefer-endpoint flag"
+
+  - it: never emits a PREFER_ENDPOINT environment variable
+    set:
+      newtInstances:
+        - name: args-mode
+          enabled: true
+          useCommandArgs: true
+          preferEndpoint: "1.2.3.4:51820"
+          pangolinEndpoint: "https://pangolin.example.com"
+          id: abc123
+          secret: s3cret
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PREFER_ENDPOINT
+            value: "1.2.3.4:51820"

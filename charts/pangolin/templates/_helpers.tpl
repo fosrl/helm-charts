@@ -773,6 +773,56 @@ strategy:
 {{- end -}}
 {{- end -}}
 
+{{- /*
+Static Traefik configuration the chart-managed Traefik needs to serve Pangolin.
+
+Pangolin generates routers, services and middlewares and serves them as JSON from
+GET /api/v1/traefik-config on its internal API port. A Traefik that only runs the
+Kubernetes providers never reads that document, so it starts healthy and 404s every
+resource Pangolin created. Every generated router also puts a middleware named `badger`
+first; the middleware body is in the generated config, but the plugin behind it has to be
+declared statically or Traefik fails the route with `unknown plugin type: badger`.
+*/ -}}
+{{- /* True whenever this chart renders a Traefik container at all, in either mode.
+       deployment-traefik.yaml covers standalone+multi and deployment-single.yaml runs
+       Traefik inside the single-mode Pod. */ -}}
+{{- define "pangolin.traefik.chartManagedAnyMode" -}}
+{{- if and (.Values.traefik).enabled (eq .Values.deployment.type "standalone") -}}true{{- else -}}false{{- end -}}
+{{- end -}}
+
+{{- define "pangolin.traefik.configEndpoint" -}}
+{{- $root := . -}}
+{{- $tf := $root.Values.traefik | default dict -}}
+{{- $explicit := ((($tf.config).httpProvider) | default dict).endpoint | default "" -}}
+{{- if $explicit -}}
+{{- $explicit -}}
+{{- else -}}
+{{- $port := ((($root.Values.pangolin).service).ports).internalApi | default 3001 -}}
+{{- printf "http://%s:%v/api/v1/traefik-config" (include "pangolin.fullname" $root) $port -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "pangolin.traefik.httpProviderEnabled" -}}
+{{- $hp := (((.Values.traefik).config).httpProvider) | default dict -}}
+{{- $enabled := true -}}
+{{- if kindIs "bool" $hp.enabled -}}{{- $enabled = $hp.enabled -}}{{- end -}}
+{{- if $enabled -}}true{{- else -}}false{{- end -}}
+{{- end -}}
+
+{{- define "pangolin.traefik.staticArgs" -}}
+{{- $root := . -}}
+{{- $tf := $root.Values.traefik | default dict -}}
+{{- $badger := $tf.badger | default dict -}}
+{{- if eq (include "pangolin.traefik.httpProviderEnabled" $root) "true" }}
+- --providers.http.endpoint={{ include "pangolin.traefik.configEndpoint" $root }}
+- --providers.http.pollinterval={{ (($tf.config).httpProvider | default dict).pollInterval | default "5s" }}
+{{- end }}
+{{- if $badger.enabled }}
+- --experimental.plugins.badger.modulename={{ $badger.moduleName | default "github.com/fosrl/badger" }}
+- --experimental.plugins.badger.version={{ $badger.version | required "traefik.badger.version is required when traefik.badger.enabled=true" }}
+{{- end }}
+{{- end -}}
+
 {{- define "pangolin.validate" -}}
 {{- $root := . -}}
 

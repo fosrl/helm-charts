@@ -28,6 +28,12 @@
 {{- $npPangolinIngress := $npPangolin.ingress | default dict -}}
 {{- $npPangolinDashboardIngress := $npPangolinIngress.dashboard | default dict -}}
 {{- $pangolinDashboardFrom := $npPangolinDashboardIngress.from | default list -}}
+{{- $npPangolinAiGatewayIngress := $npPangolinIngress.aiGateway | default dict -}}
+{{- $aiGatewayFromTraefik := true -}}
+{{- if kindIs "bool" $npPangolinAiGatewayIngress.fromTraefik -}}
+{{- $aiGatewayFromTraefik = $npPangolinAiGatewayIngress.fromTraefik -}}
+{{- end -}}
+{{- $aiGatewayExtraFrom := $npPangolinAiGatewayIngress.from | default list -}}
 {{- $npPangolinExternal := $npPangolin.externalIngress | default dict -}}
 {{- $allowPangolinExternal := true -}}
 {{- if kindIs "bool" $npPangolinExternal.external -}}
@@ -62,6 +68,7 @@ than `hasKey` because the value is present-but-null by default.
 {{- $allowPangolinNext = $npPangolinExternal.next -}}
 {{- end -}}
 {{- $allowPangolinIntegration := (default false $npPangolinExternal.integration) -}}
+{{- $allowPangolinAiGateway := (default false $npPangolinExternal.aiGateway) -}}
 {{- $requireIntegrationFlag := true -}}
 {{- if kindIs "bool" $npPangolinExternal.requireIntegrationFlag -}}
 {{- $requireIntegrationFlag = $npPangolinExternal.requireIntegrationFlag -}}
@@ -161,6 +168,7 @@ regression, so an existing narrow configuration is carried over untouched.
 {{- $selController := ternary $selSingle (dict "app.kubernetes.io/name" (include "pangolin.name" $root) "app.kubernetes.io/instance" $root.Release.Name "app.kubernetes.io/component" "controller") $singleMode -}}
 {{- $selGerbil := ternary $selSingle (dict "app.kubernetes.io/name" (include "pangolin.name" $root) "app.kubernetes.io/instance" $root.Release.Name "app.kubernetes.io/component" "gerbil") $singleMode -}}
 {{- $selEmbeddedPostgres := dict "app.kubernetes.io/name" (include "pangolin.name" $root) "app.kubernetes.io/instance" $root.Release.Name "app.kubernetes.io/component" "embedded-postgres" -}}
+{{- $selTraefik := dict "app.kubernetes.io/name" (include "pangolin.name" $root) "app.kubernetes.io/instance" $root.Release.Name "app.kubernetes.io/component" "traefik-standalone" -}}
 
 {{- if $renderPangolin -}}
 {{- $pangolinIngress := list -}}
@@ -169,6 +177,47 @@ regression, so an existing narrow configuration is carried over untouched.
 {{- end -}}
 {{- if $renderGerbil -}}
 {{- $pangolinIngress = append $pangolinIngress (dict "from" (list (dict "podSelector" (dict "matchLabels" $selGerbil))) "ports" (list (dict "protocol" "TCP" "port" $root.Values.pangolin.service.ports.internalApi))) -}}
+{{- end -}}
+{{- /* A chart-managed Traefik polls the generated configuration from the same internal API
+       port. Without this rule the HTTP provider is blackholed by the chart's own policy and
+       Traefik serves nothing Pangolin generated. */ -}}
+{{- if and (eq (include "pangolin.traefik.chartManagedAnyMode" $root) "true") (eq (include "pangolin.traefik.httpProviderEnabled" $root) "true") (not $singleMode) -}}
+{{- $pangolinIngress = append $pangolinIngress (dict "from" (list (dict "podSelector" (dict "matchLabels" $selTraefik))) "ports" (list (dict "protocol" "TCP" "port" $root.Values.pangolin.service.ports.internalApi))) -}}
+{{- end -}}
+{{- /*
+The AI gateway port is reached by Traefik, not by the cluster at large: every AI
+gateway resource is a route Traefik terminates and forwards here. Build the rule from
+the Traefik this chart can actually identify, and let an external one be named
+explicitly. Opening the port to every source instead would hand any Pod in the cluster
+the model providers behind the gateway and the virtual API keys that pay for them.
+
+Single mode needs no rule: Traefik runs in the Pangolin Pod and reaches the gateway
+over loopback, which NetworkPolicy does not govern.
+*/ -}}
+{{- $aiGatewayFrom := list -}}
+{{- if $aiGatewayFromTraefik -}}
+{{- if and (eq (include "pangolin.traefik.chartManagedAnyMode" $root) "true") (not $singleMode) -}}
+{{- $aiGatewayFrom = append $aiGatewayFrom (dict "podSelector" (dict "matchLabels" $selTraefik)) -}}
+{{- end -}}
+{{- /* The bundled subchart names its Pods itself. Both labels are its immutable
+       selector, so they are derived the same way it derives them: the alias never
+       reaches them, and `namespaceOverride` is the only thing that can move the Pods
+       out of this namespace. */ -}}
+{{- if $root.Values.deployment.installTraefikController -}}
+{{- $bundled := $root.Values.traefikController | default dict -}}
+{{- $bundledNs := $bundled.namespaceOverride | default $root.Release.Namespace -}}
+{{- $bundledPeer := dict "podSelector" (dict "matchLabels" (dict "app.kubernetes.io/name" ($bundled.nameOverride | default "traefik") "app.kubernetes.io/instance" ($bundled.instanceLabelOverride | default (printf "%s-%s" $root.Release.Name $bundledNs)))) -}}
+{{- if ne $bundledNs $namespace -}}
+{{- $_ := set $bundledPeer "namespaceSelector" (dict "matchLabels" (dict "kubernetes.io/metadata.name" $bundledNs)) -}}
+{{- end -}}
+{{- $aiGatewayFrom = append $aiGatewayFrom $bundledPeer -}}
+{{- end -}}
+{{- end -}}
+{{- if gt (len $aiGatewayExtraFrom) 0 -}}
+{{- $aiGatewayFrom = concat $aiGatewayFrom $aiGatewayExtraFrom -}}
+{{- end -}}
+{{- if gt (len $aiGatewayFrom) 0 -}}
+{{- $pangolinIngress = append $pangolinIngress (dict "from" $aiGatewayFrom "ports" (list (dict "protocol" "TCP" "port" $root.Values.pangolin.service.ports.aiGateway))) -}}
 {{- end -}}
 {{- if $allowExternal -}}
 {{- if $allowPangolinExternal -}}
@@ -187,6 +236,10 @@ regression, so an existing narrow configuration is carried over untouched.
 {{- end -}}
 {{- if and $allowPangolinIntegration (or (not $requireIntegrationFlag) (($root.Values.pangolin.config | default dict).flags | default dict).enable_integration_api) -}}
 {{- $pangolinIngress = append $pangolinIngress (dict "ports" (list (dict "protocol" "TCP" "port" $root.Values.pangolin.service.ports.integration))) -}}
+{{- end -}}
+{{- /* Opt-in only: a rule with no `from` is every source. */ -}}
+{{- if $allowPangolinAiGateway -}}
+{{- $pangolinIngress = append $pangolinIngress (dict "ports" (list (dict "protocol" "TCP" "port" $root.Values.pangolin.service.ports.aiGateway))) -}}
 {{- end -}}
 {{- end -}}
 {{- if $extraIngress -}}

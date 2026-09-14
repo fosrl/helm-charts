@@ -114,3 +114,39 @@ tests:
               - podSelector:
                   matchLabels:
                     cnpg.io/cluster: pangolin-db
+
+  # Traefik reaches the gateway through the source-scoped rule in
+  # networkpolicy_aigateway_test.yaml. This switch is the blanket one.
+  - it: keeps the AI gateway port shut to every source by default
+    set:
+      networkPolicy:
+        enabled: true
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-pangolin-ingress
+    asserts:
+      - notContains:
+          path: spec.ingress
+          content:
+            ports:
+              - port: 3005
+                protocol: TCP
+          any: true
+
+  - it: aiGateway true opens the AI gateway port to every source
+    set:
+      networkPolicy:
+        enabled: true
+        pangolin:
+          externalIngress:
+            aiGateway: true
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-pangolin-ingress
+    asserts:
+      - contains:
+          path: spec.ingress
+          content:
+            ports:
+              - port: 3005
+                protocol: TCP

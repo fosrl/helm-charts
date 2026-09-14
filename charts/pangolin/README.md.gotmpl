@@ -264,7 +264,6 @@ pangolin:
   - **Gerbil** (`serviceAccount.gerbil.automountServiceAccountToken=false`, default): Gerbil manages WireGuard tunnels and does not require Kubernetes API access. Token automount is disabled by default.
   - All three settings are configurable via `serviceAccount.<component>.automountServiceAccountToken`.
 - **Single mode ServiceAccount trade-off:** Kubernetes ServiceAccount selection is Pod-level. In `deployment.mode=single` + `deployment.type=controller`, the shared Pod uses the controller ServiceAccount/token so Pangolin and Gerbil share that Pod-level token behavior.
-- **hostNetwork:** `runtime.hostNetwork=true` reduces network isolation. Enable it only when you understand why it’s required (some WireGuard / UDP exposure setups may need it).
 - **Container security context:** `global.containerSecurityContext` is intentionally empty by default so you can choose a baseline that matches your cluster policy. Workloads merge this with their own `*.securityContext`.
 
 ## Production checklist
@@ -304,7 +303,7 @@ Use this checklist before tagging alpha/RC/stable releases. This runtime validat
 - [ ] `yamllint -d '{extends: relaxed, rules: {line-length: {max: 200}, indentation: {spaces: consistent, indent-sequences: whatever}, trailing-spaces: disable}}' /tmp/pangolin-*.yaml`
 - [ ] `for f in /tmp/pangolin-*.yaml; do kubeconform -strict -summary -ignore-missing-schemas "$f"; done`
 - [ ] Validate image/app versions and ArtifactHub image annotations in `charts/pangolin/Chart.yaml` and `charts/pangolin/values.yaml` are consistent.
-- [ ] Bump chart version from `0.1.0-alpha.0` to the next alpha in `charts/pangolin/Chart.yaml`.
+- [ ] Bump the chart version to the next alpha in `charts/pangolin/Chart.yaml`.
 - [ ] Do **not** change `kubeVersion`; current value is intentional.
 
 ### Before RC

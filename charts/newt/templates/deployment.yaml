@@ -19,6 +19,15 @@
 {{- if and $cpEnabled (eq $cpType "persistentVolumeClaim") (not $cp.existingClaim) }}
 {{- fail (printf "newtInstances[%d].configPersistence.type is persistentVolumeClaim but existingClaim is empty" $index) }}
 {{- end }}
+{{- if and $inst.useNativeInterface (not $root.Values.global.nativeMode.enabled) }}
+{{- fail (printf "newtInstances[%d].useNativeInterface requires global.nativeMode.enabled=true. The native interface needs a root, privileged container with NET_ADMIN and SYS_MODULE, and that permission gate is deliberately separate so it is granted on purpose." $index) }}
+{{- end }}
+{{- if and $inst.useNativeMainInterface (not $root.Values.global.nativeMode.enabled) }}
+{{- fail (printf "newtInstances[%d].useNativeMainInterface requires global.nativeMode.enabled=true. Building the main tunnel as a kernel device needs the same privileges as useNativeInterface, and without the gate Newt would receive the flag while running unprivileged." $index) }}
+{{- end }}
+{{- if and $inst.preferEndpoint (not $inst.useCommandArgs) }}
+{{- fail (printf "newtInstances[%d].preferEndpoint only reaches Newt as the --prefer-endpoint flag; no Newt release reads a PREFER_ENDPOINT environment variable. Set useCommandArgs: true on this instance, or drop preferEndpoint." $index) }}
+{{- end }}
 {{- if and (kindIs "map" $inst.updown) $inst.updown.enabled (not (and $inst.updown.script (hasKey ($root.Values.global.updownScripts | default dict) $inst.updown.script))) }}
 {{- fail (printf "newtInstances[%d].updown.enabled=true but updown.script %q does not name an entry in global.updownScripts. The chart would mount a ConfigMap it never renders and the Pod would stay in ContainerCreating." $index (default "" $inst.updown.script)) }}
 {{- end }}
@@ -100,7 +109,7 @@ spec:
       {{- end }}
     spec:
       {{- $canOverride := (default false $inst.allowGlobalOverride) -}}
-      {{- $nativeEnabled := or $inst.useNativeInterface $root.Values.global.nativeMode.enabled -}}
+      {{- $nativeEnabled := eq (include "newt.instance.nativeEnabled" (dict "root" $root "inst" $inst)) "true" -}}
       {{- $ips := include "newt.imagePullSecrets" $root -}}
       {{- if $ips }}
 {{ $ips | nindent 6 }}
@@ -132,7 +141,7 @@ spec:
         Security Context Logic:
         
         PRIORITY ORDER:
-        1. Native mode (useNativeInterface OR global.nativeMode.enabled): privileged + root
+        1. Native mode (global.nativeMode.enabled AND a native interface is requested): privileged + root
         2. Instance override (if allowGlobalOverride): user-defined securityContext
         3. Global override: user-defined securityContext  
         4. Default secure mode: non-root with restricted capabilities

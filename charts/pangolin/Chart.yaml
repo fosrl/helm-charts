@@ -1,6 +1,6 @@
 apiVersion: v2
-version: 0.1.0-alpha.1
-appVersion: "1.18.3"
+version: 0.1.0-alpha.2
+appVersion: "1.22.2"
 kubeVersion: ">=1.30.14-0"
 name: pangolin
 description: Pangolin Helm Chart
@@ -30,35 +30,46 @@ dependencies:
     version: 0.6.0
     repository: https://cloudnative-pg.github.io/charts
     condition: cnpg-cluster.enabled
+  - name: traefik
+    alias: traefikController
+    version: 41.5.0
+    repository: https://traefik.github.io/charts
+    condition: deployment.installTraefikController
 annotations:
   artifacthub.io/category: networking
   artifacthub.io/changes: |
     - kind: changed
-      description: "Bump Chart version to 0.1.0-alpha.1 and Chart AppVersion to Pangolin v1.18.3."
+      description: "Bump Chart AppVersion to Pangolin v1.22.2 and Gerbil to v1.5.1."
+    - kind: added
+      description: "Expose the Pangolin 1.22 configuration surface, including the AI gateway port."
+    - kind: removed
+      description: "Remove the stale pangolin.config.gerbil.use_subdomain key and the unused monitoring.* and runtime.hostNetwork trees."
+    - kind: fixed
+      description: "Fix extraVolumes/extraVolumeMounts rendering, controller Kubernetes API egress and dashboard ingress defaults."
   artifacthub.io/images: |
     - name: pangolin-dockerhub
-      image: docker.io/fosrl/pangolin:1.18.3
+      image: docker.io/fosrl/pangolin:1.22.2
       whitelisted: false
       platforms:
         - linux/amd64
         - linux/arm64
         - linux/arm/v7
     - name: pangolin-ghcr
-      image: ghcr.io/fosrl/pangolin:1.18.3
+      image: ghcr.io/fosrl/pangolin:1.22.2
       whitelisted: false
       platforms:
         - linux/amd64
         - linux/arm64
         - linux/arm/v7
     - name: pangolin-postgresql-dockerhub
-      image: docker.io/fosrl/pangolin:postgresql-1.18.3
+      image: docker.io/fosrl/pangolin:postgresql-1.22.2
       whitelisted: false
       platforms:
         - linux/amd64
         - linux/arm64
         - linux/arm/v7
     - name: pangolin-postgresql-ghcr
-      image: ghcr.io/fosrl/pangolin:postgresql-1.18.3
+      image: ghcr.io/fosrl/pangolin:postgresql-1.22.2
       whitelisted: false
       platforms:
         - linux/amd64
