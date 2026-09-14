@@ -32,11 +32,15 @@ tests:
 
   - it: mounts updown ConfigMap when enabled
     set:
+      global:
+        updownScripts:
+          hook.sh: echo hi
       newtInstances:
         - name: test-updown
           enabled: true
           updown:
             enabled: true
+            script: hook.sh
             mountPath: /opt/updown
           pangolinEndpoint: https://example.com
           id: test
