@@ -3,7 +3,7 @@ name: Helm Chart CI
 on:
   pull_request:
   push:
-    branches: [ dev-clone, main ]
+    branches: [ dev, main ]
 
 jobs:
   # lint-test:
