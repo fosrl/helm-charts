@@ -987,11 +987,11 @@ declared statically or Traefik fails the route with `unknown plugin type: badger
 {{- $tcK8sCrdEnabled = (index $tcProviderK8sCrd "enabled") -}}
 {{- end -}}
 {{- if and (eq $root.Values.deployment.type "controller") $root.Values.deployment.installTraefikController (eq $tcDeploymentEnabled false) -}}
-{{- fail "PANGOLIN-012: traefikController.deployment.enabled=false conflicts with deployment.installTraefikController=true" -}}
+{{- fail "PANGOLIN-080: traefikController.deployment.enabled=false conflicts with deployment.installTraefikController=true" -}}
 {{- end -}}
 
 {{- if and (eq $root.Values.deployment.type "controller") $root.Values.deployment.installTraefikController (eq $tcK8sCrdEnabled false) -}}
-{{- fail "PANGOLIN-012: traefikController.providers.kubernetesCRD.enabled=false is not supported (required by controller mode)" -}}
+{{- fail "PANGOLIN-081: traefikController.providers.kubernetesCRD.enabled=false is not supported (required by controller mode)" -}}
 {{- end -}}
 
 {{- $pangolin := default (dict) $root.Values.pangolin -}}

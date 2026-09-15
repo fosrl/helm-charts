@@ -30,6 +30,12 @@ This changelog is chart-scoped to support multiple charts over time.
   ([#22](https://github.com/fosrl/helm-charts/issues/22)).
 - `gerbil.startupMode=disabledUntilSetup` is accepted again. A duplicate PANGOLIN-062
   check rejected the value its own schema enum advertised.
+- The three Traefik-controller validations no longer share error code `PANGOLIN-012`, so
+  the code in a failed render identifies which condition tripped. `PANGOLIN-012` keeps the
+  `deployment.installTraefikController=true` / `deployment.type` mismatch; the subchart
+  conflicts move to `PANGOLIN-080` (`traefikController.deployment.enabled=false`) and
+  `PANGOLIN-081` (`traefikController.providers.kubernetesCRD.enabled=false`). The messages
+  themselves are unchanged.
 - Explicit `false` and `0` now stick for `pangolin.config.app.telemetry.anonymous_usage`,
   `pangolin.config.app.notifications.*`, `pangolin.config.server.trust_proxy` and
   `pangolin.config.email.smtp_tls_reject_unauthorized`. `| default` collapsed them back
