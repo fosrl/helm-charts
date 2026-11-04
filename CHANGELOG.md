@@ -15,6 +15,16 @@ This changelog is chart-scoped to support multiple charts over time.
 
 ---
 
+### 0.1.0-alpha.2 - 2026-11-04
+
+#### Changed
+
+- Bumped Pangolin chart version to `0.1.0-alpha.2` and app version to `1.25.3`.
+- Updated Artifact Hub image references to Pangolin `1.25.3` (including PostgreSQL variant) for both Docker Hub and GHCR.
+- Bumped default Gerbil image tag from `1.3.1` to `1.6.0` (Pangolin 1.22+ requires Gerbil `>=1.5.0` for private AI gateway resources).
+
+---
+
 ### 0.1.0-alpha.1 - 2026-05-11
 
 #### Changed
@@ -37,6 +47,15 @@ This changelog is chart-scoped to support multiple charts over time.
 ### Unreleased
 
 - No changes yet.
+
+---
+
+### 1.6.0 - 2026-11-04
+
+#### Changed
+
+- Bumped Newt chart version to `1.6.0` and app version to `1.20.0`.
+- Updated Artifact Hub image references to Newt `1.20.0` for both Docker Hub and GHCR.
 
 ---
 

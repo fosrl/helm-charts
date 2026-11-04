@@ -6,10 +6,10 @@ This file tracks chart versions, default app versions, and related defaults for 
 
 | Item | Value |
 | --- | --- |
-| Chart version | `1.4.0` |
-| App version | `1.12.3` |
+| Chart version | `1.6.0` |
+| App version | `1.20.0` |
 | Kubernetes version | `>=1.30.14-0` |
-| Default image tag | `1.12.3` |
+| Default image tag | `1.20.0` |
 
 Sources:
 
@@ -20,13 +20,13 @@ Sources:
 
 | Item | Value |
 | --- | --- |
-| Chart version | `0.1.0-alpha.0` |
-| App version | `1.18.2` |
+| Chart version | `0.1.0-alpha.2` |
+| App version | `1.25.3` |
 | Kubernetes version | `>=1.30.14-0` |
-| Pangolin default image tag | `1.18.2` |
-| Pangolin PostgreSQL image tag | `postgresql-1.18.2` |
+| Pangolin default image tag | `1.25.3` |
+| Pangolin PostgreSQL image tag | `postgresql-1.25.3` |
 | pangolin-kube-controller tag | `0.1.0-alpha.1` |
-| Gerbil tag | `1.3.1` |
+| Gerbil tag | `1.6.0` |
 | Traefik tag | `v3.6.15` |
 
 Sources:
