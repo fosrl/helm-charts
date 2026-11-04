@@ -21,10 +21,10 @@ Sources:
 | Item | Value |
 | --- | --- |
 | Chart version | `0.1.0-alpha.2` |
-| App version | `1.25.3` |
+| App version | `1.26.0` |
 | Kubernetes version | `>=1.30.14-0` |
-| Pangolin default image tag | `1.25.3` |
-| Pangolin PostgreSQL image tag | `postgresql-1.25.3` |
+| Pangolin default image tag | `1.26.0` |
+| Pangolin PostgreSQL image tag | `postgresql-1.26.0` |
 | pangolin-kube-controller tag | `0.1.0-alpha.1` |
 | Gerbil tag | `1.6.0` |
 | Traefik tag | `v3.6.15` |

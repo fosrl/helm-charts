@@ -19,8 +19,8 @@ This changelog is chart-scoped to support multiple charts over time.
 
 #### Changed
 
-- Bumped Pangolin chart version to `0.1.0-alpha.2` and app version to `1.25.3`.
-- Updated Artifact Hub image references to Pangolin `1.25.3` (including PostgreSQL variant) for both Docker Hub and GHCR.
+- Bumped Pangolin chart version to `0.1.0-alpha.2` and app version to `1.26.0`.
+- Updated Artifact Hub image references to Pangolin `1.26.0` (including PostgreSQL variant) for both Docker Hub and GHCR.
 - Bumped default Gerbil image tag from `1.3.1` to `1.6.0` (Pangolin 1.22+ requires Gerbil `>=1.5.0` for private AI gateway resources).
 
 ---

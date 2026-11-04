@@ -1,6 +1,6 @@
 apiVersion: v2
 version: 0.1.0-alpha.2
-appVersion: "1.25.3"
+appVersion: "1.26.0"
 kubeVersion: ">=1.30.14-0"
 name: pangolin
 description: Pangolin Helm Chart
@@ -34,33 +34,33 @@ annotations:
   artifacthub.io/category: networking
   artifacthub.io/changes: |
     - kind: changed
-      description: "Bump Chart version to 0.1.0-alpha.2 and Chart AppVersion to Pangolin v1.25.3."
+      description: "Bump Chart version to 0.1.0-alpha.2 and Chart AppVersion to Pangolin v1.26.0."
     - kind: changed
       description: "Bump default Gerbil image to 1.6.0 (Pangolin 1.22+ requires Gerbil >= 1.5.0 for private AI gateway resources)."
   artifacthub.io/images: |
     - name: pangolin-dockerhub
-      image: docker.io/fosrl/pangolin:1.25.3
+      image: docker.io/fosrl/pangolin:1.26.0
       whitelisted: false
       platforms:
         - linux/amd64
         - linux/arm64
         - linux/arm/v7
     - name: pangolin-ghcr
-      image: ghcr.io/fosrl/pangolin:1.25.3
+      image: ghcr.io/fosrl/pangolin:1.26.0
       whitelisted: false
       platforms:
         - linux/amd64
         - linux/arm64
         - linux/arm/v7
     - name: pangolin-postgresql-dockerhub
-      image: docker.io/fosrl/pangolin:postgresql-1.25.3
+      image: docker.io/fosrl/pangolin:postgresql-1.26.0
       whitelisted: false
       platforms:
         - linux/amd64
         - linux/arm64
         - linux/arm/v7
     - name: pangolin-postgresql-ghcr
-      image: ghcr.io/fosrl/pangolin:postgresql-1.25.3
+      image: ghcr.io/fosrl/pangolin:postgresql-1.26.0
       whitelisted: false
       platforms:
         - linux/amd64
