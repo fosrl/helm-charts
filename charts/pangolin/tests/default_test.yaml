@@ -293,7 +293,7 @@ tests:
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
-          value: docker.io/fosrl/gerbil:1.3.1
+          value: docker.io/fosrl/gerbil:1.6.0
 
   - it: renders with correct security context for pangolin (pod level)
     template: templates/deployment-pangolin.yaml
