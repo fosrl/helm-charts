@@ -1289,6 +1289,19 @@
                         "description": "Keep the interface on shutdown (native mode)",
                         "type": "boolean"
                     },
+                    "kubernetes": {
+                        "type": "object",
+                        "properties": {
+                            "enabled": {
+                                "description": "Watch Kubernetes Services for pangolin.* annotations and create Pangolin resources from them\n(KUBERNETES_ENABLED env). Requires a Newt version with Kubernetes Service annotation support.\nEnabling this mounts the ServiceAccount token. With rbac.create=true the chart also grants\nread access to Services. See https://docs.pangolin.net/manage/blueprints#kubernetes-service-annotations",
+                                "type": "boolean"
+                            },
+                            "namespace": {
+                                "description": "Only watch Services in this namespace (KUBERNETES_NAMESPACE env). Leave empty to watch all\nnamespaces, which needs rbac.clusterRole=true when rbac.create=true.",
+                                "type": "string"
+                            }
+                        }
+                    },
                     "lifecycle": {
                         "description": "Container lifecycle hooks (e.g., preStop for graceful WireGuard shutdown)",
                         "type": "object"

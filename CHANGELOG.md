@@ -46,7 +46,15 @@ This changelog is chart-scoped to support multiple charts over time.
 
 ### Unreleased
 
-- No changes yet.
+#### Added
+
+- Added `newtInstances[].kubernetes.enabled` and `newtInstances[].kubernetes.namespace` to let Newt create Pangolin resources from `pangolin.*` annotations on Kubernetes Services. Requires a Newt version that supports Kubernetes Service annotations.
+- When `rbac.create` is enabled, the chart grants read access to Services for instances that use Kubernetes discovery. A `ClusterRole` is used with `rbac.clusterRole: true`, otherwise a `Role` in each watched namespace.
+- Template rendering fails when an instance watches all namespaces while `rbac.create` is true and `rbac.clusterRole` is false.
+
+#### Changed
+
+- The ServiceAccount token is mounted for instances with `kubernetes.enabled`, regardless of `automountServiceAccountToken`.
 
 ---
 

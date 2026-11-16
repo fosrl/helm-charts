@@ -1,0 +1,168 @@
+suite: Newt Kubernetes Service annotations
+templates:
+  - templates/deployment.yaml
+  - templates/rbac.yaml
+tests:
+  - it: does not set Kubernetes env or mount the token by default
+    template: templates/deployment.yaml
+    set:
+      newtInstances:
+        - name: test
+          enabled: true
+          pangolinEndpoint: https://example.com
+          id: test
+          secret: secret
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KUBERNETES_ENABLED
+            value: "true"
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+
+  - it: sets KUBERNETES_ENABLED and KUBERNETES_NAMESPACE and mounts the token
+    template: templates/deployment.yaml
+    set:
+      newtInstances:
+        - name: test
+          enabled: true
+          pangolinEndpoint: https://example.com
+          id: test
+          secret: secret
+          kubernetes:
+            enabled: true
+            namespace: apps
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KUBERNETES_ENABLED
+            value: "true"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KUBERNETES_NAMESPACE
+            value: apps
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: true
+
+  - it: omits KUBERNETES_NAMESPACE when watching all namespaces
+    template: templates/deployment.yaml
+    set:
+      newtInstances:
+        - name: test
+          enabled: true
+          pangolinEndpoint: https://example.com
+          id: test
+          secret: secret
+          kubernetes:
+            enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KUBERNETES_ENABLED
+            value: "true"
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KUBERNETES_NAMESPACE
+            value: ""
+
+  - it: grants Services access cluster wide with a ClusterRole
+    template: templates/rbac.yaml
+    set:
+      rbac:
+        create: true
+        clusterRole: true
+      newtInstances:
+        - name: test
+          enabled: true
+          pangolinEndpoint: https://example.com
+          id: test
+          secret: secret
+          kubernetes:
+            enabled: true
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: ClusterRole
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["services"]
+            verbs: ["get", "list", "watch"]
+
+  - it: grants Services access in the watched namespace with a Role
+    template: templates/rbac.yaml
+    set:
+      rbac:
+        create: true
+      newtInstances:
+        - name: test
+          enabled: true
+          pangolinEndpoint: https://example.com
+          id: test
+          secret: secret
+          kubernetes:
+            enabled: true
+            namespace: apps
+    asserts:
+      - hasDocuments:
+          count: 4
+      - isKind:
+          of: Role
+        documentIndex: 1
+      - equal:
+          path: metadata.namespace
+          value: apps
+        documentIndex: 1
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["services"]
+            verbs: ["get", "list", "watch"]
+        documentIndex: 1
+
+  - it: fails when watching all namespaces without a ClusterRole
+    template: templates/rbac.yaml
+    set:
+      rbac:
+        create: true
+      newtInstances:
+        - name: test
+          enabled: true
+          pangolinEndpoint: https://example.com
+          id: test
+          secret: secret
+          kubernetes:
+            enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "needs rbac.clusterRole=true"
+
+  - it: does not add Services access when Kubernetes discovery is off
+    template: templates/rbac.yaml
+    set:
+      rbac:
+        create: true
+        clusterRole: true
+      newtInstances:
+        - name: test
+          enabled: true
+          pangolinEndpoint: https://example.com
+          id: test
+          secret: secret
+    documentIndex: 0
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["services"]
+            verbs: ["get", "list", "watch"]

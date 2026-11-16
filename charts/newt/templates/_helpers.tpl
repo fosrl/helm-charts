@@ -313,6 +313,14 @@ imagePullSecrets:
 - name: DOCKER_ENFORCE_NETWORK_VALIDATION
   value: {{ ternary "true" "false" (default false $inst.dockerSocket.enforceNetworkValidation) | quote }}
 {{- end }}
+{{- if and (kindIs "map" $inst.kubernetes) $inst.kubernetes.enabled }}
+- name: KUBERNETES_ENABLED
+  value: "true"
+{{- if $inst.kubernetes.namespace }}
+- name: KUBERNETES_NAMESPACE
+  value: {{ $inst.kubernetes.namespace | quote }}
+{{- end }}
+{{- end }}
 {{- if and (kindIs "map" $inst.updown) $inst.updown.enabled }}
 - name: UPDOWN_SCRIPT
   value: {{ printf "%s/%s" (default "/opt/newt/updown" $inst.updown.mountPath) (default "updown.sh" $inst.updown.fileName) | quote }}
@@ -447,6 +455,7 @@ imagePullSecrets:
 {{- if $root.Values.global.health.enabled }}{{- $args = append $args (printf "--health-file=%s" (default $root.Values.global.health.path $inst.healthFile)) }}{{- end }}
 {{- if $inst.dockerSocket.enabled }}{{- $args = append $args (printf "--docker-socket=%s" $inst.dockerSocket.path) }}{{- end }}
 {{- if and $inst.dockerSocket.enabled $inst.dockerSocket.enforceNetworkValidation }}{{- $args = append $args "--docker-enforce-network-validation" }}{{- end }}
+{{- if and (kindIs "map" $inst.kubernetes) $inst.kubernetes.enabled }}{{- $args = append $args "--kubernetes" }}{{- if $inst.kubernetes.namespace }}{{- $args = append $args (printf "--kubernetes-namespace=%s" $inst.kubernetes.namespace) }}{{- end }}{{- end }}
 {{- if $inst.updown.enabled }}{{- $args = append $args (printf "--updown=%s/%s" (default "/opt/newt/updown" $inst.updown.mountPath) (default "updown.sh" $inst.updown.fileName)) }}{{- end }}
 {{- if $inst.mtls.enabled }}{{- $args = append $args (printf "--tls-client-cert=%s" $inst.mtls.certPath) }}{{- end }}
 {{- if $inst.generateAndSaveKeyTo }}{{- $args = append $args (printf "--generateAndSaveKeyTo=%s" $inst.generateAndSaveKeyTo) }}{{- end }}

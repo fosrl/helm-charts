@@ -1,0 +1,13 @@
+# Example enabling Kubernetes Service annotation discovery.
+# Newt creates Pangolin resources from pangolin.* annotations on Services in the "apps" namespace.
+# Leave kubernetes.namespace empty to watch all namespaces (needs rbac.clusterRole: true).
+rbac:
+  create: true
+newtInstances:
+  - name: main-tunnel
+    enabled: true
+    auth:
+      existingSecretName: newt-cred
+    kubernetes:
+      enabled: true
+      namespace: apps

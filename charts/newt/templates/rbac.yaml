@@ -13,6 +13,29 @@
 {{- end }}
 {{- end }}
 {{- end }}
+{{- /*
+  Kubernetes Service discovery (newtInstances[].kubernetes.enabled) needs read access to Services.
+  $k8sAny: at least one instance has it enabled.
+  $k8sAll: at least one such instance watches all namespaces (no kubernetes.namespace).
+  $k8sNamespaces: watched namespace -> namespaces of the instances (ServiceAccounts) that watch it.
+*/ -}}
+{{- $k8sAny := false -}}
+{{- $k8sAll := false -}}
+{{- $k8sNamespaces := dict -}}
+{{- range $idx, $inst := .Values.newtInstances }}
+{{- if and $inst.enabled (kindIs "map" $inst.kubernetes) $inst.kubernetes.enabled }}
+{{- $k8sAny = true -}}
+{{- if $inst.kubernetes.namespace }}
+{{- $subjectNs := include "newt.effectiveNamespace" (dict "root" $root "inst" $inst) -}}
+{{- $_ := set $k8sNamespaces $inst.kubernetes.namespace (uniq (append (default (list) (get $k8sNamespaces $inst.kubernetes.namespace)) $subjectNs)) -}}
+{{- else }}
+{{- $k8sAll = true -}}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- if and $k8sAll (not .Values.rbac.clusterRole) }}
+{{- fail "newtInstances[].kubernetes.enabled without kubernetes.namespace watches Services in all namespaces, which needs rbac.clusterRole=true. Set kubernetes.namespace, enable rbac.clusterRole, or set rbac.create=false and manage the RBAC yourself." }}
+{{- end }}
 {{- if .Values.rbac.clusterRole }}
 {{- /* ClusterRole/ClusterRoleBinding - cluster-scoped, no namespace needed */ -}}
 ---
@@ -33,6 +56,11 @@ rules:
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get","list","watch"]
+  {{- if $k8sAny }}
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get","list","watch"]
+  {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -100,6 +128,53 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
   name: {{ include "newt.fullname" $root }}
+{{- end }}
+{{- /* Read access to Services in each namespace watched for Pangolin annotations */ -}}
+{{- range $watchedNs, $subjectNamespaces := $k8sNamespaces }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "newt.fullname" $root }}-services
+  namespace: {{ $watchedNs }}
+  labels:
+    {{- include "newt.labels" $root | nindent 4 }}
+  {{- with $root.Values.rbac.labels }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with $root.Values.rbac.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+rules:
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get","list","watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "newt.fullname" $root }}-services
+  namespace: {{ $watchedNs }}
+  labels:
+    {{- include "newt.labels" $root | nindent 4 }}
+  {{- with $root.Values.rbac.labels }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with $root.Values.rbac.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+subjects:
+  {{- range $subjectNamespaces }}
+  - kind: ServiceAccount
+    name: {{ include "newt.serviceAccountName" $root }}
+    namespace: {{ . }}
+  {{- end }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "newt.fullname" $root }}-services
 {{- end }}
 {{- end }}
 {{- end }}

@@ -120,7 +120,10 @@ spec:
       {{- with $root.Values.global.priorityClassName }}
       priorityClassName: {{ . }}
       {{- end }}
-      {{- if $useInstanceServiceAccount }}
+      {{- /* Kubernetes Service discovery needs the ServiceAccount token to reach the API server. */ -}}
+      {{- if and (kindIs "map" $inst.kubernetes) $inst.kubernetes.enabled }}
+      automountServiceAccountToken: true
+      {{- else if $useInstanceServiceAccount }}
       automountServiceAccountToken: {{ default false (get $instServiceAccount "automountServiceAccountToken") }}
       {{- else }}
       automountServiceAccountToken: {{ default false $root.Values.serviceAccount.automountServiceAccountToken }}

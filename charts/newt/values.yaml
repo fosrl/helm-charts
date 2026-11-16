@@ -683,6 +683,15 @@ newtInstances:
       path: "/var/run/docker.sock"
       # -- Enforce Docker network validation when enabled
       enforceNetworkValidation: false
+    kubernetes:
+      # -- Watch Kubernetes Services for pangolin.* annotations and create Pangolin resources from them
+      # (KUBERNETES_ENABLED env). Requires a Newt version with Kubernetes Service annotation support.
+      # Enabling this mounts the ServiceAccount token. With rbac.create=true the chart also grants
+      # read access to Services. See https://docs.pangolin.net/manage/blueprints#kubernetes-service-annotations
+      enabled: false
+      # -- Only watch Services in this namespace (KUBERNETES_NAMESPACE env). Leave empty to watch all
+      # namespaces, which needs rbac.clusterRole=true when rbac.create=true.
+      namespace: ""
     mtls:
       # -- Enable mTLS client cert mounting
       enabled: false
