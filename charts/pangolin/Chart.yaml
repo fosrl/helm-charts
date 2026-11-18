@@ -1,6 +1,6 @@
 apiVersion: v2
-version: 0.1.0-alpha.2
-appVersion: "1.22.2"
+version: 0.1.0
+appVersion: "1.26.0"
 kubeVersion: ">=1.30.14-0"
 name: pangolin
 description: Pangolin Helm Chart
@@ -21,54 +21,58 @@ maintainers:
 dependencies:
   - name: cloudnative-pg
     alias: cnpg-operator
-    version: 0.28.0
+    version: 0.29.2
     repository: https://cloudnative-pg.github.io/charts
     condition: cnpg-operator.enabled
   - name: cluster
     alias: cnpg-cluster
-    version: 0.6.0
+    version: 0.9.0
     repository: https://cloudnative-pg.github.io/charts
     condition: cnpg-cluster.enabled
   - name: traefik
     alias: traefikController
-    version: 41.5.0
+    version: 42.4.1
     repository: https://traefik.github.io/charts
     condition: deployment.installTraefikController
 annotations:
   artifacthub.io/category: networking
   artifacthub.io/changes: |
     - kind: changed
-      description: "Bump Chart AppVersion to Pangolin v1.22.2 and Gerbil to v1.5.1."
+      description: "Pangolin v1.26.0, Gerbil v1.6.0, pangolin-kube-controller v0.1.0, Badger v1.8.0, Traefik v3.7.19 (chart 42.4.1) and CloudNativePG charts 0.29.2/0.9.0. The chart leaves prerelease."
+    - kind: changed
+      description: "BREAKING (standalone, multi): the chart-managed Traefik runs in the Gerbil Pod so it can reach tunnel backends. Set traefik.runInGerbilPod=false for the previous layout."
     - kind: added
-      description: "Expose the Pangolin 1.22 configuration surface, including the AI gateway port."
-    - kind: removed
-      description: "Remove the stale pangolin.config.gerbil.use_subdomain key and the unused monitoring.* and runtime.hostNetwork trees."
+      description: "Pangolin 1.23-1.26 settings: server.trust_ips, server.custom_ip_header and offline_checker.*; controller.config.ingressClass and resyncInterval."
     - kind: fixed
-      description: "Fix extraVolumes/extraVolumeMounts rendering, controller Kubernetes API egress and dashboard ingress defaults."
+      description: "Pangolin can reach the Gerbil API under the chart NetworkPolicy, so tunnels come up (#39)."
+    - kind: fixed
+      description: "The chart-managed Traefik passes its probes, can issue ACME certificates, can read the Kubernetes API, and gets the ACME PVC it mounts."
+    - kind: fixed
+      description: "Fix extraVolumes/extraVolumeMounts rendering, controller Kubernetes API egress, dashboard ingress defaults and the in-cluster internal_hostname."
   artifacthub.io/images: |
     - name: pangolin-dockerhub
-      image: docker.io/fosrl/pangolin:1.22.2
+      image: docker.io/fosrl/pangolin:1.26.0
       whitelisted: false
       platforms:
         - linux/amd64
         - linux/arm64
         - linux/arm/v7
     - name: pangolin-ghcr
-      image: ghcr.io/fosrl/pangolin:1.22.2
+      image: ghcr.io/fosrl/pangolin:1.26.0
       whitelisted: false
       platforms:
         - linux/amd64
         - linux/arm64
         - linux/arm/v7
     - name: pangolin-postgresql-dockerhub
-      image: docker.io/fosrl/pangolin:postgresql-1.22.2
+      image: docker.io/fosrl/pangolin:postgresql-1.26.0
       whitelisted: false
       platforms:
         - linux/amd64
         - linux/arm64
         - linux/arm/v7
     - name: pangolin-postgresql-ghcr
-      image: ghcr.io/fosrl/pangolin:postgresql-1.22.2
+      image: ghcr.io/fosrl/pangolin:postgresql-1.26.0
       whitelisted: false
       platforms:
         - linux/amd64
@@ -80,7 +84,7 @@ annotations:
       url: https://github.com/fosrl/helm-charts/issues
     - name: documentation
       url: https://docs.digpangolin.com/self-host/manual/kubernetes
-  artifacthub.io/prerelease: "true"
+  artifacthub.io/prerelease: "false"
   artifacthub.io/recommendations: |
     - url: https://artifacthub.io/packages/helm/fosrl/newt
   artifacthub.io/signKey: |

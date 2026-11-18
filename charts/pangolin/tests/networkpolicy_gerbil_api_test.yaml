@@ -1,0 +1,96 @@
+suite: Pangolin to Gerbil API NetworkPolicy (#39)
+templates:
+  - templates/networkpolicy.yaml
+tests:
+  # Pangolin registers every site and client peer with POST /peer on Gerbil's HTTP API.
+  # Without this egress rule no tunnel can come up under the chart's own policy.
+  - it: lets Pangolin reach the Gerbil API
+    set:
+      networkPolicy:
+        enabled: true
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-pangolin-egress
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            to:
+              - podSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: pangolin
+                    app.kubernetes.io/instance: RELEASE-NAME
+                    app.kubernetes.io/component: gerbil
+            ports:
+              - protocol: TCP
+                port: 3004
+
+  - it: follows a custom Gerbil API port
+    set:
+      networkPolicy:
+        enabled: true
+      gerbil:
+        ports:
+          internalApi: 4004
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-pangolin-egress
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            to:
+              - podSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: pangolin
+                    app.kubernetes.io/instance: RELEASE-NAME
+                    app.kubernetes.io/component: gerbil
+            ports:
+              - protocol: TCP
+                port: 4004
+
+  - it: uses the node blocks in host gateway mode
+    set:
+      networkPolicy:
+        enabled: true
+        gerbil:
+          hostGateway:
+            nodeCIDRs:
+              - 192.0.2.10/32
+      namespace:
+        podSecurity:
+          enforce: privileged
+      gerbil:
+        hostGateway:
+          enabled: true
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-pangolin-egress
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            to:
+              - ipBlock:
+                  cidr: 192.0.2.10/32
+            ports:
+              - protocol: TCP
+                port: 3004
+
+  - it: adds no rule without Gerbil
+    set:
+      networkPolicy:
+        enabled: true
+      gerbil:
+        enabled: false
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-pangolin-egress
+    asserts:
+      - notContains:
+          path: spec.egress
+          content:
+            ports:
+              - protocol: TCP
+                port: 3004
+          any: true

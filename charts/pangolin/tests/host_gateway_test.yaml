@@ -95,6 +95,7 @@ tests:
           enabled: true
       traefik:
         enabled: true
+        runInGerbilPod: false
         config:
           letsencryptEmail: ops@example.com
           dynamicRouters:
@@ -150,6 +151,7 @@ tests:
         enabled: false
       traefik:
         enabled: true
+        runInGerbilPod: false
         config:
           letsencryptEmail: ops@example.com
           dynamicRouters:
@@ -183,6 +185,7 @@ tests:
           enabled: true
       traefik:
         enabled: true
+        runInGerbilPod: false
         colocateWithGerbil: disabled
         config:
           letsencryptEmail: ops@example.com
@@ -209,6 +212,7 @@ tests:
         startupMode: delayed
       traefik:
         enabled: true
+        runInGerbilPod: false
         colocateWithGerbil: required
         config:
           letsencryptEmail: ops@example.com
@@ -253,6 +257,7 @@ tests:
           enabled: true
       traefik:
         enabled: true
+        runInGerbilPod: false
         config:
           letsencryptEmail: ops@example.com
           dynamicRouters:

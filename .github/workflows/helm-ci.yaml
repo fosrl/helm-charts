@@ -183,10 +183,10 @@ jobs:
           # A chart whose defaults point at an unpublished image must not merge.
           #
           # TODO: remove ALLOW_PENDING once
-          # ghcr.io/fosrl/pangolin-kube-controller:0.1.0-alpha.2 is published.
+          # ghcr.io/fosrl/pangolin-kube-controller:0.1.0 is published.
           # Exactly one image is tolerated, and only on dev (pull_request into dev, or
           # push to dev). main and every other image stay fatal.
-          ALLOW_PENDING="ghcr.io/fosrl/pangolin-kube-controller:0.1.0-alpha.2"
+          ALLOW_PENDING="ghcr.io/fosrl/pangolin-kube-controller:0.1.0"
           allow_pending=false
           if [ "${GITHUB_BASE_REF:-}" = "dev" ] || [ "${GITHUB_REF_NAME:-}" = "dev" ]; then
             allow_pending=true

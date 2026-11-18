@@ -12,6 +12,7 @@ tests:
       deployment.mode: multi
       traefik:
         enabled: true
+        runInGerbilPod: false
         config:
           letsencryptEmail: ops@example.com
           dynamicRouters:
@@ -33,6 +34,7 @@ tests:
       deployment.mode: multi
       traefik:
         enabled: true
+        runInGerbilPod: false
         config:
           letsencryptEmail: ops@example.com
           dynamicRouters:
@@ -43,7 +45,7 @@ tests:
           content: "--experimental.plugins.badger.modulename=github.com/fosrl/badger"
       - contains:
           path: spec.template.spec.containers[0].args
-          content: "--experimental.plugins.badger.version=v1.7.0"
+          content: "--experimental.plugins.badger.version=v1.8.0"
 
   - it: honours a pinned Badger version
     template: templates/deployment-traefik.yaml
@@ -52,6 +54,7 @@ tests:
       deployment.mode: multi
       traefik:
         enabled: true
+        runInGerbilPod: false
         badger:
           version: v1.6.1
         config:
@@ -70,6 +73,7 @@ tests:
       deployment.mode: multi
       traefik:
         enabled: true
+        runInGerbilPod: false
         badger:
           enabled: false
         config:
@@ -88,6 +92,7 @@ tests:
       deployment.mode: multi
       traefik:
         enabled: true
+        runInGerbilPod: false
         config:
           letsencryptEmail: ops@example.com
           dynamicRouters:
@@ -106,6 +111,7 @@ tests:
       deployment.mode: multi
       traefik:
         enabled: true
+        runInGerbilPod: false
         config:
           letsencryptEmail: ops@example.com
           dynamicRouters:
@@ -124,6 +130,7 @@ tests:
       deployment.mode: single
       traefik:
         enabled: true
+        runInGerbilPod: false
         config:
           letsencryptEmail: ops@example.com
           dynamicRouters:
@@ -143,6 +150,7 @@ tests:
       deployment.mode: multi
       traefik:
         enabled: true
+        runInGerbilPod: false
         config:
           letsencryptEmail: ops@example.com
           dynamicRouters:
@@ -195,6 +203,7 @@ tests:
         enabled: true
       traefik:
         enabled: true
+        runInGerbilPod: false
         config:
           letsencryptEmail: ops@example.com
           dynamicRouters:

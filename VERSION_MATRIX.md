@@ -34,19 +34,20 @@ Sources:
 
 | Item | Value |
 | --- | --- |
-| Chart version | `0.1.0-alpha.2` |
-| App version | `1.22.2` |
+| Chart version | `0.1.0` |
+| App version | `1.26.0` |
 | Kubernetes version | `>=1.30.14-0` |
-| Pangolin default image tag | `1.22.2` |
-| Pangolin PostgreSQL image tag | `postgresql-1.22.2` |
-| pangolin-kube-controller tag | `0.1.0-alpha.2` |
-| Gerbil tag | `1.5.1` |
-| Traefik tag | `v3.7.13` |
+| Pangolin default image tag | `1.26.0` |
+| Pangolin PostgreSQL image tag | `postgresql-1.26.0` |
+| pangolin-kube-controller tag | `0.1.0` |
+| Gerbil tag | `1.6.0` |
+| Traefik tag | `v3.7.19` |
+| Badger plugin | `v1.8.0` |
 
 The chart can run Traefik two ways and both are on the same minor. `images.traefik.tag`
 is the chart-managed standalone Traefik; the bundled official Traefik chart
-(`deployment.installTraefikController`) is pinned at `41.5.0`, whose appVersion is
-`v3.7.13`. Keep them aligned: two minors means two sets of upstream fixes to track.
+(`deployment.installTraefikController`) is pinned at `42.4.1`, whose appVersion is
+`v3.7.19`. Keep them aligned: two minors means two sets of upstream fixes to track.
 
 Sources:
 

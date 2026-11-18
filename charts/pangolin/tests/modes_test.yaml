@@ -33,6 +33,7 @@ tests:
     set:
       deployment.type: standalone
       traefik.enabled: true
+      traefik.runInGerbilPod: false
       traefik.config.letsencryptEmail: ops@example.com
       traefik.config.dynamicRouters.host: pangolin.local
     template: templates/deployment-traefik.yaml
@@ -46,6 +47,7 @@ tests:
     set:
       deployment.type: standalone
       traefik.enabled: true
+      traefik.runInGerbilPod: false
       traefik.config.letsencryptEmail: ops@example.com
       traefik.config.dynamicRouters.host: pangolin.local
     template: templates/deployment-controller.yaml
@@ -110,6 +112,7 @@ tests:
     set:
       deployment.type: controller
       traefik.enabled: true
+      traefik.runInGerbilPod: false
       traefik.config.letsencryptEmail: ops@example.com
       traefik.config.dynamicRouters.host: pangolin.local
     template: templates/deployment-traefik.yaml

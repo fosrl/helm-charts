@@ -29,6 +29,7 @@ tests:
         mode: multi
       traefik:
         enabled: true
+        runInGerbilPod: false
         config:
           letsencryptEmail: ops@example.com
           dynamicRouters:
@@ -156,6 +157,7 @@ tests:
         mode: multi
       traefik:
         enabled: true
+        runInGerbilPod: false
         config:
           letsencryptEmail: ops@example.com
           dynamicRouters:
@@ -183,6 +185,7 @@ tests:
         mode: single
       traefik:
         enabled: true
+        runInGerbilPod: false
         config:
           letsencryptEmail: ops@example.com
           dynamicRouters:
@@ -229,6 +232,7 @@ tests:
         mode: multi
       traefik:
         enabled: true
+        runInGerbilPod: false
         config:
           letsencryptEmail: ops@example.com
           dynamicRouters:
