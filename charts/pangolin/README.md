@@ -1027,4 +1027,4 @@ See `examples/values-blueprints.yaml` for a complete working example.
 
 | Name | Email | Url |
 | ---- | ------ | --- |
-| marcschaeferger | <info@marcschaeferger.de> | <https://github.com/marcschaeferger> |
+| Fossorial Inc | <contact@pangolin.net> |  |
