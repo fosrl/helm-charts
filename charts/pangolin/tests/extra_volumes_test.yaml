@@ -1,0 +1,185 @@
+suite: extra volumes and volume mounts
+templates:
+  - templates/deployment-pangolin.yaml
+  - templates/deployment-single.yaml
+tests:
+  # #25: `- {{- toYaml . | nindent N }}` ate the list dash, so any of these values
+  # aborted `helm template` with a YAML parse error.
+  - it: renders a single extra volume and mount in multi mode
+    set:
+      database:
+        mode: sqlite
+      pangolin:
+        extraVolumes:
+          - name: sqlite-data
+            persistentVolumeClaim:
+              claimName: pangolin-sqlite
+        extraVolumeMounts:
+          - name: sqlite-data
+            mountPath: /app/data
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: sqlite-data
+            persistentVolumeClaim:
+              claimName: pangolin-sqlite
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: sqlite-data
+            mountPath: /app/data
+
+  - it: renders multiple extra volumes and mounts in order
+    set:
+      database:
+        mode: sqlite
+      pangolin:
+        extraVolumes:
+          - name: one
+            emptyDir: {}
+          - name: two
+            persistentVolumeClaim:
+              claimName: two-claim
+        extraVolumeMounts:
+          - name: one
+            mountPath: /one
+          - name: two
+            mountPath: /two
+            readOnly: true
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: one
+            emptyDir: {}
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: two
+            persistentVolumeClaim:
+              claimName: two-claim
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: two
+            mountPath: /two
+            readOnly: true
+
+  # The extras must not displace the config and private-config mounts the chart owns.
+  - it: keeps the standard config mounts alongside the extras
+    set:
+      database:
+        mode: sqlite
+      pangolin:
+        privateConfig:
+          enabled: true
+          existingSecretName: my-private-config
+        extraVolumes:
+          - name: extra
+            emptyDir: {}
+        extraVolumeMounts:
+          - name: extra
+            mountPath: /extra
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: pangolin-config
+            mountPath: /app/config/config.yml
+            subPath: config.yml
+            readOnly: true
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: pangolin-private-config
+            mountPath: /app/config/privateConfig.yml
+            subPath: "privateConfig.yml"
+            readOnly: true
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: extra
+            mountPath: /extra
+      - lengthEqual:
+          path: spec.template.spec.containers[0].volumeMounts
+          count: 3
+
+  - it: renders extra volumes and mounts in single mode
+    set:
+      database:
+        mode: sqlite
+      deployment:
+        mode: single
+      pangolin:
+        extraVolumes:
+          - name: extra
+            emptyDir: {}
+        extraVolumeMounts:
+          - name: extra
+            mountPath: /extra
+    template: templates/deployment-single.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: extra
+            emptyDir: {}
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: extra
+            mountPath: /extra
+
+  # deployment-single.yaml renders gerbil and traefik volumes in the same list, which
+  # is where the wrong nindent used to show up.
+  - it: renders extra volumes alongside the co-located component volumes in single mode
+    set:
+      database:
+        mode: sqlite
+      deployment:
+        mode: single
+        type: standalone
+      controller:
+        enabled: false
+      traefik:
+        enabled: true
+        persistence:
+          enabled: true
+        config:
+          letsencryptEmail: ops@example.com
+          dynamicRouters:
+            host: pangolin.local
+      pangolin:
+        extraVolumes:
+          - name: extra
+            emptyDir: {}
+    template: templates/deployment-single.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: extra
+            emptyDir: {}
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: acme
+            persistentVolumeClaim:
+              claimName: RELEASE-NAME-pangolin-traefik-acme
+
+  - it: renders no extras section when the values are empty
+    set:
+      database:
+        mode: sqlite
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - lengthEqual:
+          path: spec.template.spec.volumes
+          count: 1
+      - lengthEqual:
+          path: spec.template.spec.containers[0].volumeMounts
+          count: 1

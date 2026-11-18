@@ -11,12 +11,17 @@
 #   - Gerbil WireGuard UDP egress scoped to known peer CIDRs
 #   - All other traffic implicitly denied by NetworkPolicy defaults
 #
-# IMPORTANT: You MUST set networkPolicy.controller.egress.kubernetesApi.cidr to the IP/CIDR of
-# your cluster API server. Without this, the controller cannot reach the
-# Kubernetes API and will fail to reconcile Traefik CRDs.
+# IMPORTANT: narrow networkPolicy.controller.egress.kubernetesApi.endpoints to your own
+# cluster API address. The chart default covers the private ranges the API server can fall
+# in on both 443 and 6443, which keeps a default install working but is wider than a
+# hardened cluster wants.
 #
-# How to find your API server CIDR:
-#   kubectl get endpoints kubernetes -o jsonpath='{.subsets[*].addresses[*].ip}'
+# How to find the two addresses that matter:
+#   kubectl -n default get svc kubernetes -o jsonpath='{.spec.clusterIP}'          # pre-DNAT, port 443
+#   kubectl get endpoints kubernetes -o jsonpath='{.subsets[*].addresses[*].ip}'   # post-DNAT, usually 6443
+#
+# Which one your cluster needs depends on whether your CNI evaluates NetworkPolicy before
+# or after kube-proxy DNAT. Listing both is safe and is what this example does.
 #
 # Usage:
 #   helm install pangolin charts/pangolin \
@@ -124,8 +129,17 @@ networkPolicy:
       enabled: true
       kubernetesApi:
         enabled: true
-        cidr: 10.96.0.1/32   # example: replace with actual cluster API server IP
-        port: 443
+        endpoints:
+          # Pre-DNAT: the `kubernetes` Service ClusterIP. Replace with your own.
+          - cidrs:
+              - 10.96.0.1/32
+            ports:
+              - 443
+          # Post-DNAT: the control-plane node address(es). Replace with your own.
+          - cidrs:
+              - 192.168.1.10/32
+            ports:
+              - 6443
     metrics:
       allowExternalIngress: false
       # Uncomment and adjust to allow Prometheus scraping from a specific namespace:

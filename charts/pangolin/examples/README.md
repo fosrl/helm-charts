@@ -89,10 +89,13 @@ If the namespace was chart-managed and is no longer needed:
 ```bash
 kubectl delete namespace <namespace>
 ```
-=======
-# Pangolin chart examples
+## Host gateway mode
 
-These files are install-ready value profiles for common deployments.
+`values-host-gateway.yaml` is the transitional workaround for
+[#20](https://github.com/fosrl/helm-charts/issues/20): Gerbil runs with `hostNetwork` so
+tunnel routes land in the node namespace, and Traefik is pinned to that node. Read the
+limitations at the top of the file before using it - notably that it only helps Pods on
+the Gerbil node and depends on your CNI masquerading Pod egress.
 
 ## Gerbil LoadBalancer annotations
 

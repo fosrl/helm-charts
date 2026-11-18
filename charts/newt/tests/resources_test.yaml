@@ -1,0 +1,184 @@
+suite: resource requests and limits
+templates:
+  - templates/deployment.yaml
+tests:
+  # #23: the chart must not impose a sizing opinion that cannot be switched off.
+  - it: omits the resources key entirely by default
+    set:
+      newtInstances:
+        - name: main-tunnel
+          enabled: true
+          auth:
+            existingSecretName: newt-cred
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].resources
+
+  - it: renders requests only
+    set:
+      global:
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+      newtInstances:
+        - name: main-tunnel
+          enabled: true
+          auth:
+            existingSecretName: newt-cred
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources
+          value:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+
+  - it: renders limits only
+    set:
+      global:
+        resources:
+          limits:
+            memory: 256Mi
+      newtInstances:
+        - name: main-tunnel
+          enabled: true
+          auth:
+            existingSecretName: newt-cred
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources
+          value:
+            limits:
+              memory: 256Mi
+
+  - it: renders requests and limits together
+    set:
+      global:
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            memory: 256Mi
+      newtInstances:
+        - name: main-tunnel
+          enabled: true
+          auth:
+            existingSecretName: newt-cred
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources
+          value:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+
+  - it: omits the resources key when global resources is null
+    set:
+      global:
+        resources: null
+      newtInstances:
+        - name: main-tunnel
+          enabled: true
+          auth:
+            existingSecretName: newt-cred
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].resources
+
+  # The reported symptom: a per-instance value was silently discarded because
+  # allowGlobalOverride defaults to false and global.resources shipped non-empty.
+  - it: lets a per-instance value win without allowGlobalOverride
+    set:
+      global:
+        resources:
+          limits:
+            cpu: 200m
+      newtInstances:
+        - name: main-tunnel
+          enabled: true
+          auth:
+            existingSecretName: newt-cred
+          resources:
+            limits:
+              cpu: "8"
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources
+          value:
+            limits:
+              cpu: "8"
+
+  - it: falls back to global resources when the instance leaves them empty
+    set:
+      global:
+        resources:
+          requests:
+            memory: 64Mi
+      newtInstances:
+        - name: main-tunnel
+          enabled: true
+          auth:
+            existingSecretName: newt-cred
+          resources: {}
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources
+          value:
+            requests:
+              memory: 64Mi
+
+  - it: accepts extended resources alongside cpu and memory
+    set:
+      global:
+        resources:
+          limits:
+            nvidia.com/gpu: 1
+      newtInstances:
+        - name: main-tunnel
+          enabled: true
+          auth:
+            existingSecretName: newt-cred
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits["nvidia.com/gpu"]
+          value: 1
+
+  - it: applies per-instance resources independently across instances
+    set:
+      global:
+        resources:
+          requests:
+            memory: 64Mi
+      newtInstances:
+        - name: one
+          enabled: true
+          auth:
+            existingSecretName: newt-cred
+          resources:
+            requests:
+              memory: 512Mi
+        - name: two
+          enabled: true
+          auth:
+            existingSecretName: newt-cred
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources
+          value:
+            requests:
+              memory: 512Mi
+        documentSelector:
+          path: metadata.name
+          value: RELEASE-NAME-newt-one
+      - equal:
+          path: spec.template.spec.containers[0].resources
+          value:
+            requests:
+              memory: 64Mi
+        documentSelector:
+          path: metadata.name
+          value: RELEASE-NAME-newt-two

@@ -19,17 +19,25 @@
 {{- $pdbEnabled = $instPdb.enabled -}}
 {{- end -}}
 {{- if $pdbEnabled }}
+{{- /* A truthiness test here discarded minAvailable: 0, which the schema allows and which
+       is the only way to say "this instance may be drained completely". maxUnavailable was
+       documented but never rendered at all. Both are resolved on presence, and because the
+       API rejects the pair, an explicit maxUnavailable replaces minAvailable rather than
+       joining it. */ -}}
 {{- $minAvail := 1 -}}
-{{- if hasKey $gPdb "minAvailable" -}}
-{{- if $gPdb.minAvailable -}}
-{{- $minAvail = $gPdb.minAvailable -}}
-{{- end -}}
-{{- end -}}
-{{- if hasKey $instPdb "minAvailable" -}}
-{{- if $instPdb.minAvailable -}}
-{{- $minAvail = $instPdb.minAvailable -}}
-{{- end -}}
-{{- end -}}
+{{- $maxUnavail := "" -}}
+{{- if kindIs "float64" $gPdb.minAvailable -}}{{- $minAvail = $gPdb.minAvailable -}}{{- end -}}
+{{- if kindIs "int" $gPdb.minAvailable -}}{{- $minAvail = $gPdb.minAvailable -}}{{- end -}}
+{{- if kindIs "string" $gPdb.minAvailable -}}{{- if ne $gPdb.minAvailable "" -}}{{- $minAvail = $gPdb.minAvailable -}}{{- end -}}{{- end -}}
+{{- if kindIs "float64" $instPdb.minAvailable -}}{{- $minAvail = $instPdb.minAvailable -}}{{- end -}}
+{{- if kindIs "int" $instPdb.minAvailable -}}{{- $minAvail = $instPdb.minAvailable -}}{{- end -}}
+{{- if kindIs "string" $instPdb.minAvailable -}}{{- if ne $instPdb.minAvailable "" -}}{{- $minAvail = $instPdb.minAvailable -}}{{- end -}}{{- end -}}
+{{- if kindIs "float64" $gPdb.maxUnavailable -}}{{- $maxUnavail = $gPdb.maxUnavailable -}}{{- end -}}
+{{- if kindIs "int" $gPdb.maxUnavailable -}}{{- $maxUnavail = $gPdb.maxUnavailable -}}{{- end -}}
+{{- if kindIs "string" $gPdb.maxUnavailable -}}{{- if ne $gPdb.maxUnavailable "" -}}{{- $maxUnavail = $gPdb.maxUnavailable -}}{{- end -}}{{- end -}}
+{{- if kindIs "float64" $instPdb.maxUnavailable -}}{{- $maxUnavail = $instPdb.maxUnavailable -}}{{- end -}}
+{{- if kindIs "int" $instPdb.maxUnavailable -}}{{- $maxUnavail = $instPdb.maxUnavailable -}}{{- end -}}
+{{- if kindIs "string" $instPdb.maxUnavailable -}}{{- if ne $instPdb.maxUnavailable "" -}}{{- $maxUnavail = $instPdb.maxUnavailable -}}{{- end -}}{{- end -}}
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget
@@ -39,7 +47,11 @@ metadata:
     {{- include "newt.labels" $root | nindent 4 }}
     newt.instance: {{ $inst.name }}
 spec:
+  {{- if ne (printf "%v" $maxUnavail) "" }}
+  maxUnavailable: {{ $maxUnavail }}
+  {{- else }}
   minAvailable: {{ $minAvail }}
+  {{- end }}
   selector:
     matchLabels:
       app.kubernetes.io/instance: {{ $root.Release.Name }}

@@ -39,15 +39,7 @@ spec:
   {{- if $root.Values.runtime.minReadySeconds }}
   minReadySeconds: {{ $root.Values.runtime.minReadySeconds }}
   {{- end }}
-  {{- with $root.Values.runtime.updateStrategy }}
-  {{- if eq $workloadType "StatefulSet" }}
-  updateStrategy:
-    {{- toYaml . | nindent 4 }}
-  {{- else }}
-  strategy:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
-  {{- end }}
+  {{- include "pangolin.updateStrategy" (dict "root" $root "workloadType" $workloadType "override" ($ctrl.deployment.updateStrategy | default dict) "blockSurge" false) | nindent 2 }}
   template:
     metadata:
       {{- $parent := $root }}

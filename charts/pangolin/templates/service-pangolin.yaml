@@ -43,4 +43,8 @@ spec:
       port: {{ $pangolin.service.ports.integration }}
       targetPort: {{ $pangolin.service.ports.integration }}
       protocol: TCP
+    - name: ai-gateway
+      port: {{ $pangolin.service.ports.aiGateway }}
+      targetPort: {{ $pangolin.service.ports.aiGateway }}
+      protocol: TCP
 {{- end }}

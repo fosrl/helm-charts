@@ -1,0 +1,211 @@
+suite: Newt runtime correctness
+templates:
+  - templates/deployment.yaml
+  - templates/poddisruptionbudget.yaml
+  - templates/configmap-updown.yaml
+tests:
+  # The volume was mounted whenever updown.enabled, but the ConfigMap was only rendered when
+  # the script name also resolved, so the Pod referenced an object no template emits.
+  - it: rejects updown.enabled with a script that resolves to no ConfigMap
+    template: templates/deployment.yaml
+    set:
+      newtInstances:
+        - name: a
+          enabled: true
+          auth:
+            existingSecretName: newt-auth
+          updown:
+            enabled: true
+            script: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: "does not name an entry in global.updownScripts"
+
+  - it: rejects updown.script naming a key that is not in global.updownScripts
+    template: templates/deployment.yaml
+    set:
+      global:
+        updownScripts:
+          present.sh: "#!/bin/sh"
+      newtInstances:
+        - name: a
+          enabled: true
+          auth:
+            existingSecretName: newt-auth
+          updown:
+            enabled: true
+            script: absent.sh
+    asserts:
+      - failedTemplate:
+          errorPattern: "does not name an entry in global.updownScripts"
+
+  - it: renders the updown ConfigMap the Deployment mounts
+    template: templates/configmap-updown.yaml
+    set:
+      global:
+        updownScripts:
+          hook.sh: "#!/bin/sh"
+      newtInstances:
+        - name: a
+          enabled: true
+          auth:
+            existingSecretName: newt-auth
+          updown:
+            enabled: true
+            script: hook.sh
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-newt-a-updown
+
+  # The probes test for a file Newt must create, on a container whose root filesystem is
+  # read-only. Without a writable directory the file can never appear.
+  - it: gives the health file a writable directory
+    template: templates/deployment.yaml
+    set:
+      global:
+        health:
+          enabled: true
+      newtInstances:
+        - name: a
+          enabled: true
+          auth:
+            existingSecretName: newt-auth
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: newt-health
+            mountPath: "/tmp"
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: newt-health
+            emptyDir: {}
+
+  - it: mounts the directory of a custom health file path
+    template: templates/deployment.yaml
+    set:
+      global:
+        health:
+          enabled: true
+          path: /var/run/newt/healthy
+      newtInstances:
+        - name: a
+          enabled: true
+          auth:
+            existingSecretName: newt-auth
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: newt-health
+            mountPath: "/var/run/newt"
+
+  - it: adds no health volume when probes are disabled
+    template: templates/deployment.yaml
+    set:
+      newtInstances:
+        - name: a
+          enabled: true
+          auth:
+            existingSecretName: newt-auth
+    asserts:
+      - notExists:
+          path: spec.template.spec.volumes
+
+  # A truthiness test discarded minAvailable: 0, and maxUnavailable was documented but never
+  # rendered at all.
+  - it: keeps an explicit minAvailable of zero
+    template: templates/poddisruptionbudget.yaml
+    set:
+      global:
+        podDisruptionBudget:
+          enabled: true
+          minAvailable: 0
+      newtInstances:
+        - name: a
+          enabled: true
+          auth:
+            existingSecretName: newt-auth
+    asserts:
+      - equal:
+          path: spec.minAvailable
+          value: 0
+
+  - it: renders maxUnavailable when it is set
+    template: templates/poddisruptionbudget.yaml
+    set:
+      global:
+        podDisruptionBudget:
+          enabled: true
+          maxUnavailable: 1
+      newtInstances:
+        - name: a
+          enabled: true
+          auth:
+            existingSecretName: newt-auth
+    asserts:
+      - equal:
+          path: spec.maxUnavailable
+          value: 1
+      - notExists:
+          path: spec.minAvailable
+
+  - it: accepts a percentage maxUnavailable
+    template: templates/poddisruptionbudget.yaml
+    set:
+      global:
+        podDisruptionBudget:
+          enabled: true
+          maxUnavailable: "50%"
+      newtInstances:
+        - name: a
+          enabled: true
+          auth:
+            existingSecretName: newt-auth
+    asserts:
+      - equal:
+          path: spec.maxUnavailable
+          value: "50%"
+
+  - it: keeps minAvailable when neither is overridden
+    template: templates/poddisruptionbudget.yaml
+    set:
+      global:
+        podDisruptionBudget:
+          enabled: true
+      newtInstances:
+        - name: a
+          enabled: true
+          auth:
+            existingSecretName: newt-auth
+    asserts:
+      - equal:
+          path: spec.minAvailable
+          value: 1
+      - notExists:
+          path: spec.maxUnavailable
+
+  # The scrape annotation advertised the deprecated metrics.port while Newt binds the
+  # address the metrics helpers resolve.
+  - it: advertises the port Newt actually binds
+    template: templates/deployment.yaml
+    set:
+      global:
+        metrics:
+          enabled: true
+      newtInstances:
+        - name: a
+          enabled: true
+          auth:
+            existingSecretName: newt-auth
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["prometheus.io/port"]
+          value: "2112"

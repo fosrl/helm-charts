@@ -21,6 +21,9 @@ tests:
 
   - it: uses default security context with root and NET_ADMIN
     set:
+      global:
+        nativeMode:
+          enabled: true
       newtInstances:
         - name: test-sec
           enabled: true

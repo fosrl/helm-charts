@@ -1,0 +1,239 @@
+suite: SQLite persistence
+templates:
+  - templates/pvc-sqlite.yaml
+  - templates/deployment-pangolin.yaml
+  - templates/deployment-single.yaml
+tests:
+  - it: creates no PVC when persistence is disabled
+    set:
+      database:
+        mode: sqlite
+    template: templates/pvc-sqlite.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: mounts nothing when persistence is disabled
+    set:
+      database:
+        mode: sqlite
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: pangolin-sqlite
+            mountPath: /app/data
+
+  - it: creates the PVC with chart defaults
+    set:
+      database:
+        mode: sqlite
+        sqlite:
+          persistence:
+            enabled: true
+    template: templates/pvc-sqlite.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin-sqlite
+      - equal:
+          path: spec.accessModes
+          value:
+            - ReadWriteOnce
+      - equal:
+          path: spec.resources.requests.storage
+          value: 1Gi
+      - notExists:
+          path: spec.storageClassName
+
+  # SQLite writes -wal/-shm/journal siblings, so the directory has to be the mount,
+  # not the database file.
+  - it: mounts the directory holding the database file
+    set:
+      database:
+        mode: sqlite
+        sqlite:
+          persistence:
+            enabled: true
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: pangolin-sqlite
+            mountPath: "/app/data"
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: pangolin-sqlite
+            persistentVolumeClaim:
+              claimName: RELEASE-NAME-pangolin-sqlite
+
+  - it: follows a custom sqlite path to its parent directory
+    set:
+      database:
+        mode: sqlite
+        sqlite:
+          path: /data/db/pangolin.db
+          persistence:
+            enabled: true
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: pangolin-sqlite
+            mountPath: "/data/db"
+
+  - it: uses an existing claim and creates no PVC
+    set:
+      database:
+        mode: sqlite
+        sqlite:
+          persistence:
+            enabled: true
+            existingClaim: my-sqlite-claim
+    template: templates/pvc-sqlite.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: references the existing claim from the workload
+    set:
+      database:
+        mode: sqlite
+        sqlite:
+          persistence:
+            enabled: true
+            existingClaim: my-sqlite-claim
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: pangolin-sqlite
+            persistentVolumeClaim:
+              claimName: my-sqlite-claim
+
+  - it: falls back to global.storageClass
+    set:
+      global:
+        storageClass: fast
+      database:
+        mode: sqlite
+        sqlite:
+          persistence:
+            enabled: true
+    template: templates/pvc-sqlite.yaml
+    asserts:
+      - equal:
+          path: spec.storageClassName
+          value: fast
+
+  - it: lets the local storageClass win over the global one
+    set:
+      global:
+        storageClass: fast
+      database:
+        mode: sqlite
+        sqlite:
+          persistence:
+            enabled: true
+            storageClass: slow
+    template: templates/pvc-sqlite.yaml
+    asserts:
+      - equal:
+          path: spec.storageClassName
+          value: slow
+
+  - it: honours custom accessModes and size
+    set:
+      database:
+        mode: sqlite
+        sqlite:
+          persistence:
+            enabled: true
+            size: 5Gi
+            accessModes:
+              - ReadWriteMany
+    template: templates/pvc-sqlite.yaml
+    asserts:
+      - equal:
+          path: spec.accessModes
+          value:
+            - ReadWriteMany
+      - equal:
+          path: spec.resources.requests.storage
+          value: 5Gi
+
+  - it: mounts the claim in single mode too
+    set:
+      deployment:
+        mode: single
+      database:
+        mode: sqlite
+        sqlite:
+          persistence:
+            enabled: true
+    template: templates/deployment-single.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: pangolin-sqlite
+            mountPath: "/app/data"
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: pangolin-sqlite
+            persistentVolumeClaim:
+              claimName: RELEASE-NAME-pangolin-sqlite
+
+  # database.mode is the single source of truth: persistence values on a non-sqlite
+  # deployment must stay inert.
+  - it: creates no PVC when the database mode is not sqlite
+    set:
+      database:
+        mode: cloudnativepg
+        sqlite:
+          persistence:
+            enabled: true
+    template: templates/pvc-sqlite.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: coexists with extraVolumes and extraVolumeMounts
+    set:
+      database:
+        mode: sqlite
+        sqlite:
+          persistence:
+            enabled: true
+      pangolin:
+        extraVolumes:
+          - name: extra
+            emptyDir: {}
+        extraVolumeMounts:
+          - name: extra
+            mountPath: /extra
+    template: templates/deployment-pangolin.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: pangolin-sqlite
+            mountPath: "/app/data"
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: extra
+            mountPath: /extra
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: extra
+            emptyDir: {}

@@ -212,13 +212,36 @@ imagePullSecrets:
 {{- end }}
 {{- end }}
 
+{{- /*
+Effective native mode for one instance.
+
+`global.nativeMode.enabled` is a permission gate, not an instruction to make every instance
+native. An instance becomes privileged only when it also asks for an operation that needs the
+privilege, so enabling the gate alone no longer grants root, privileged, NET_ADMIN and SYS_MODULE
+to workloads that never use them. Both native operations are covered: `useNativeInterface`
+(USE_NATIVE_INTERFACE) and `useNativeMainInterface` (USE_NATIVE_MAIN_INTERFACE), which builds the
+main tunnel as a real kernel device and needs exactly the same capabilities.
+
+Every consumer - security context, env and CLI args - reads this one helper so the two cannot drift.
+*/ -}}
+{{- define "newt.instance.nativeRequested" -}}
+{{- $inst := .inst -}}
+{{- if or $inst.useNativeInterface $inst.useNativeMainInterface -}}true{{- end -}}
+{{- end -}}
+
+{{- define "newt.instance.nativeEnabled" -}}
+{{- $root := .root -}}
+{{- $inst := .inst -}}
+{{- if and $root.Values.global.nativeMode.enabled (eq (include "newt.instance.nativeRequested" (dict "inst" $inst)) "true") -}}true{{- end -}}
+{{- end -}}
+
 {{- define "newt.instance.env" -}}
 {{- $root := .root -}}
 {{- $inst := .inst -}}
 {{- $healthFile := default $root.Values.global.health.path $inst.healthFile -}}
 {{- $canOverride := (default false $inst.allowGlobalOverride) -}}
 {{- $svcAccept := ternary "true" "false" (default false $inst.acceptClients) -}}
-{{- $nativeEnabled := and $inst.useNativeInterface $root.Values.global.nativeMode.enabled -}}
+{{- $nativeEnabled := eq (include "newt.instance.nativeEnabled" (dict "root" $root "inst" $inst)) "true" -}}
 {{- $auth := default (dict) $inst.auth -}}
 {{- $keys := (default dict (get $auth "keys")) -}}
 {{- $endpointKey := (default "PANGOLIN_ENDPOINT" $keys.endpointKey) -}}
@@ -286,22 +309,13 @@ imagePullSecrets:
 - name: PING_TIMEOUT
   value: {{ $inst.pingTimeout | quote }}
 {{- end }}
-{{- /* Add ACCEPT_CLIENTS env var only when enabled */ -}}
-{{- if (default false $inst.acceptClients) }}
-- name: ACCEPT_CLIENTS
-  value: "true"
-{{- end }}
-{{- if $nativeEnabled }}
+{{- if and $nativeEnabled $inst.useNativeInterface }}
 - name: USE_NATIVE_INTERFACE
   value: "true"
 {{- end }}
 {{- if and $inst.interface (ne $inst.interface "newt") }}
 - name: INTERFACE
   value: {{ $inst.interface | quote }}
-{{- end }}
-{{- if $inst.keepInterface }}
-- name: KEEP_INTERFACE
-  value: "true"
 {{- end }}
 {{- if $root.Values.global.health.enabled }}
 - name: HEALTH_FILE
@@ -326,10 +340,6 @@ imagePullSecrets:
 - name: CONFIG_FILE
   value: {{ $inst.configFile | quote }}
 {{- end }}
-{{- if $inst.generateAndSaveKeyTo }}
-- name: GENERATE_AND_SAVE_KEY_TO
-  value: {{ $inst.generateAndSaveKeyTo | quote }}
-{{- end }}
 {{- if $inst.port }}
 - name: PORT
   value: {{ $inst.port | quote }}
@@ -340,6 +350,46 @@ imagePullSecrets:
 {{- end }}
 {{- if $inst.disableClients }}
 - name: DISABLE_CLIENTS
+  value: "true"
+{{- end }}
+{{- if $inst.disableSSH }}
+- name: DISABLE_SSH
+  value: "true"
+{{- end }}
+{{- if and $nativeEnabled $inst.useNativeMainInterface }}
+- name: USE_NATIVE_MAIN_INTERFACE
+  value: "true"
+{{- end }}
+{{- if and $inst.interfaceMain (ne $inst.interfaceMain "newt") }}
+- name: INTERFACE_MAIN
+  value: {{ $inst.interfaceMain | quote }}
+{{- end }}
+{{- if $inst.udpProxyIdleTimeout }}
+- name: NEWT_UDP_PROXY_IDLE_TIMEOUT
+  value: {{ $inst.udpProxyIdleTimeout | quote }}
+{{- end }}
+{{- if $inst.localEndpointInterfaces }}
+- name: LOCAL_ENDPOINT_INTERFACES
+  value: {{ join "," $inst.localEndpointInterfaces | quote }}
+{{- end }}
+{{- $authDaemon := default (dict) $inst.authDaemon }}
+{{- if and $authDaemon.keySecretName $authDaemon.keySecretKey }}
+- name: AD_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ $authDaemon.keySecretName | quote }}
+      key: {{ $authDaemon.keySecretKey | quote }}
+{{- end }}
+{{- if $authDaemon.principalsFile }}
+- name: AD_PRINCIPALS_FILE
+  value: {{ $authDaemon.principalsFile | quote }}
+{{- end }}
+{{- if $authDaemon.caCertPath }}
+- name: AD_CA_CERT_PATH
+  value: {{ $authDaemon.caCertPath | quote }}
+{{- end }}
+{{- if $authDaemon.generateRandomPassword }}
+- name: AD_GENERATE_RANDOM_PASSWORD
   value: "true"
 {{- end }}
 {{- if $inst.blueprintFile }}
@@ -354,30 +404,40 @@ imagePullSecrets:
 - name: ENFORCE_HC_CERT
   value: "true"
 {{- end }}
-{{- /* Metrics and OTEL env vars */ -}}
+{{- /* Metrics and OTEL env vars. Resolved through newt.effectiveMetrics so a
+       per-instance metrics block configures the container it belongs to - the
+       container port already came from the effective metrics while every env var
+       came from global, so an instance could declare metrics and get a port with
+       no exporter behind it. */ -}}
 {{- $gm := (default (dict) $root.Values.global.metrics) -}}
-{{- if $gm.pprofEnabled }}
+{{- $m := (include "newt.effectiveMetrics" (list $inst $gm)) | fromJson -}}
+{{- if $m.pprofEnabled }}
 - name: NEWT_PPROF_ENABLED
   value: "true"
 {{- end }}
-{{- if $gm.enabled }}
-{{- if and $gm.adminAddr (ne $gm.adminAddr "127.0.0.1:2112") }}
+{{- if $m.enabled }}
+{{- /* #16: Newt serves /metrics only when this is set, so without it the Service,
+       PodMonitor and ServiceMonitor the chart renders all scraped a closed port. */}}
+- name: NEWT_METRICS_PROMETHEUS_ENABLED
+  value: "true"
+{{- $listenAddr := include "newt.metrics.listenAddr" $m }}
+{{- if ne $listenAddr "127.0.0.1:2112" }}
 - name: NEWT_ADMIN_ADDR
-  value: {{ $gm.adminAddr | quote }}
+  value: {{ $listenAddr | quote }}
 {{- end }}
-{{- if $gm.asyncBytes }}
+{{- if $m.asyncBytes }}
 - name: NEWT_METRICS_ASYNC_BYTES
   value: "true"
 {{- end }}
-{{- if $gm.region }}
+{{- if $m.region }}
 - name: NEWT_REGION
-  value: {{ $gm.region | quote }}
+  value: {{ $m.region | quote }}
 {{- end }}
-{{- if $gm.otlpEnabled }}
+{{- if $m.otlpEnabled }}
 - name: NEWT_METRICS_OTLP_ENABLED
   value: "true"
 {{- end }}
-{{- $otel := (default (dict) $gm.otel) -}}
+{{- $otel := (default (dict) $m.otel) -}}
 {{- if $otel.exporterOtlpEndpoint }}
 - name: OTEL_EXPORTER_OTLP_ENDPOINT
   value: {{ $otel.exporterOtlpEndpoint | quote }}
@@ -429,30 +489,34 @@ imagePullSecrets:
 {{- $createSecret := default true (get $auth "createSecret") -}}
 {{- $envVarsDirect := default false (get $auth "envVarsDirect") -}}
 {{- $hasInlineCredentials := and $inst.pangolinEndpoint $inst.id $inst.secret -}}
+{{- $dockerSocket := default (dict) $inst.dockerSocket -}}
+{{- $updown := default (dict) $inst.updown -}}
+{{- $mtls := default (dict) $inst.mtls -}}
 {{- if not $existing }}
   {{- $args = append $args (printf "--endpoint=%s" $inst.pangolinEndpoint) }}
   {{- if $inst.id }}{{- $args = append $args (printf "--id=%s" $inst.id) }}{{- end }}
 {{- end }}
-{{- if or $existing (and $hasInlineCredentials $createSecret (not $envVarsDirect)) (and $envVarsDirect $hasInlineCredentials) }}{{- $args = append $args (printf "--secret-env=NEWT_SECRET") }}{{- end }}
 {{- if and $inst.mtu (ne (int $inst.mtu) 1280) }}{{- $args = append $args (printf "--mtu=%v" $inst.mtu) }}{{- end }}
 {{- if $inst.dns }}{{- $args = append $args (printf "--dns=%s" $inst.dns) }}{{- end }}
 {{- if $inst.pingInterval }}{{- $args = append $args (printf "--ping-interval=%s" $inst.pingInterval) }}{{- end }}
 {{- if $inst.pingTimeout }}{{- $args = append $args (printf "--ping-timeout=%s" $inst.pingTimeout) }}{{- end }}
 {{- if and $canOverride $inst.logLevel }}{{- $args = append $args (printf "--log-level=%s" $inst.logLevel) }}{{- else if $root.Values.global.logLevel }}{{- $args = append $args (printf "--log-level=%s" $root.Values.global.logLevel) }}{{- end }}
-{{- /* Append --accept-clients only when enabled */ -}}
-{{- if (default false $inst.acceptClients) }}{{- $args = append $args "--accept-clients" }}{{- end }}
-{{- if and $inst.useNativeInterface $root.Values.global.nativeMode.enabled }}{{- $args = append $args "--native" }}{{- end }}
+{{- if and (eq (include "newt.instance.nativeEnabled" (dict "root" $root "inst" $inst)) "true") $inst.useNativeInterface }}{{- $args = append $args "--native" }}{{- end }}
 {{- if and $inst.interface (ne $inst.interface "newt") }}{{- $args = append $args (printf "--interface=%s" $inst.interface) }}{{- end }}
-{{- if $inst.keepInterface }}{{- $args = append $args "--keep-interface" }}{{- end }}
 {{- if $root.Values.global.health.enabled }}{{- $args = append $args (printf "--health-file=%s" (default $root.Values.global.health.path $inst.healthFile)) }}{{- end }}
-{{- if $inst.dockerSocket.enabled }}{{- $args = append $args (printf "--docker-socket=%s" $inst.dockerSocket.path) }}{{- end }}
-{{- if and $inst.dockerSocket.enabled $inst.dockerSocket.enforceNetworkValidation }}{{- $args = append $args "--docker-enforce-network-validation" }}{{- end }}
-{{- if $inst.updown.enabled }}{{- $args = append $args (printf "--updown=%s/%s" (default "/opt/newt/updown" $inst.updown.mountPath) (default "updown.sh" $inst.updown.fileName)) }}{{- end }}
-{{- if $inst.mtls.enabled }}{{- $args = append $args (printf "--tls-client-cert=%s" $inst.mtls.certPath) }}{{- end }}
-{{- if $inst.generateAndSaveKeyTo }}{{- $args = append $args (printf "--generateAndSaveKeyTo=%s" $inst.generateAndSaveKeyTo) }}{{- end }}
+{{- if $dockerSocket.enabled }}{{- $args = append $args (printf "--docker-socket=%s" $dockerSocket.path) }}{{- end }}
+{{- if and $dockerSocket.enabled $dockerSocket.enforceNetworkValidation }}{{- $args = append $args "--docker-enforce-network-validation" }}{{- end }}
+{{- if $updown.enabled }}{{- $args = append $args (printf "--updown=%s/%s" (default "/opt/newt/updown" $updown.mountPath) (default "updown.sh" $updown.fileName)) }}{{- end }}
+{{- if $mtls.enabled }}{{- $args = append $args (printf "--tls-client-cert=%s" $mtls.certPath) }}{{- end }}
 {{- if $inst.port }}{{- $args = append $args (printf "--port=%s" $inst.port) }}{{- end }}
 {{- if $inst.noCloud }}{{- $args = append $args "--no-cloud" }}{{- end }}
 {{- if $inst.disableClients }}{{- $args = append $args "--disable-clients" }}{{- end }}
+{{- if $inst.disableSSH }}{{- $args = append $args "--disable-ssh" }}{{- end }}
+{{- if and (eq (include "newt.instance.nativeEnabled" (dict "root" $root "inst" $inst)) "true") $inst.useNativeMainInterface }}{{- $args = append $args "--native-main" }}{{- end }}
+{{- if and $inst.interfaceMain (ne $inst.interfaceMain "newt") }}{{- $args = append $args (printf "--interface-main=%s" $inst.interfaceMain) }}{{- end }}
+{{- if $inst.preferEndpoint }}{{- $args = append $args (printf "--prefer-endpoint=%s" $inst.preferEndpoint) }}{{- end }}
+{{- if $inst.udpProxyIdleTimeout }}{{- $args = append $args (printf "--udp-proxy-idle-timeout=%s" $inst.udpProxyIdleTimeout) }}{{- end }}
+{{- if $inst.localEndpointInterfaces }}{{- $args = append $args (printf "--local-endpoint-interfaces=%s" (join "," $inst.localEndpointInterfaces)) }}{{- end }}
 {{- if $inst.blueprintFile }}{{- $args = append $args (printf "--blueprint-file=%s" $inst.blueprintFile) }}{{- end }}
 {{- if $inst.enforceHcCert }}{{- $args = append $args "--enforce-hc-cert" }}{{- end }}
 {{- /* Metrics CLI args */ -}}
@@ -502,15 +566,44 @@ args:
   Usage: include "newt.effectiveMetrics" (list $inst $gm)
   Returns: JSON-encoded merged metrics (global merged with instance.metrics when allowGlobalOverride is true), parsed back to map via fromJson when used.
 */ -}}
+{{- /*
+newt.metrics.listenAddr resolves the address Newt is actually told to bind
+(NEWT_ADMIN_ADDR), and is the single source of truth for the metrics port (#16).
+
+`metrics.port` predates `adminAddr` and used to drive the container port, the
+Service targetPort and the scrape annotation while Newt kept listening on
+adminAddr - so the chart advertised a port nothing was bound to. It is now
+deprecated, but an explicitly non-default `metrics.port` combined with a default
+adminAddr is still honoured as the listen port, so existing values files keep
+rendering the port numbers they already had.
+*/ -}}
+{{- define "newt.metrics.listenAddr" -}}
+{{- $m := . -}}
+{{- $addr := default ":2112" $m.adminAddr -}}
+{{- $legacyPort := $m.port | default 9090 -}}
+{{- if and (eq $addr ":2112") (ne (int $legacyPort) 9090) -}}
+{{- printf ":%v" $legacyPort -}}
+{{- else -}}
+{{- $addr -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "newt.metrics.listenPort" -}}
+{{- default "2112" (regexFind "[0-9]+$" (include "newt.metrics.listenAddr" .)) -}}
+{{- end -}}
+
 {{- define "newt.effectiveMetrics" -}}
   {{- $inst := index . 0 -}}
   {{- $gm := index . 1 -}}
   {{- $allow := default false $inst.allowGlobalOverride -}}
+  {{- /* Emit raw JSON: every caller pipes the result through `fromJson`. Converting
+         here as well made the template emit Go's map-print form ("map[enabled:true]"),
+         which `fromJson` could not parse - so the merged metrics config silently came
+         back empty and the metrics container port was never rendered (#16). */ -}}
   {{- if $allow -}}
     {{- $im := (default (dict) $inst.metrics) -}}
-    {{- $res := mergeOverwrite (deepCopy $gm) $im -}}
-    {{- printf "%s" (toJson $res) | fromJson -}}
+    {{- toJson (mergeOverwrite (deepCopy $gm) $im) -}}
   {{- else -}}
-    {{- printf "%s" (toJson $gm) | fromJson -}}
+    {{- toJson $gm -}}
   {{- end -}}
 {{- end }}

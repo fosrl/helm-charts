@@ -50,6 +50,8 @@ global:
     imagePullPolicy: IfNotPresent # @schema type: string ; enum: [Always, IfNotPresent, Never]
     # -- Image pull secrets applied to all workloads by default.
     imagePullSecrets: [] # @schema type:[array, null] ; item: object ; itemProperties: {"name": {"type": "string"}}
+  # -- Cluster DNS domain, used to build in-cluster FQDNs.
+  clusterDomain: cluster.local # @schema type: string
   # -- Default StorageClass used by all PVCs when the local storageClass is empty.
   storageClass: "" # @schema type: [string, "null"]
   # -- Override the chart name.
@@ -176,8 +178,6 @@ rbac:
 # -----------------------------------------------------------------------------
 ## @section Common runtime settings
 runtime:
-  # -- Enable hostNetwork on workloads that support it.
-  hostNetwork: false # @schema type: boolean
   # -- Grace period in seconds before Pod termination.
   terminationGracePeriodSeconds: 30 # @schema type: integer ; minimum: 0
   # -- Min ready seconds for Deployments.
@@ -244,9 +244,11 @@ networkPolicy:
   # -- Additional egress rules appended to all generated NetworkPolicies (global escape hatch).
   # Prefer component-scoped `extraEgress` fields (e.g. `networkPolicy.pangolin.extraEgress`) for precision.
   extraEgress: [] # @schema type: array ; item: object
-  # -- DEPRECATED: CIDRs allowed for controller egress to Kubernetes API on TCP/443.
-  # Prefer `networkPolicy.controller.egress.kubernetesApi.cidr`.
-  # Keep this scoped to cluster API ranges when known.
+  # -- DEPRECATED: CIDRs allowed for controller egress to the Kubernetes API on
+  # `networkPolicy.controller.egress.kubernetesApi.port`.
+  # Superseded by `networkPolicy.controller.egress.kubernetesApi.endpoints`.
+  # When this or the deprecated `kubernetesApi.cidr` is set it takes precedence over
+  # `endpoints`, so an existing scoped allow-list is never widened by an upgrade.
   kubernetesApiCIDRs: [] # @schema type: array ; item: string
 
   dns:
@@ -278,13 +280,53 @@ networkPolicy:
         # Each item supports standard NetworkPolicyPeer fields (namespaceSelector, podSelector, ipBlock).
         # Applies only when `networkPolicy.pangolin.externalIngress.external=true`.
         from: [] # @schema type: array ; item: object
+      aiGateway:
+        # -- Allow the Traefik this chart knows about to reach the AI gateway port.
+        # Every AI gateway resource is a route Traefik terminates and forwards to this port
+        # on the Pangolin Pod, so the path needs a rule - but only for Traefik, which is why
+        # this is source-scoped instead of an open port.
+        #
+        # The peer is derived from the topology:
+        #   chart-managed standalone Traefik -> the Pod this chart renders
+        #   bundled Traefik subchart         -> the Pods that subchart renders, plus a
+        #                                       namespaceSelector when
+        #                                       `traefikController.namespaceOverride` moves
+        #                                       them out of the release namespace
+        #   externally installed Traefik     -> nothing is derivable; name it in `from` below
+        #
+        # `deployment.mode=single` needs no rule: Traefik runs in the Pangolin Pod and
+        # reaches the gateway over loopback, which NetworkPolicy does not govern.
+        fromTraefik: true # @schema type: boolean
+        # -- Additional source peers allowed to reach the Pangolin AI gateway port.
+        # Each item supports standard NetworkPolicyPeer fields (namespaceSelector, podSelector, ipBlock).
+        # This is the supported mechanism for an externally installed Traefik: the chart
+        # cannot select a workload it did not render, so name it here. For example:
+        #   from:
+        #     - namespaceSelector:
+        #         matchLabels:
+        #           kubernetes.io/metadata.name: traefik
+        #       podSelector:
+        #         matchLabels:
+        #           app.kubernetes.io/name: traefik
+        from: [] # @schema type: array ; item: object
     externalIngress:
       # -- Allow external ingress on Pangolin public port.
       external: true # @schema type: boolean
-      # -- Allow external ingress on Pangolin next port.
-      next: false # @schema type: boolean
+      # -- Allow external ingress on the Pangolin next (dashboard) port.
+      # `null` (default) derives this from the chart-managed dashboard IngressRoute:
+      # the port is opened exactly when a route actually targets it, so enabling the
+      # dashboard no longer leaves it blocked (#22) and standalone mode keeps it shut.
+      # Set an explicit `true`/`false` to override the derivation.
+      next: null # @schema type: [boolean, "null"]
       # -- Allow external ingress on Pangolin integration API port.
       integration: false # @schema type: boolean
+      # -- Allow ingress on the Pangolin AI gateway port from every source.
+      # Off by default. The gateway proxies to model providers on the caller's behalf and
+      # holds the virtual API keys that pay for it, so it is not a port to hand to every Pod
+      # in the cluster. The supported path is the source-scoped rule under
+      # `networkPolicy.pangolin.ingress.aiGateway`; turn this on only for a caller that
+      # cannot be expressed as a peer there.
+      aiGateway: false # @schema type: boolean
       # -- Require `pangolin.config.flags.enable_integration_api=true` before opening integration ingress.
       requireIntegrationFlag: true # @schema type: boolean
 
@@ -300,13 +342,46 @@ networkPolicy:
       # even if DNS/Pangolin/Kubernetes API egress rules are configured.
       enabled: true # @schema type: boolean
       kubernetesApi:
-        # -- Enable egress rule to Kubernetes API server.
+        # -- Enable egress rules to the Kubernetes API server. The controller cannot
+        # reconcile Traefik CRDs without this, so disable it only when you supply an
+        # equivalent rule yourself via `networkPolicy.controller.extraEgress`.
         enabled: true # @schema type: boolean
-        # -- Single CIDR for Kubernetes API server egress target (for example 10.96.0.1/32).
-        # Leave empty to skip this rule unless legacy `networkPolicy.kubernetesApiCIDRs` is set.
-        # For multiple CIDRs, use the legacy `networkPolicy.kubernetesApiCIDRs` list.
+        # -- Kubernetes API server egress destinations. Each entry allows TCP egress to
+        # every CIDR in `cidrs` on every port in `ports`; `except` is optional.
+        #
+        # Two destinations have to be covered because CNIs disagree about when a
+        # NetworkPolicy is evaluated relative to kube-proxy DNAT:
+        #   pre-DNAT  -> the `kubernetes` Service ClusterIP on 443 (k3s 10.43.0.1, kubeadm 10.96.0.1)
+        #   post-DNAT -> the control-plane node IP(s) on 6443 (k3s, RKE2) or 443 (managed)
+        # Neither address is discoverable at template time, so the default covers the
+        # private ranges those addresses fall in, on both ports. It is deliberately not
+        # `0.0.0.0/0`: general outbound HTTPS stays behind
+        # `networkPolicy.allowExternalEgressHttps`, and this rule must not quietly
+        # become internet egress.
+        #
+        # Narrow it once you know your cluster's API address, for example:
+        #   endpoints:
+        #     - cidrs: ["10.43.0.1/32"]
+        #       ports: [443]
+        #     - cidrs: ["192.168.1.10/32", "192.168.1.11/32"]
+        #       ports: [6443]
+        endpoints: # @schema type: array ; item: object
+          - cidrs:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 100.64.0.0/10
+              - 169.254.0.0/16
+            ports:
+              - 443
+              - 6443
+        # -- DEPRECATED: single CIDR for the Kubernetes API server egress target.
+        # Superseded by `endpoints`. When set it takes precedence over `endpoints` and is
+        # rendered as one rule on `port`.
         cidr: "" # @schema type: string
-        # -- Kubernetes API server egress port.
+        # -- Kubernetes API server egress port used with the deprecated `cidr` and
+        # `networkPolicy.kubernetesApiCIDRs` inputs. Ignored by `endpoints`, which carries
+        # its own per-entry `ports`.
         port: 443 # @schema type: integer ; minimum: 1 ; maximum: 65535
     metrics:
       # -- Enable controller metrics ingress rule on controller service port.
@@ -342,6 +417,18 @@ networkPolicy:
     # -- CIDRs allowed for Gerbil UDP egress when WireGuard egress is enabled.
     wireguardUdpCIDRs: # @schema type: array ; item: string
       - 0.0.0.0/0
+    hostGateway:
+      # -- Source CIDRs used for the Gerbil -> Pangolin internal-API rule when
+      # `gerbil.hostGateway.enabled=true`. A hostNetwork Pod is not matched by a
+      # podSelector on any mainstream CNI - its traffic sources from the node IP - so the
+      # rule has to be expressed as node address blocks or Gerbil's --remoteConfig polling
+      # is blackholed by this chart's own default policy.
+      # There is no safe default: RFC1918 and CGNAT contain every mainstream Pod CIDR
+      # (flannel 10.244/16, k3s 10.42/16, Calico 192.168/16), so seeding this with those
+      # ranges would admit every Pod in the cluster to Pangolin's internal API instead of
+      # just the Gerbil node. Supply your node addresses:
+      #   kubectl get nodes -o jsonpath='{.items[*].status.addresses[?(@.type=="InternalIP")].address}'
+      nodeCIDRs: [] # @schema type: array ; item: string
     # -- Additional ingress rules appended to the Gerbil NetworkPolicy only.
     extraIngress: [] # @schema type: array ; item: object
     # -- Additional egress rules appended to the Gerbil NetworkPolicy only.
@@ -385,7 +472,7 @@ images:
     # -- Gerbil image repository.
     repository: fosrl/gerbil # @schema type: string
     # -- Gerbil image tag.
-    tag: "1.3.1" # @schema type: string
+    tag: "1.5.1" # @schema type: string
     # -- Gerbil image digest. Overrides tag when set.
     digest: "" # @schema type: string
     # -- Gerbil image pull policy.
@@ -396,7 +483,7 @@ images:
     # -- Pangolin kube controller image repository.
     repository: fosrl/pangolin-kube-controller # @schema type: string
     # -- Pangolin kube controller image tag. Managed independently from `.Chart.AppVersion`.
-    tag: "0.1.0-alpha.1" # @schema type: string
+    tag: "0.1.0-alpha.2" # @schema type: string
     # -- Pangolin kube controller image digest. Overrides tag when set.
     digest: "" # @schema type: string
     # -- Pangolin kube controller image pull policy.
@@ -406,8 +493,10 @@ images:
     registry: docker.io # @schema type: string
     # -- Traefik image repository.
     repository: traefik # @schema type: string
-    # -- Traefik image tag.
-    tag: v3.6.15 # @schema type: string
+    # -- Traefik image tag for the chart-managed standalone Traefik.
+    # Kept on the same minor as the bundled Traefik chart
+    # (`deployment.installTraefikController`), which ships v3.7.13.
+    tag: v3.7.13 # @schema type: string
     # -- Traefik image digest. Overrides tag when set.
     digest: "" # @schema type: string
     # -- Traefik image pull policy.
@@ -438,6 +527,10 @@ pangolin:
   # -- Workload kind for Pangolin in multi mode.
   workloadType: Deployment # @schema type: string ; enum: [Deployment, StatefulSet]
   deployment:
+    # -- Rollout strategy for this component, overriding `runtime.updateStrategy`.
+    # Left empty the chart picks it: a component holding a PVC that is not ReadWriteMany
+    # is switched to Recreate, because a surged Pod could never attach the volume.
+    updateStrategy: {} # @schema type: object
     # -- Labels applied to Pangolin Deployment/StatefulSet metadata.
     labels: {} # @schema type: object ; additionalProperties: { type: string }
     # -- Annotations applied to Pangolin Deployment/StatefulSet metadata.
@@ -457,6 +550,8 @@ pangolin:
       internalApi: 3001
       next: 3002
       integration: 3003
+      # -- AI gateway port. Requires Pangolin >= 1.22.0.
+      aiGateway: 3005
     # -- Additional Service annotations for Pangolin.
     annotations: {} # @schema type: object ; additionalProperties: { type: string }
     # -- Additional Service labels for Pangolin.
@@ -565,7 +660,7 @@ pangolin:
       length: 64 # @schema type: integer ; minimum: 16
 
   # -- Pangolin application config rendered into /app/config/config.yml.
-  # Keys and structure follow the Pangolin 1.18.x configSchema (snake_case).
+  # Keys and structure follow the Pangolin 1.22.x configSchema (snake_case).
   config:
     # ---------- app section ----------
     app:
@@ -610,8 +705,15 @@ pangolin:
 
     # ---------- server section ----------
     server:
-      # -- Internal hostname used by Pangolin when communicating with Gerbil.
-      internal_hostname: pangolin # @schema type: string
+      # -- Hostname Pangolin advertises for its own internal API. It is resolved by
+      # Badger from inside the Traefik Pod and also drives the Pangolin UI and AI gateway
+      # URLs in the generated Traefik configuration.
+      # Empty (default) derives the in-cluster FQDN
+      # `<release>-pangolin.<namespace>.svc.<clusterDomain>`, which resolves from any
+      # namespace. A bare Service name only resolves when Traefik shares the namespace,
+      # so with `deployment.traefikNamespace` set it made Badger answer 404 for every
+      # request while the Traefik dashboard still showed the router as healthy.
+      internal_hostname: "" # @schema type: string
       # -- Session cookie name.
       session_cookie_name: p_session_token # @schema type: string
       # -- Request parameter name for resource access tokens.
@@ -643,6 +745,34 @@ pangolin:
         credentials: false # @schema type: boolean
       # -- Number of trusted reverse-proxy hops. Use 0 to disable trust-proxy.
       trust_proxy: 1 # @schema type: integer ; minimum: 0
+      remote_headers:
+        # -- Header carrying the resolved user id to downstream resources.
+        user_id: Remote-User-Id # @schema type: string
+        # -- Header carrying the resolved virtual API key id (AI gateway).
+        virtual_api_key_id: Remote-Virtual-Api-Key-Id # @schema type: string
+        # -- Header carrying the resolved username.
+        user: Remote-User # @schema type: string
+        # -- Header carrying the resolved user email.
+        email: Remote-Email # @schema type: string
+        # -- Header carrying the resolved user display name.
+        name: Remote-Name # @schema type: string
+        # -- Header carrying the resolved user role.
+        role: Remote-Role # @schema type: string
+      # -- Override the base URL Badger uses to reach the Pangolin internal API.
+      # Empty (default) lets Pangolin derive it from `internal_hostname` and the internal
+      # port. Set this when Badger must reach Pangolin by some other address.
+      badger_override: "" # @schema type: string
+      # -- Override the base URL used to reach the AI gateway. Empty lets Pangolin derive
+      # it from `internal_hostname` and `ai_gateway_port`. Requires Pangolin >= 1.22.0.
+      ai_gateway_override: "" # @schema type: string
+      # -- Have Traefik/Badger stamp the resolved client IP into X-Pangolin-Client-Ip on
+      # the AI gateway route. Off by default: it needs a Badger build that supports
+      # realIpHeader. Requires Pangolin >= 1.22.0.
+      enable_ai_gateway_client_ip_header: false # @schema type: boolean
+      # -- Path to a MaxMind GeoLite2/GeoIP2 city database for geo-blocking rules.
+      maxmind_db_path: "" # @schema type: string
+      # -- Path to a MaxMind ASN database.
+      maxmind_asn_path: "" # @schema type: string
 
     # ---------- gerbil section ----------
     # Describes Gerbil's network settings from Pangolin's perspective.
@@ -655,9 +785,7 @@ pangolin:
       # -- Public endpoint (hostname or IP) where Gerbil is reachable by sites.
       # Set this to your real public endpoint for production.
       base_endpoint: "pangolin.example.com" # @schema type: string
-      # -- Use subdomain-based resource endpoints.
-      use_subdomain: false # @schema type: boolean
-      # -- Supernet for WireGuard address allocation.
+        # -- Supernet for WireGuard address allocation.
       subnet_group: "100.89.137.0/20" # @schema type: string
       # -- CIDR prefix length per cluster / site group.
       block_size: 24 # @schema type: integer ; minimum: 16 ; maximum: 30
@@ -693,6 +821,13 @@ pangolin:
       disable_product_help_banners: false # @schema type: boolean
       # -- Disable Enterprise-licensed features even when a valid license is present.
       disable_enterprise_features: false # @schema type: boolean
+      # -- Hide the virtual API keys UI (AI gateway). Requires Pangolin >= 1.22.0.
+      disable_virtual_api_keys_ui: false # @schema type: boolean
+      # -- Sync ACME certificates issued by Traefik back into Pangolin.
+      # Upstream default is true.
+      enable_acme_cert_sync: true # @schema type: boolean
+      # -- Disable the placeholder page served for private HTTP resources.
+      disable_private_http_placeholder: false # @schema type: boolean
 
     # ---------- traefik section ----------
     traefik:
@@ -712,6 +847,18 @@ pangolin:
       prefer_wildcard_cert: false # @schema type: boolean
       # -- Extra Traefik middleware names applied to all Pangolin routes.
       additional_middlewares: [] # @schema type: array ; item: string
+      # -- Site types Pangolin generates Traefik configuration for.
+      # Upstream default is [newt, wireguard, local].
+      site_types: [] # @schema type: array ; item: string
+      # -- Domains always present in the generated Traefik configuration.
+      static_domains: [] # @schema type: array ; item: string
+      rate_limit:
+        # -- Average requests per second for the generated Traefik rate-limit middleware.
+        # Upstream default is 30. Set to 0 to leave the section unrendered.
+        average: 0 # @schema type: integer ; minimum: 0
+        # -- Burst size for the generated Traefik rate-limit middleware.
+        # Upstream default is 50. Set to 0 to leave the section unrendered.
+        burst: 0 # @schema type: integer ; minimum: 0
 
     # ---------- rate_limits section (optional) ----------
     rate_limits:
@@ -963,6 +1110,10 @@ controller:
   # -- Controller workload type.
   workloadType: Deployment # @schema type: string ; enum: [Deployment, StatefulSet]
   deployment:
+    # -- Rollout strategy for this component, overriding `runtime.updateStrategy`.
+    # Left empty the chart picks it: a component holding a PVC that is not ReadWriteMany
+    # is switched to Recreate, because a surged Pod could never attach the volume.
+    updateStrategy: {} # @schema type: object
     labels: {} # @schema type: object ; additionalProperties: { type: string }
     annotations: {} # @schema type: object ; additionalProperties: { type: string }
     podLabels: {} # @schema type: object ; additionalProperties: { type: string }
@@ -1125,6 +1276,18 @@ controller:
 
 ## @section Standalone Traefik mode
 traefik:
+  # -- Pin the chart-managed Traefik Pods onto the node currently running Gerbil, using a
+  # required podAffinity on kubernetes.io/hostname. Only meaningful together with
+  # `gerbil.hostGateway.enabled`.
+  #   auto     - follow gerbil.hostGateway.enabled (default)
+  #   required - always pin
+  #   disabled - never pin
+  # Suppressed automatically when it could not be satisfied (single mode, Gerbil
+  # disabled, or a startupMode that keeps Gerbil at zero replicas), because a required
+  # affinity against a workload that never schedules would leave Traefik Pending forever.
+  # The term is IgnoredDuringExecution: if Gerbil moves, already-running Traefik Pods stay
+  # put and keep returning 502 until they are restarted.
+  colocateWithGerbil: auto # @schema type: string ; enum: [auto, required, disabled]
   # -- Labels added to all standalone Traefik resources rendered by this chart.
   commonLabels: {} # @schema type: object ; additionalProperties: { type: string }
   # -- Annotations added to all standalone Traefik resources rendered by this chart.
@@ -1134,7 +1297,25 @@ traefik:
   enabled: false # @schema type: boolean
   # -- Number of standalone Traefik replicas in multi mode.
   replicaCount: 1 # @schema type: integer ; minimum: 1
+  # -- Badger, the Traefik middleware that performs Pangolin's resource authentication.
+  # Pangolin's generated dynamic configuration describes the middleware itself, but the
+  # plugin must be declared in Traefik's STATIC configuration or Traefik cannot instantiate
+  # it and every generated router fails with `unknown plugin type: badger`. The alias is not
+  # cosmetic: Pangolin hardcodes "badger" as both the middleware name and the plugin type.
+  badger:
+    # -- Declare the Badger plugin on the chart-managed Traefik.
+    enabled: true # @schema type: boolean
+    # -- Go module path of the plugin. Only change this for a fork.
+    moduleName: github.com/fosrl/badger # @schema type: string ; minLength: 1
+    # -- Plugin version. Must satisfy the Badger requirement in VERSION_MATRIX.md.
+    # Traefik downloads the plugin from GitHub on startup, so the Pod needs egress to
+    # github.com unless you pre-seed /plugins-storage.
+    version: v1.7.0 # @schema type: string ; minLength: 1
   deployment:
+    # -- Rollout strategy for this component, overriding `runtime.updateStrategy`.
+    # Left empty the chart picks it: a component holding a PVC that is not ReadWriteMany
+    # is switched to Recreate, because a surged Pod could never attach the volume.
+    updateStrategy: {} # @schema type: object
     labels: {} # @schema type: object ; additionalProperties: { type: string }
     annotations: {} # @schema type: object ; additionalProperties: { type: string }
     podLabels: {} # @schema type: object ; additionalProperties: { type: string }
@@ -1148,6 +1329,20 @@ traefik:
     externalTrafficPolicy: "" # @schema type: string ; enum: ["", Cluster, Local]
     loadBalancerSourceRanges: [] # @schema type: array ; item: string
   config:
+    # -- Poll Pangolin's generated Traefik configuration over HTTP.
+    # This is how a chart-managed Traefik receives the routers, services and middlewares
+    # Pangolin generates. Without it Traefik runs with only the Kubernetes providers and
+    # serves nothing Pangolin created, which is a healthy-looking Traefik that 404s every
+    # resource. In controller mode pangolin-kube-controller translates the same endpoint
+    # into CRDs instead, so this is off unless the chart manages Traefik.
+    httpProvider:
+      # -- Enable the HTTP provider. Defaults to on whenever this chart runs Traefik.
+      enabled: true # @schema type: boolean
+      # -- How often Traefik re-reads the generated configuration.
+      pollInterval: 5s # @schema type: string ; pattern: ^[0-9]+(ms|s|m|h)$
+      # -- Override the endpoint. Empty derives it from the Pangolin Service and
+      # `pangolin.config.server.internal_port`.
+      endpoint: "" # @schema type: string
     # -- Skip TLS verification for upstream serversTransport.
     insecureSkipVerify: false # @schema type: boolean
     # -- Enable Traefik dashboard.
@@ -1258,8 +1453,30 @@ traefik:
 # -----------------------------------------------------------------------------
 
 ## @section Traefik controller subchart overrides
-# -- Values passed to the Traefik dependency chart (only used when `deployment.installTraefikController=true`).
-traefikController: {} # @schema type: object
+# -- Values passed to the bundled Traefik chart, which is installed only when
+# `deployment.installTraefikController=true`. Everything the official chart accepts can be
+# set here; the defaults below are the ones this chart cannot leave to the subchart.
+#
+# In controller mode pangolin-kube-controller reads Pangolin's generated configuration and
+# materialises it as Traefik CRDs, so the bundled Traefik needs the Kubernetes providers
+# rather than an HTTP provider. It still needs the Badger plugin declared statically,
+# because the middleware the controller writes into every router references it by alias.
+traefikController: # @schema type: object
+  # -- Required. The alias makes Helm name subchart resources after it, and
+  # `pangolin-traefikController` is not a valid DNS-1123 name, so the API server rejects
+  # every object on install. Do not remove this.
+  nameOverride: traefik
+  ingressClass:
+    # -- Off by default: an externally installed Traefik is an explicitly supported topology
+    # and two default IngressClasses in one cluster is an ambiguous configuration.
+    isDefaultClass: false
+  experimental:
+    plugins:
+      # -- The alias must be `badger`: Pangolin hardcodes that string as the plugin type in
+      # the middleware it generates, and Traefik resolves it against this map.
+      badger:
+        moduleName: github.com/fosrl/badger
+        version: v1.7.0
 
 # -----------------------------------------------------------------------------
 # Gerbil
@@ -1295,7 +1512,42 @@ gerbil:
     endpoint: "" # @schema type: string
   # -- Number of Gerbil replicas in multi mode.
   replicaCount: 1 # @schema type: integer ; minimum: 1
+  hostGateway:
+    # -- TRANSITIONAL COMPATIBILITY MODE - opt-in, never enabled implicitly.
+    #
+    # Gerbil creates its WireGuard interface in whatever network namespace it runs in.
+    # Under Kubernetes that is its own Pod namespace, so the tunnel subnet Pangolin
+    # advertises as a backend exists there and nowhere else: an externally installed
+    # Traefik has no route to it and every tunnel-backed resource returns 502 while the
+    # tunnel itself is healthy. Docker Compose avoids this by giving Traefik Gerbil's
+    # namespace outright (network_mode: service:gerbil); separate Pods have no equivalent.
+    #
+    # With hostNetwork the interface and its connected route are created in the NODE
+    # namespace, so Pods scheduled onto that node reach the tunnel through the node
+    # routing table.
+    #
+    # This is a workaround for a missing portable data path, not the intended
+    # architecture. It is expected to be superseded - see the chart README.
+    #
+    # Requirements and consequences:
+    #   - Traefik MUST run on the same node. `traefik.colocateWithGerbil` handles the
+    #     chart-managed Traefik; `helm get notes` prints the snippet for an external one.
+    #   - Your CNI must masquerade Pod egress leaving the node (the default for Flannel,
+    #     Calico with natOutgoing, and Cilium). Without it the remote WireGuard peer sees
+    #     the Traefik Pod IP as source and drops the reply.
+    #   - The namespace must permit hostNetwork, i.e. Pod Security Admission `privileged`.
+    #   - Gerbil binds its ports on the node: one Gerbil per node, replicaCount must be 1.
+    enabled: false # @schema type: boolean
+    # -- DNS policy applied together with hostNetwork. Gerbil still has to resolve the
+    # Pangolin Service for --remoteConfig, and a hostNetwork Pod with the default
+    # ClusterFirst uses the node resolver, where that name does not exist.
+    dnsPolicy: ClusterFirstWithHostNet # @schema type: string ; enum: [ClusterFirstWithHostNet, ClusterFirst, Default, None]
+
   deployment:
+    # -- Rollout strategy for this component, overriding `runtime.updateStrategy`.
+    # Left empty the chart picks it: a component holding a PVC that is not ReadWriteMany
+    # is switched to Recreate, because a surged Pod could never attach the volume.
+    updateStrategy: {} # @schema type: object
     labels: {} # @schema type: object ; additionalProperties: { type: string }
     annotations: {} # @schema type: object ; additionalProperties: { type: string }
     podLabels: {} # @schema type: object ; additionalProperties: { type: string }
@@ -1458,6 +1710,10 @@ database:
     commonAnnotations: {} # @schema type: object ; additionalProperties: { type: string }
     enabled: false # @schema type: boolean
     deployment:
+      # -- Rollout strategy for this component, overriding `runtime.updateStrategy`.
+      # Left empty the chart picks it: a component holding a PVC that is not ReadWriteMany
+      # is switched to Recreate, because a surged Pod could never attach the volume.
+      updateStrategy: {} # @schema type: object
       labels: {} # @schema type: object ; additionalProperties: { type: string }
       annotations: {} # @schema type: object ; additionalProperties: { type: string }
       podLabels: {} # @schema type: object ; additionalProperties: { type: string }
@@ -1574,8 +1830,9 @@ database:
   # -- SQLite backend configuration.
   # Recommended only for development or very small test deployments.
   sqlite:
-    enabled: false # @schema type: boolean
-    # -- SQLite database file path used by Pangolin.
+    # -- SQLite database file path used by Pangolin. Its parent directory is what gets
+    # mounted when persistence is enabled, because SQLite writes -wal/-shm/journal
+    # siblings next to the database file.
     path: /app/data/pangolin.db # @schema type: string ; minLength: 1
     persistence:
       # -- Persist the SQLite database file on a PersistentVolumeClaim.
@@ -1592,6 +1849,8 @@ database:
         - ReadWriteOnce
       # -- Additional annotations for the SQLite PVC.
       annotations: {} # @schema type: object ; additionalProperties: { type: string }
+      # -- Additional labels for the SQLite PVC.
+      labels: {} # @schema type: object ; additionalProperties: { type: string }
 
   # -- CloudNativePG-backed database configuration.
   # This is the recommended production backend model for Pangolin on Kubernetes.
@@ -1729,71 +1988,3 @@ cnpg-cluster:
 # Metrics and monitoring
 # -----------------------------------------------------------------------------
 ## @section Metrics and monitoring
-monitoring:
-  # -- Enable generic chart-level metrics Service / scrape integration for Pangolin app.
-  enabled: false # @schema type: boolean
-  service:
-    # -- Create a metrics Service for Pangolin.
-    enabled: false # @schema type: boolean
-    type: ClusterIP # @schema type: string ; enum: [ClusterIP, NodePort, LoadBalancer]
-    port: 9090 # @schema type: integer ; minimum: 1 ; maximum: 65535
-    portName: metrics # @schema type: string
-    annotations:
-      prometheus.io/scrape: "true"
-      prometheus.io/port: "9090"
-      prometheus.io/path: "/metrics"
-    labels: {} # @schema type: object ; additionalProperties: { type: string }
-  metrics:
-    # -- Metrics endpoint port name.
-    targetPortName: metrics # @schema type: string
-    # -- Metrics endpoint numeric port.
-    targetPort: 9090 # @schema type: integer ; minimum: 1 ; maximum: 65535
-    # -- Default metrics path.
-    path: /metrics # @schema type: string
-    # -- Expose internal metrics where supported.
-    addInternals: false # @schema type: boolean
-    endpoints:
-      health: /health/metrics
-      performance: /perf/metrics
-      application: /app/metrics
-    customLabels:
-      service: pangolin
-
-  serviceMonitor:
-    enabled: false # @schema type: boolean
-    apiVersion: monitoring.coreos.com/v1 # @schema type: string
-    namespace: "" # @schema type: string
-    labels: {} # @schema type: object ; additionalProperties: { type: string }
-    annotations: {} # @schema type: object ; additionalProperties: { type: string }
-    interval: 30s # @schema type: string
-    scrapeTimeout: 10s # @schema type: string
-    selector:
-      matchLabels:
-        app.kubernetes.io/name: pangolin
-    honorLabels: true # @schema type: boolean
-    scheme: http # @schema type: string
-    path: /metrics # @schema type: string
-    relabelings: [] # @schema type: array ; item: object
-    metricRelabelings: [] # @schema type: array ; item: object
-    targetLabels: [] # @schema type: array ; item: string
-    sampleLimit: 0 # @schema type: integer ; minimum: 0
-
-  podMonitor:
-    enabled: false # @schema type: boolean
-    apiVersion: monitoring.coreos.com/v1 # @schema type: string
-    namespace: "" # @schema type: string
-    labels: {} # @schema type: object ; additionalProperties: { type: string }
-    annotations: {} # @schema type: object ; additionalProperties: { type: string }
-    portName: internalApi # @schema type: string
-    scheme: http # @schema type: string
-    path: /metrics # @schema type: string
-    interval: 30s # @schema type: string
-    scrapeTimeout: 10s # @schema type: string
-    relabelings: [] # @schema type: array ; item: object
-    metricRelabelings: [] # @schema type: array ; item: object
-
-  prometheusRule:
-    enabled: false # @schema type: boolean
-    namespace: "" # @schema type: string
-    additionalLabels: {} # @schema type: object ; additionalProperties: { type: string }
-    rules: [] # @schema type: array ; item: object

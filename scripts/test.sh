@@ -141,7 +141,13 @@ collect_charts() {
 run_helm_lint() {
   local chart="$1"
   log_info "Running helm lint on: $chart"
-  if helm lint "$chart" -f "$chart/values.dev.yaml" >/dev/null 2>&1; then
+  local lint_args=()
+  # Not every chart ships a values.dev.yaml; charts/pangolin does not, and passing a
+  # missing -f made lint fail before it ever rendered.
+  if [ -f "$chart/values.dev.yaml" ]; then
+    lint_args+=(-f "$chart/values.dev.yaml")
+  fi
+  if helm lint "$chart" "${lint_args[@]}" >/dev/null 2>&1; then
     log_pass "helm lint passed"
     LINT_PASSED=$((LINT_PASSED + 1))
     return 0
@@ -198,13 +204,20 @@ run_helm_unittest() {
   
   local args=()
   for f in "${test_files[@]}"; do
-    args+=("-f" "$f")
+    # helm-unittest resolves -f patterns relative to the chart directory. The chart path
+    # is absolute here, so passing the absolute file path made the pattern miss and the
+    # plugin fell back to walking the packaged subcharts instead.
+    args+=("-f" "tests/$(basename "$f")")
   done
   
   local output
   local exit_code=0
   
-  output=$(helm unittest "$chart" -v "$chart/values.dev.yaml" "${args[@]}" 2>&1) || exit_code=$?
+  local values_args=()
+  if [ -f "$chart/values.dev.yaml" ]; then
+    values_args+=(-v "$chart/values.dev.yaml")
+  fi
+  output=$(helm unittest --strict "$chart" "${values_args[@]}" "${args[@]}" 2>&1) || exit_code=$?
   
   if echo "$output" | grep -qE "panic:|nil pointer dereference|runtime error"; then
     log_warn "helm unittest CRASHED (files=$file_count, cases=$it_count)"
@@ -449,13 +462,21 @@ run_metrics_override_tests() {
   
   local metrics_tmp="$TEMP_DIR/metrics-tests"
   mkdir -p "$metrics_tmp"
+
+  # These probes only set metrics keys. The chart refuses to render without
+  # credentials, so layer them on the dev values instead of rendering nothing and
+  # reporting the empty output as a missing PrometheusRule.
+  local base_args=()
+  if [ -f "$chart/values.dev.yaml" ]; then
+    base_args+=(-f "$chart/values.dev.yaml")
+  fi
   
   cat > "$metrics_tmp/a-values.yaml" <<'EOF'
 global:
   metrics:
     enabled: false
 EOF
-  helm template test-a "$chart" -f "$metrics_tmp/a-values.yaml" > "$metrics_tmp/a.yaml" 2>/dev/null || true
+  helm template test-a "$chart" "${base_args[@]}" -f "$metrics_tmp/a-values.yaml" > "$metrics_tmp/a.yaml" 2>/dev/null || true
   if grep -q "Kind: PrometheusRule\|kind: PrometheusRule" "$metrics_tmp/a.yaml"; then
     log_fail "PrometheusRule rendered when global.metrics.enabled=false"
     FAILED=$((FAILED + 1))
@@ -470,7 +491,7 @@ global:
     prometheusRule:
       enabled: true
 EOF
-  helm template test-b "$chart" -f "$metrics_tmp/b-values.yaml" > "$metrics_tmp/b.yaml" 2>/dev/null || true
+  helm template test-b "$chart" "${base_args[@]}" -f "$metrics_tmp/b-values.yaml" > "$metrics_tmp/b.yaml" 2>/dev/null || true
   if grep -q "Kind: PrometheusRule\|kind: PrometheusRule" "$metrics_tmp/b.yaml"; then
     log_pass "PrometheusRule present when global.prometheusRule.enabled=true"
   else
@@ -478,15 +499,38 @@ EOF
     FAILED=$((FAILED + 1))
   fi
   
-  if [ -f "$chart/examples/values/minimalistic-metrics.yaml" ]; then
-    helm template test-c "$chart" -f "$chart/examples/values/minimalistic-metrics.yaml" > "$metrics_tmp/c.yaml" 2>/dev/null || true
-    if grep -q "Kind: PrometheusRule\|kind: PrometheusRule" "$metrics_tmp/c.yaml"; then
-      log_pass "PrometheusRule present with allowGlobalOverride"
-    else
-      log_fail "PrometheusRule missing with allowGlobalOverride"
-      FAILED=$((FAILED + 1))
-    fi
-    fi
+  # examples/values/minimalistic-metrics.yaml sets neither prometheusRule.enabled nor
+  # allowGlobalOverride, so it never exercised the per-instance path this probe claims to
+  # cover. Build the values it actually needs.
+  cat > "$metrics_tmp/c-values.yaml" <<'EOF'
+global:
+  metrics:
+    # templates/prometheusrule.yaml gates the per-instance branch on the global flag, so
+    # the per-instance override only ever applies on top of globally-enabled metrics.
+    enabled: true
+    prometheusRule:
+      enabled: false
+newtInstances:
+  - name: main-tunnel
+    enabled: true
+    allowGlobalOverride: true
+    auth:
+      existingSecretName: newt-cred
+    metrics:
+      enabled: true
+      prometheusRule:
+        enabled: true
+        rules:
+          - alert: NewtDown
+            expr: up == 0
+EOF
+  helm template test-c "$chart" -f "$metrics_tmp/c-values.yaml" > "$metrics_tmp/c.yaml" 2>/dev/null || true
+  if grep -q "Kind: PrometheusRule\|kind: PrometheusRule" "$metrics_tmp/c.yaml"; then
+    log_pass "PrometheusRule present with allowGlobalOverride"
+  else
+    log_fail "PrometheusRule missing with allowGlobalOverride"
+    FAILED=$((FAILED + 1))
+  fi
     
     PASSED=$((PASSED + 1))
 }

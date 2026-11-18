@@ -1,6 +1,6 @@
 apiVersion: v2
-version: 1.5.0
-appVersion: "1.12.5"
+version: 1.6.0
+appVersion: "1.20.0"
 kubeVersion: ">=1.30.14-0"
 name: newt
 description: Helm chart to deploy Newt (fosrl/newt) client instance
@@ -24,18 +24,44 @@ annotations:
   artifacthub.io/category: networking
   artifacthub.io/changes: |
     - kind: changed
-      description: "Bump Chart version to 1.5.0 and Chart AppVersion to Newt v1.12.5."
+      description: "Bump Chart AppVersion to Newt v1.20.0."
+    - kind: added
+      description: "Expose disableSSH, native-main interface, preferEndpoint, udpProxyIdleTimeout and auth daemon settings."
+    - kind: added
+      description: "Expose localEndpointInterfaces (LOCAL_ENDPOINT_INTERFACES, Newt 1.17.0)."
+    - kind: fixed
+      description: "Enabling metrics now exposes them: NEWT_METRICS_PROMETHEUS_ENABLED is emitted and the Service, container port and scrape annotation follow global.metrics.adminAddr."
+    - kind: fixed
+      description: "Per-instance resources are honoured and extraVolumes/extraVolumeMounts render correctly."
+    - kind: fixed
+      description: "Health probes get a writable emptyDir, so they can pass with readOnlyRootFilesystem."
+    - kind: fixed
+      description: "PodDisruptionBudget renders maxUnavailable and keeps minAvailable: 0."
+    - kind: fixed
+      description: "Args mode no longer passes the nonexistent --secret-env flag that made Newt exit."
+    - kind: fixed
+      description: "Provisioning-key installs render again; pangolinEndpoint no longer counts as a partial inline credential."
+    - kind: changed
+      description: "global.nativeMode.enabled is now only a permission gate. Pods are privileged only when an instance requests a native interface, and native interfaces without the gate are rejected."
+    - kind: changed
+      description: "preferEndpoint requires useCommandArgs, and updown.enabled requires a script that exists in global.updownScripts; both are rejected otherwise."
+    - kind: changed
+      description: "global.resources and newtInstances[].resources default to {}; the chart no longer imposes requests or limits."
+    - kind: removed
+      description: "BREAKING: the unused per-instance <release>-<instance>-env ConfigMap is no longer created."
+    - kind: removed
+      description: "Stop emitting ACCEPT_CLIENTS, KEEP_INTERFACE and GENERATE_AND_SAVE_KEY_TO, which no supported Newt release reads."
   artifacthub.io/containsSecurityUpdates: "false"
   artifacthub.io/images: |
     - name: newt-dockerhub
-      image: docker.io/fosrl/newt:1.12.5
+      image: docker.io/fosrl/newt:1.20.0
       whitelisted: false
       platforms:
         - linux/amd64
         - linux/arm64
         - linux/arm/v7
     - name: newt-ghcr
-      image: ghcr.io/fosrl/newt:1.12.5
+      image: ghcr.io/fosrl/newt:1.20.0
       whitelisted: false
       platforms:
         - linux/amd64

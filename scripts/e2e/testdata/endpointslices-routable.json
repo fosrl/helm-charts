@@ -1,0 +1,28 @@
+{
+  "items": [
+    {
+      "metadata": {
+        "name": "pangolin"
+      },
+      "endpoints": [
+        {
+          "addresses": [
+            "10.42.1.5"
+          ]
+        }
+      ]
+    },
+    {
+      "metadata": {
+        "name": "local-site-ext-0-8080"
+      },
+      "endpoints": [
+        {
+          "addresses": [
+            "10.42.3.9"
+          ]
+        }
+      ]
+    }
+  ]
+}

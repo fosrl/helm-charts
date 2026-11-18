@@ -1,0 +1,251 @@
+suite: AI gateway NetworkPolicy scoping
+templates:
+  - templates/networkpolicy.yaml
+tests:
+  # The gateway proxies to model providers and holds the virtual API keys that pay for
+  # them. Nothing in the cluster gets to reach it because it happens to be a Pod.
+  - it: grants no Pod the AI gateway port by default
+    set:
+      networkPolicy:
+        enabled: true
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-pangolin-ingress
+    asserts:
+      - notContains:
+          path: spec.ingress
+          content:
+            ports:
+              - port: 3005
+                protocol: TCP
+          any: true
+
+  - it: allows the chart-managed standalone Traefik and nothing else
+    set:
+      networkPolicy:
+        enabled: true
+      deployment:
+        type: standalone
+        mode: multi
+      traefik:
+        enabled: true
+        config:
+          letsencryptEmail: ops@example.com
+          dynamicRouters:
+            host: pangolin.example.com
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-pangolin-ingress
+    asserts:
+      - contains:
+          path: spec.ingress
+          content:
+            from:
+              - podSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: pangolin
+                    app.kubernetes.io/instance: RELEASE-NAME
+                    app.kubernetes.io/component: traefik-standalone
+            ports:
+              - protocol: TCP
+                port: 3005
+      # A rule with ports and no `from` is every source. Its absence is the point.
+      - notContains:
+          path: spec.ingress
+          content:
+            ports:
+              - port: 3005
+                protocol: TCP
+
+  # The subchart names its own Pods, and both labels are its immutable selector.
+  - it: allows the bundled Traefik subchart in the release namespace
+    set:
+      networkPolicy:
+        enabled: true
+      deployment:
+        installTraefikController: true
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-pangolin-ingress
+    asserts:
+      - contains:
+          path: spec.ingress
+          content:
+            from:
+              - podSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: traefik
+                    app.kubernetes.io/instance: RELEASE-NAME-NAMESPACE
+            ports:
+              - protocol: TCP
+                port: 3005
+
+  # namespaceOverride is the only thing that can move those Pods out of this namespace,
+  # and a podSelector alone would then match nothing.
+  - it: adds a namespaceSelector when the bundled Traefik runs elsewhere
+    set:
+      networkPolicy:
+        enabled: true
+      deployment:
+        installTraefikController: true
+      traefikController:
+        namespaceOverride: edge
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-pangolin-ingress
+    asserts:
+      - contains:
+          path: spec.ingress
+          content:
+            from:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: edge
+                podSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: traefik
+                    app.kubernetes.io/instance: RELEASE-NAME-edge
+            ports:
+              - protocol: TCP
+                port: 3005
+
+  # An externally installed Traefik is a supported topology and the chart cannot select a
+  # workload it did not render, so the operator names it.
+  - it: allows an external Traefik named through ingress.aiGateway.from
+    set:
+      networkPolicy:
+        enabled: true
+        pangolin:
+          ingress:
+            aiGateway:
+              from:
+                - namespaceSelector:
+                    matchLabels:
+                      kubernetes.io/metadata.name: traefik
+                  podSelector:
+                    matchLabels:
+                      app.kubernetes.io/name: traefik
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-pangolin-ingress
+    asserts:
+      - contains:
+          path: spec.ingress
+          content:
+            from:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: traefik
+                podSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: traefik
+            ports:
+              - protocol: TCP
+                port: 3005
+
+  - it: drops the derived rule when fromTraefik is turned off
+    set:
+      networkPolicy:
+        enabled: true
+        pangolin:
+          ingress:
+            aiGateway:
+              fromTraefik: false
+      deployment:
+        type: standalone
+        mode: multi
+      traefik:
+        enabled: true
+        config:
+          letsencryptEmail: ops@example.com
+          dynamicRouters:
+            host: pangolin.example.com
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-pangolin-ingress
+    asserts:
+      - notContains:
+          path: spec.ingress
+          content:
+            ports:
+              - port: 3005
+                protocol: TCP
+          any: true
+
+  # In single mode Traefik is a container in the Pangolin Pod and talks to the gateway
+  # over loopback, which NetworkPolicy does not govern. A rule here would be noise.
+  - it: renders no AI gateway rule in single mode
+    set:
+      networkPolicy:
+        enabled: true
+      deployment:
+        type: standalone
+        mode: single
+      traefik:
+        enabled: true
+        config:
+          letsencryptEmail: ops@example.com
+          dynamicRouters:
+            host: pangolin.example.com
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-pangolin-ingress
+    asserts:
+      - notContains:
+          path: spec.ingress
+          content:
+            ports:
+              - port: 3005
+                protocol: TCP
+          any: true
+
+  - it: opens the port to every source only when explicitly asked
+    set:
+      networkPolicy:
+        enabled: true
+        pangolin:
+          externalIngress:
+            aiGateway: true
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-pangolin-ingress
+    asserts:
+      - contains:
+          path: spec.ingress
+          content:
+            ports:
+              - port: 3005
+                protocol: TCP
+
+  # allowExternalIngress governs the blanket rules. The Traefik path is not one of them
+  # and must survive a deployment that turns every open port off.
+  - it: keeps the Traefik path when allowExternalIngress is false
+    set:
+      networkPolicy:
+        enabled: true
+        allowExternalIngress: false
+      deployment:
+        type: standalone
+        mode: multi
+      traefik:
+        enabled: true
+        config:
+          letsencryptEmail: ops@example.com
+          dynamicRouters:
+            host: pangolin.example.com
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-pangolin-pangolin-ingress
+    asserts:
+      - contains:
+          path: spec.ingress
+          content:
+            from:
+              - podSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: pangolin
+                    app.kubernetes.io/instance: RELEASE-NAME
+                    app.kubernetes.io/component: traefik-standalone
+            ports:
+              - protocol: TCP
+                port: 3005

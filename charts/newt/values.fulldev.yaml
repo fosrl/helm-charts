@@ -258,7 +258,7 @@ global:
   #   readOnlyRootFilesystem: true
   #   capabilities.drop: ["ALL"]
   #
-  # When nativeMode.enabled=true OR useNativeInterface=true:
+  # When global.nativeMode.enabled=true AND the instance requests a native interface:
   #   runAsUser: 0 (root)
   #   allowPrivilegeEscalation: true
   #   privileged: true
@@ -275,7 +275,9 @@ global:
   logLevel: "INFO" # @schema type: string ; enum: [TRACE, DEBUG, INFO, WARN, ERROR]
 
   nativeMode:
-    # -- Enable native WireGuard interface (requires privileged container)
+    # -- Permission gate for native WireGuard interfaces. This grants nothing on its own:
+    # an instance becomes root and privileged only when it also sets useNativeInterface or
+    # useNativeMainInterface. Those settings are rejected while this is false.
     enabled: false # @schema type: boolean
 
   notes:
@@ -308,16 +310,20 @@ global:
   # Resource Requests & Limits
   # -----------------------------------------------------------------------------
 
-  resources: # @schema type: object
-    requests:
-      cpu: "100m" # @schema type: string ; pattern: ^[0-9]+m?$
-      memory: "128Mi" # @schema type: string
-      ephemeral-storage: "128Mi" # @schema type: string
-
-    limits:
-      cpu: "200m" # @schema type: string ; pattern: ^[0-9]+m?$
-      memory: "256Mi" # @schema type: string
-      ephemeral-storage: "256Mi" # @schema type: string
+  # -- Default resource requests/limits for every Newt container.
+  # Empty by default (#23): the chart imposes no sizing, so the container inherits any
+  # LimitRange or namespace default instead. A non-empty `newtInstances[].resources`
+  # always overrides this. CPU limits in particular are a deliberate choice, not a
+  # sensible default, because throttling a WireGuard data path degrades it silently.
+  # Example:
+  #   resources:
+  #     requests:
+  #       cpu: 100m
+  #       memory: 128Mi
+  #       ephemeral-storage: 128Mi
+  #     limits:
+  #       memory: 256Mi
+  resources: {} # @schema type: [object, "null"] ; additionalProperties: {"type": ["object", "array", "null"], "additionalProperties": {"type": ["string", "integer", "number", "null"]}}
 
   # -----------------------------------------------------------------------------
   # Helm Test Configuration
@@ -333,11 +339,11 @@ global:
       pullPolicy: IfNotPresent # @schema type: string ; enum: [Always, IfNotPresent, Never]
     resources: # @schema type: object
       requests:
-        cpu: "100m" # @schema type: string ; pattern: ^[0-9]+m?$
+        cpu: "100m" # @schema type: [string, number]
         memory: "128Mi" # @schema type: string
         #ephemeral-storage: "128Mi" # @schema type: string
       limits:
-        cpu: "200m" # @schema type: string ; pattern: ^[0-9]+m?$
+        cpu: "200m" # @schema type: [string, number]
         memory: "256Mi" # @schema type: string
         #ephemeral-storage: "256Mi" # @schema type: string
 
@@ -349,12 +355,20 @@ global:
   metrics: # @schema type: object ; additionalProperties: false
     # -- Enable Prometheus-compatible metrics exposure
     enabled: true # @schema type: boolean
-    # -- Metrics endpoint port exposed by the workload container
+    # -- DEPRECATED: use `adminAddr`, which is what Newt actually binds.
+    # Kept for compatibility: when set to a non-default value while `adminAddr` is still
+    # ":2112", it is used as the listen port so existing values files render the same port
+    # numbers as before. It no longer defines the container port on its own.
     port: 9090 # @schema type: integer ; minimum: 1 ; maximum: 65535
     # -- Metrics HTTP path
     path: /metrics # @schema type: string ; minLength: 1 ; pattern: ^/.*
-    # -- Metrics admin server address (NEWT_ADMIN_ADDR). Used for health checks and metrics endpoint.
-    adminAddr: "127.0.0.1:2112" # @schema type: string ; pattern: ^.+:[0-9]+$
+    # -- Address Newt binds for the metrics/admin server (NEWT_ADMIN_ADDR).
+    # AUTHORITATIVE for the metrics port: the container port, the Service targetPort and
+    # the prometheus.io/port annotation are all derived from it, so they cannot drift
+    # apart the way they did before (#16).
+    # ":2112" listens on all interfaces, which in-cluster Prometheus scraping requires.
+    # "127.0.0.1:2112" restricts to loopback and therefore disables scraping.
+    adminAddr: ":2112" # @schema type: string ; pattern: ^.*:[0-9]+$
     # -- Enable async bytes metrics (NEWT_METRICS_ASYNC_BYTES)
     asyncBytes: false # @schema type: boolean
     # -- Region for metrics/telemetry (NEWT_REGION)
@@ -580,13 +594,20 @@ newtInstances:
     pingInterval: ""
     # -- Optional ping timeout (e.g., "5s"). Leave empty to use default
     pingTimeout: ""
-    # -- Accept client connections for runtime only (ACCEPT_CLIENTS env). Does NOT create any Service; Service is controlled by newtInstances[x].service.enabled
+    # -- Gate the client Service and the automatic client ingress NetworkPolicy rule.
+    # This is a chart-side switch only: it no longer sets any Newt environment variable,
+    # because ACCEPT_CLIENTS was removed upstream in Newt 1.7.0 and replaced by
+    # DISABLE_CLIENTS. To actually refuse client connections set `disableClients: true`.
     acceptClients: false
-    # -- Use native WireGuard kernel interface (requires nativeMode.enabled=true and privileged)
+    # -- Use the native WireGuard kernel interface (USE_NATIVE_INTERFACE).
+    # Requires global.nativeMode.enabled=true; the chart then runs this instance as root
+    # with NET_ADMIN and SYS_MODULE.
     useNativeInterface: false
     # -- WireGuard interface name in the pod
     interface: "newt"
-    # -- Keep the interface on shutdown (native mode)
+    # -- DEPRECATED and inert: Newt has no --keep-interface flag or KEEP_INTERFACE
+    # variable in any release this chart can select. Kept so existing values files stay
+    # valid; it renders nothing.
     keepInterface: false
     # -- Optional config file path for Newt (CONFIG_FILE env)
     configFile: ""
@@ -604,12 +625,49 @@ newtInstances:
       type: emptyDir # @schema type: string ; enum: [emptyDir, persistentVolumeClaim]
       # -- Existing PVC name when type=persistentVolumeClaim.
       existingClaim: "" # @schema type: string ; pattern: ^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
-    # -- Optional path to save generated private key (GENERATE_AND_SAVE_KEY_TO env)
+    # -- DEPRECATED and inert: Newt has no --generateAndSaveKeyTo flag or
+    # GENERATE_AND_SAVE_KEY_TO variable in any release this chart can select. Kept so
+    # existing values files stay valid; it renders nothing.
     generateAndSaveKeyTo: ""
     # -- Disable cloud connectivity (NO_CLOUD env). When enabled, Newt operates without connecting to Pangolin cloud.
     noCloud: false
     # -- Disable client connections (DISABLE_CLIENTS env). When enabled, Newt does not accept incoming client connections.
     disableClients: false
+    # -- Disable Newt's built-in SSH server (DISABLE_SSH). Newt 1.13 replaced the
+    # separate auth daemon with an internal SSH server that is on by default.
+    disableSSH: false
+    # -- Create the main WireGuard interface natively on the host instead of in netstack
+    # (USE_NATIVE_MAIN_INTERFACE). Requires Newt >= 1.14.0 and global.nativeMode.enabled=true;
+    # the chart then grants this instance the same privileges as useNativeInterface.
+    useNativeMainInterface: false
+    # -- Name of the native main WireGuard interface (INTERFACE_MAIN).
+    # Requires Newt >= 1.14.0.
+    interfaceMain: "newt"
+    # -- Prefer this endpoint when several are advertised (--prefer-endpoint).
+    # Newt reads this only from the CLI, so it requires useCommandArgs: true on this
+    # instance; the chart rejects the combination rather than letting it no-op.
+    preferEndpoint: ""
+    # -- Idle timeout for proxied UDP flows, e.g. "90s"
+    # (NEWT_UDP_PROXY_IDLE_TIMEOUT). Empty uses the Newt default.
+    udpProxyIdleTimeout: ""
+    # -- Restrict the local endpoints Newt reports to Pangolin to these network
+    # interface names, e.g. ["eth0"] (LOCAL_ENDPOINT_INTERFACES). Clients on the same
+    # network use those addresses to connect directly. Empty reports every interface.
+    # Mostly useful with hostNetwork: true, where the pod sees all node interfaces.
+    # Requires Newt >= 1.17.0.
+    localEndpointInterfaces: [] # @schema type: array ; item: string ; default: []
+    authDaemon:
+      # -- Name of an existing Secret holding the auth daemon pre-shared key (AD_KEY).
+      # The key is only ever referenced, never rendered into the manifest.
+      keySecretName: ""
+      # -- Key inside `authDaemon.keySecretName` holding the pre-shared key.
+      keySecretKey: ""
+      # -- Path to the SSH principals file (AD_PRINCIPALS_FILE).
+      principalsFile: ""
+      # -- Path to the SSH CA certificate (AD_CA_CERT_PATH).
+      caCertPath: ""
+      # -- Generate a random password on start (AD_GENERATE_RANDOM_PASSWORD).
+      generateRandomPassword: false
     # -- Blueprint file path (BLUEPRINT_FILE env). Path to a Newt blueprint configuration file.
     #blueprintFile: ""
     # -- Blueprint file content (inline). When provided, creates a ConfigMap with this content.
@@ -789,8 +847,9 @@ newtInstances:
     podSecurityContext: {}
 
     # -- Container-level securityContext override
-    # SECURITY NOTE: By default (when nativeMode is disabled), Newt runs as non-root.
-    # When nativeMode.enabled=true OR useNativeInterface=true, Newt runs as root with privileges.
+    # SECURITY NOTE: By default Newt runs as non-root.
+    # Newt runs as root with privileges only when global.nativeMode.enabled=true AND the
+    # instance sets useNativeInterface or useNativeMainInterface.
     # IMPORTANT: Do NOT set capabilities.drop when running as root - this is invalid.
     securityContext: {} # @schema type: object
     service:
@@ -822,20 +881,10 @@ newtInstances:
       annotations: {}
       # -- Additional service labels
       labels: {}
-    resources:
-      requests:
-        # -- CPU request
-        cpu: "100m"
-        # -- Memory request
-        memory: "128Mi"
-        # -- Ephemeral storage request
-        ephemeral-storage: "128Mi"
-      limits:
-        # -- CPU limit
-        cpu: "500m"
-        # -- Memory limit
-        memory: "256Mi"
-        # Optional: also set a limit if desired
+    # -- Per-instance resource requests/limits. Overrides `global.resources` whenever it
+    # is non-empty, independently of `allowGlobalOverride`. Empty by default so the
+    # chart imposes no sizing; see `global.resources` for an example.
+    resources: {} # @schema type: [object, "null"] ; additionalProperties: {"type": ["object", "array", "null"], "additionalProperties": {"type": ["string", "integer", "number", "null"]}}
     metrics:
       # -- Enable Prometheus metrics
       enabled: false

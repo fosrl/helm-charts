@@ -115,6 +115,9 @@ tests:
 
   - it: uses default security context with root and NET_ADMIN (required for WireGuard)
     set:
+      global:
+        nativeMode:
+          enabled: true
       newtInstances:
         - name: default-sec
           enabled: true
