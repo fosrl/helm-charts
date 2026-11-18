@@ -16,9 +16,8 @@ sources:
   - https://github.com/fosrl/helm-charts
   - https://github.com/fosrl/pangolin
 maintainers:
-  - name: marcschaeferger
-    email: info@marcschaeferger.de
-    url: https://github.com/marcschaeferger
+  - name: Fossorial Inc
+    email: contact@pangolin.net
 dependencies:
   - name: cloudnative-pg
     alias: cnpg-operator
