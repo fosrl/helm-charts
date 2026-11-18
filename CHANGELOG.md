@@ -9,7 +9,7 @@ This changelog is chart-scoped to support multiple charts over time.
 
 ## Pangolin Chart (`charts/pangolin`)
 
-### Unreleased
+### 0.1.0 - 2026-11-18
 
 #### Fixed
 
@@ -196,7 +196,7 @@ This changelog is chart-scoped to support multiple charts over time.
 
 ## Pangolin CLI Chart (`charts/pangolin-cli`)
 
-### Unreleased
+### 0.1.0 - 2026-11-18
 
 #### Added
 
