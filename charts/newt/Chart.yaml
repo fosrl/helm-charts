@@ -30,7 +30,27 @@ annotations:
     - kind: added
       description: "Expose localEndpointInterfaces (LOCAL_ENDPOINT_INTERFACES, Newt 1.17.0)."
     - kind: fixed
-      description: "Fix metrics wiring, per-instance resources and the removed ACCEPT_CLIENTS environment variable."
+      description: "Enabling metrics now exposes them: NEWT_METRICS_PROMETHEUS_ENABLED is emitted and the Service, container port and scrape annotation follow global.metrics.adminAddr."
+    - kind: fixed
+      description: "Per-instance resources are honoured and extraVolumes/extraVolumeMounts render correctly."
+    - kind: fixed
+      description: "Health probes get a writable emptyDir, so they can pass with readOnlyRootFilesystem."
+    - kind: fixed
+      description: "PodDisruptionBudget renders maxUnavailable and keeps minAvailable: 0."
+    - kind: fixed
+      description: "Args mode no longer passes the nonexistent --secret-env flag that made Newt exit."
+    - kind: fixed
+      description: "Provisioning-key installs render again; pangolinEndpoint no longer counts as a partial inline credential."
+    - kind: changed
+      description: "global.nativeMode.enabled is now only a permission gate. Pods are privileged only when an instance requests a native interface, and native interfaces without the gate are rejected."
+    - kind: changed
+      description: "preferEndpoint requires useCommandArgs, and updown.enabled requires a script that exists in global.updownScripts; both are rejected otherwise."
+    - kind: changed
+      description: "global.resources and newtInstances[].resources default to {}; the chart no longer imposes requests or limits."
+    - kind: removed
+      description: "BREAKING: the unused per-instance <release>-<instance>-env ConfigMap is no longer created."
+    - kind: removed
+      description: "Stop emitting ACCEPT_CLIENTS, KEEP_INTERFACE and GENERATE_AND_SAVE_KEY_TO, which no supported Newt release reads."
   artifacthub.io/containsSecurityUpdates: "false"
   artifacthub.io/images: |
     - name: newt-dockerhub
