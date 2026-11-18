@@ -1,0 +1,147 @@
+suite: Pangolin CLI site command
+templates:
+  - templates/deployment.yaml
+tests:
+  # The image's /entrypoint.sh runs update-ca-certificates under `set -e`, which exits 1
+  # as uid 65534 on a read-only root filesystem, so the chart must never fall through to
+  # it. Env mode sets the command too, not only args mode.
+  - it: runs `pangolin-cli up site` in env mode
+    set:
+      siteInstances:
+        - name: env-mode
+          enabled: true
+          pangolinEndpoint: "https://pangolin.example.com"
+          id: abc123
+          secret: s3cret
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].command
+          value:
+            - pangolin-cli
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value:
+            - up
+            - site
+
+  # The entrypoint only routes to `up site` when SITE_ID and SITE_SECRET are both set,
+  # so a provisioning-key install relied on the explicit command to start the tunnel.
+  - it: runs `pangolin-cli up site` for a provisioning-key install
+    set:
+      siteInstances:
+        - name: provisioning
+          enabled: true
+          provisioningKey: pk-123
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value:
+            - up
+            - site
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SITE_PROVISIONING_KEY
+            value: pk-123
+
+  - it: puts `up site` before the flags in args mode
+    set:
+      siteInstances:
+        - name: args-mode
+          enabled: true
+          useCommandArgs: true
+          pangolinEndpoint: "https://pangolin.example.com"
+          id: abc123
+          secret: s3cret
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].command
+          value:
+            - pangolin-cli
+      - equal:
+          path: spec.template.spec.containers[0].args[0]
+          value: up
+      - equal:
+          path: spec.template.spec.containers[0].args[1]
+          value: site
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--endpoint=https://pangolin.example.com"
+
+  # `up site` names its interface "pangolin", so that is the value the chart can omit.
+  - it: does not emit INTERFACE for the default interface name
+    set:
+      siteInstances:
+        - name: default-iface
+          enabled: true
+          pangolinEndpoint: "https://pangolin.example.com"
+          id: abc123
+          secret: s3cret
+          interface: pangolin
+          interfaceMain: pangolin
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: INTERFACE
+            value: pangolin
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: INTERFACE_MAIN
+            value: pangolin
+
+  - it: emits INTERFACE when the name differs from the CLI default
+    set:
+      siteInstances:
+        - name: custom-iface
+          enabled: true
+          pangolinEndpoint: "https://pangolin.example.com"
+          id: abc123
+          secret: s3cret
+          interface: wg-site
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: INTERFACE
+            value: wg-site
+
+  - it: emits SITE_ variables and never the legacy NEWT_ names
+    set:
+      global:
+        metrics:
+          enabled: true
+          region: us-east-1
+          asyncBytes: true
+          otlpEnabled: true
+          pprofEnabled: true
+          adminAddr: ":9999"
+      siteInstances:
+        - name: all-prefixed
+          enabled: true
+          pangolinEndpoint: "https://pangolin.example.com"
+          id: abc123
+          secret: s3cret
+          provisioningKey: pk-123
+          siteName: my-site
+          udpProxyIdleTimeout: 2m
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SITE_METRICS_PROMETHEUS_ENABLED
+            value: "true"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SITE_ADMIN_ADDR
+            value: ":9999"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SITE_NAME
+            value: my-site
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].env[*].name
+          pattern: ^NEWT_

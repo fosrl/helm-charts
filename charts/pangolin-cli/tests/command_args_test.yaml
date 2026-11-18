@@ -1,0 +1,119 @@
+suite: Site command args mode
+templates:
+  - templates/deployment.yaml
+tests:
+  # `up site` registers its flags on a flag set, which is ExitOnError, so an unknown
+  # flag makes it exit 2 before the tunnel is established.
+  - it: never passes a flag `up site` does not define
+    set:
+      siteInstances:
+        - name: args-mode
+          enabled: true
+          useCommandArgs: true
+          pangolinEndpoint: "https://pangolin.example.com"
+          id: abc123
+          secret: s3cret
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: "--secret-env=SITE_SECRET"
+
+  - it: still injects SITE_SECRET from the environment in args mode
+    set:
+      siteInstances:
+        - name: args-mode
+          enabled: true
+          useCommandArgs: true
+          pangolinEndpoint: "https://pangolin.example.com"
+          id: abc123
+          secret: s3cret
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SITE_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: RELEASE-NAME-pangolin-cli-args-mode
+                key: SITE_SECRET
+
+  # A user-supplied siteInstances entry replaces the chart defaults wholesale, so the
+  # nested option maps are absent. Rendering must not depend on the operator restating them.
+  - it: renders a minimal instance in args mode without a nil dereference
+    set:
+      siteInstances:
+        - name: minimal
+          enabled: true
+          useCommandArgs: true
+          pangolinEndpoint: "https://pangolin.example.com"
+          id: abc123
+          secret: s3cret
+    asserts:
+      - notFailedTemplate: {}
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--endpoint=https://pangolin.example.com"
+
+  - it: renders prefer-endpoint as a CLI flag when args mode is on
+    set:
+      siteInstances:
+        - name: args-mode
+          enabled: true
+          useCommandArgs: true
+          preferEndpoint: "1.2.3.4:51820"
+          pangolinEndpoint: "https://pangolin.example.com"
+          id: abc123
+          secret: s3cret
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--prefer-endpoint=1.2.3.4:51820"
+
+  # There is no PREFER_ENDPOINT environment variable, so the env-var default
+  # would silently do nothing.
+  - it: rejects preferEndpoint outside args mode instead of ignoring it
+    set:
+      siteInstances:
+        - name: env-mode
+          enabled: true
+          preferEndpoint: "1.2.3.4:51820"
+          auth:
+            existingSecretName: site-auth
+    asserts:
+      - failedTemplate:
+          errorPattern: "preferEndpoint is only read as the --prefer-endpoint flag"
+
+  - it: never emits a PREFER_ENDPOINT environment variable
+    set:
+      siteInstances:
+        - name: args-mode
+          enabled: true
+          useCommandArgs: true
+          preferEndpoint: "1.2.3.4:51820"
+          pangolinEndpoint: "https://pangolin.example.com"
+          id: abc123
+          secret: s3cret
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PREFER_ENDPOINT
+            value: "1.2.3.4:51820"
+
+  - it: renders local-endpoint-interfaces as a comma-joined CLI flag in args mode
+    set:
+      siteInstances:
+        - name: args-mode
+          enabled: true
+          useCommandArgs: true
+          localEndpointInterfaces:
+            - eth0
+            - wlan0
+          pangolinEndpoint: "https://pangolin.example.com"
+          id: abc123
+          secret: s3cret
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--local-endpoint-interfaces=eth0,wlan0"
+

@@ -1,0 +1,9 @@
+siteInstances:
+  - name: ci-provisioning-emptydir
+    enabled: true
+    pangolinEndpoint: https://example.com
+    provisioningKey: test-key
+    siteName: ci-site
+    configPersistence:
+      enabled: true
+      type: emptyDir

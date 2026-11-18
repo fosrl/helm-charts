@@ -1,0 +1,6 @@
+# Minimal values with existing secret
+siteInstances:
+  - name: minimal
+    enabled: true
+    auth:
+      existingSecretName: site-auth

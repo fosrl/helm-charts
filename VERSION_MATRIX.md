@@ -16,6 +16,20 @@ Sources:
 - [Newt chart source](https://github.com/fosrl/helm-charts/tree/main/charts/newt)
 - [Newt on Artifact Hub](https://artifacthub.io/packages/helm/fosrl/newt)
 
+## Pangolin CLI (Site)
+
+| Item | Value |
+| --- | --- |
+| Chart version | `0.1.0` |
+| App version | `0.20.0` |
+| Kubernetes version | `>=1.30.14-0` |
+| Default image tag | `0.20.0` |
+
+Sources:
+
+- [Pangolin CLI chart source](https://github.com/fosrl/helm-charts/tree/main/charts/pangolin-cli)
+- [Pangolin CLI on GitHub](https://github.com/fosrl/cli)
+
 ## Pangolin
 
 | Item | Value |

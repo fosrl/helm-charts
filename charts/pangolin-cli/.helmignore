@@ -1,0 +1,56 @@
+# This supports shell glob matching, relative path matching, and
+# negation (prefixed with !). Only one pattern per line.
+
+# VCS
+.git/
+.gitignore
+.github/
+
+# IDE
+.project
+.idea/
+*.tmproj
+.vscode/
+
+# Temp / Backup
+*.swp
+*.bak
+*.tmp
+*.orig
+*~
+
+# Helm / Repo Meta
+.helmignore
+artifacthub-repo.yml
+renovate.json
+Taskfile.yaml
+
+# Env / Config
+.env
+.env-template
+.pre-commit-config.yaml
+
+# Docs / Templates
+README.md.gotmpl
+
+# Schemas (global + custom)
+*.schema.yaml
+chart_schema.yaml
+
+# Chart-specific values and schema variants
+values.default.yaml
+values.dev.yaml
+values.fulldev.yaml
+values.schema.dev.json
+
+# Chart-internal test & CI artifacts (paths relative to chart root)
+/ci/
+/tests/
+/examples/
+/scripts/
+
+# Helm unittest snapshots / fixtures
+__snapshot__/
+
+# Rendered output (safety net)
+rendered-scenarios/

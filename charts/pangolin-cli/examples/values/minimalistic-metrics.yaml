@@ -1,0 +1,12 @@
+# Minimal with metrics enabled
+global:
+  metrics:
+    enabled: true
+    service:
+      enabled: true
+      port: 9090
+siteInstances:
+  - name: main-tunnel
+    auth:
+      existingSecretName: site-cred
+    enabled: true

@@ -1,0 +1,167 @@
+suite: Deployment rendering
+templates:
+  - templates/deployment.yaml
+values:
+  - ../tests/values/dev.yaml
+tests:
+  - it: renders a Deployment when instance enabled
+    set:
+      siteInstances:
+        - name: main-tunnel
+          enabled: true
+          auth:
+            existingSecretName: site-auth
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: metadata.labels["app.kubernetes.io/instance"]
+          value: RELEASE-NAME
+      - equal:
+          path: spec.selector.matchLabels["pangolin-cli.instance"]
+          value: main-tunnel
+
+  - it: renders instance config env vars
+    set:
+      siteInstances:
+        - name: cfg
+          enabled: true
+          pangolinEndpoint: "https://pangolin.example.com"
+          id: test-id
+          secret: test-secret
+          port: "7777"
+          noCloud: true
+          disableClients: true
+          healthFile: /tmp/healthy
+          auth: {}
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[0].name
+          value: PANGOLIN_ENDPOINT
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PORT
+            value: "7777"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: NO_CLOUD
+            value: "true"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DISABLE_CLIENTS
+            value: "true"
+
+  - it: mounts docker socket when dockerSocket.enabled is true
+    set:
+      siteInstances:
+        - name: docker
+          enabled: true
+          dockerSocket:
+            enabled: true
+            path: /var/run/docker.sock
+          auth:
+            existingSecretName: site-auth
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes[0].name
+          value: docker-socket
+
+  - it: mounts split PEM certificates when mtls mode is pem
+    set:
+      siteInstances:
+        - name: pem-mtls
+          enabled: true
+          mtls:
+            enabled: true
+            mode: pem
+            pem:
+              secretName: my-mtls-secret
+              clientCertPath: /certs/client.crt
+              clientKeyPath: /certs/client.key
+              caPath: /certs/ca.crt
+          auth:
+            existingSecretName: site-auth
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: spec.template.spec.volumes[0].name
+          value: mtls-client-cert
+      - equal:
+          path: spec.template.spec.volumes[1].name
+          value: mtls-client-key
+
+  - it: mounts blueprint file when blueprintFile is set
+    set:
+      siteInstances:
+        - name: blueprint-test
+          enabled: true
+          blueprintFile: /config/blueprint.yaml
+          blueprintData: |
+            version: 1
+            routes:
+              - 10.0.0.0/8
+          auth:
+            existingSecretName: site-auth
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: spec.template.spec.volumes[0].name
+          value: blueprint-file
+
+  - it: uses default security context with root and NET_ADMIN (required for WireGuard)
+    set:
+      global:
+        nativeMode:
+          enabled: true
+      siteInstances:
+        - name: default-sec
+          enabled: true
+          useNativeInterface: true
+          auth:
+            existingSecretName: site-auth
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsUser
+          value: 0
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.capabilities.add[0]
+          value: NET_ADMIN
+
+  - it: creates health file probe when enabled
+    set:
+      global:
+        health:
+          enabled: true
+      siteInstances:
+        - name: health-test
+          enabled: true
+          healthFile: /tmp/healthy
+          auth:
+            existingSecretName: site-auth
+    asserts:
+      - exists:
+          path: spec.template.spec.containers[0].livenessProbe
+
+  - it: adds extra env vars
+    set:
+      siteInstances:
+        - name: extraenv
+          enabled: true
+          auth:
+            existingSecretName: site-auth
+          extraEnv:
+            CUSTOM_VAR: custom-value
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CUSTOM_VAR
+            value: custom-value

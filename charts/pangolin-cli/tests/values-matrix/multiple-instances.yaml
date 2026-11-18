@@ -1,0 +1,12 @@
+# Multiple instances
+siteInstances:
+  - name: instance-1
+    enabled: true
+    auth:
+      existingSecretName: site-auth-1
+    port: "51820"
+  - name: instance-2
+    enabled: true
+    auth:
+      existingSecretName: site-auth-2
+    port: "51822"

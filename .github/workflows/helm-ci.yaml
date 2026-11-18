@@ -418,3 +418,175 @@ jobs:
           name: newt-rendered-manifests
           path: rendered-newt/*.yaml
           if-no-files-found: ignore
+
+  pangolin-cli-validate:
+    name: Pangolin CLI chart validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Helm
+        uses: Azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5.0.0
+        with:
+          version: v3.20.2
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.x'
+
+      - name: Install helm-unittest plugin
+        run: helm plugin install https://github.com/helm-unittest/helm-unittest.git --version 1.0.3
+
+      - name: Install kubeconform
+        run: |
+          set -euo pipefail
+          KUBECONFORM_VERSION="v0.7.0"
+          curl -fsSL \
+            -o "${RUNNER_TEMP}/kubeconform.tar.gz" \
+            "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          curl -fsSL \
+            -o "${RUNNER_TEMP}/kubeconform-checksums.txt" \
+            "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/CHECKSUMS"
+          KUBECONFORM_SHA256=$(grep "kubeconform-linux-amd64.tar.gz" "${RUNNER_TEMP}/kubeconform-checksums.txt" | awk '{print $1}')
+          if [ -z "${KUBECONFORM_SHA256}" ]; then
+            echo "ERROR: Could not find SHA256 for kubeconform-linux-amd64.tar.gz in CHECKSUMS file"
+            exit 1
+          fi
+          echo "${KUBECONFORM_SHA256}  ${RUNNER_TEMP}/kubeconform.tar.gz" > "${RUNNER_TEMP}/kubeconform.tar.gz.sha256"
+          if ! sha256sum -c "${RUNNER_TEMP}/kubeconform.tar.gz.sha256"; then
+            echo "ERROR: kubeconform tarball SHA256 verification failed"
+            exit 1
+          fi
+          mkdir -p "${RUNNER_TEMP}/kubeconform-bin"
+          tar -xz -C "${RUNNER_TEMP}/kubeconform-bin" -f "${RUNNER_TEMP}/kubeconform.tar.gz" kubeconform
+          echo "${RUNNER_TEMP}/kubeconform-bin" >> "$GITHUB_PATH"
+          "${RUNNER_TEMP}/kubeconform-bin/kubeconform" -v
+
+      - name: Install yamllint
+        run: python -m pip install --upgrade pip yamllint
+
+      - name: Lint chart
+        run: helm lint charts/pangolin-cli -f charts/pangolin-cli/examples/values/bare-minimum.yaml
+
+      - name: Render chart variants
+        run: |
+          set -euo pipefail
+          mkdir -p rendered-pangolin-cli
+
+          # The chart's own defaults carry no credentials and cannot render, so every
+          # variant starts from an example profile.
+          BASE="charts/pangolin-cli/examples/values/bare-minimum.yaml"
+
+          helm template demo charts/pangolin-cli --namespace pangolin-cli -f "$BASE" > rendered-pangolin-cli/default.yaml
+          helm template demo charts/pangolin-cli --namespace pangolin-cli -f "$BASE" \
+            --set global.metrics.enabled=true \
+            --set global.metrics.service.enabled=true > rendered-pangolin-cli/metrics.yaml
+          helm template demo charts/pangolin-cli --namespace pangolin-cli -f "$BASE" \
+            --set global.networkPolicy.enabled=true > rendered-pangolin-cli/netpol.yaml
+          helm template demo charts/pangolin-cli --namespace pangolin-cli -f "$BASE" \
+            --set-json 'global.resources={"requests":{"cpu":"100m"}}' > rendered-pangolin-cli/resources-requests.yaml
+          helm template demo charts/pangolin-cli --namespace pangolin-cli -f "$BASE" \
+            --set-json 'global.resources={"limits":{"memory":"256Mi"}}' > rendered-pangolin-cli/resources-limits.yaml
+          helm template demo charts/pangolin-cli --namespace pangolin-cli -f "$BASE" \
+            --set-json 'siteInstances[0].extraVolumes=[{"name":"extra","emptyDir":{}}]' \
+            --set-json 'siteInstances[0].extraVolumeMounts=[{"name":"extra","mountPath":"/extra"}]' \
+            --set 'siteInstances[0].name=main-tunnel' \
+            --set 'siteInstances[0].enabled=true' \
+            --set 'siteInstances[0].auth.existingSecretName=site-cred' > rendered-pangolin-cli/extra-volumes.yaml
+
+          shopt -s nullglob
+          for values in charts/pangolin-cli/examples/values/*.yaml; do
+            name="$(basename "$values" .yaml)"
+            helm template demo charts/pangolin-cli --namespace pangolin-cli -f "$values" > "rendered-pangolin-cli/example-${name}.yaml"
+          done
+          for values in charts/pangolin-cli/ci/*.yaml; do
+            name="$(basename "$values" .yaml)"
+            helm template demo charts/pangolin-cli --namespace pangolin-cli -f "$values" > "rendered-pangolin-cli/ci-${name}.yaml"
+          done
+          shopt -u nullglob
+
+      - name: yamllint rendered manifests
+        run: |
+          yamllint -d '{extends: relaxed, rules: {line-length: {max: 200}, indentation: {spaces: consistent, indent-sequences: whatever}, trailing-spaces: disable}}' rendered-pangolin-cli/*.yaml
+
+      - name: kubeconform rendered manifests
+        run: |
+          set -euo pipefail
+          for f in rendered-pangolin-cli/*.yaml; do
+            echo "==> kubeconform: $f"
+            kubeconform -strict -summary -ignore-missing-schemas "$f"
+          done
+
+      - name: Verify the metrics endpoint is actually wired
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import subprocess, sys, yaml
+          out = subprocess.run(
+              ["helm", "template", "demo", "charts/pangolin-cli", "--namespace", "pangolin-cli",
+               "-f", "charts/pangolin-cli/examples/values/bare-minimum.yaml",
+               "--set", "global.metrics.enabled=true",
+               "--set", "global.metrics.service.enabled=true"],
+              capture_output=True, text=True, check=True).stdout
+          docs = [d for d in yaml.safe_load_all(out) if d]
+          dep = next(d for d in docs if d["kind"] == "Deployment")
+          c = dep["spec"]["template"]["spec"]["containers"][0]
+          env = {e["name"]: e.get("value") for e in c.get("env", [])}
+          if env.get("SITE_METRICS_PROMETHEUS_ENABLED") != "true":
+              sys.exit("SITE_METRICS_PROMETHEUS_ENABLED is not set; /metrics would 404")
+          ports = {p["name"]: p["containerPort"] for p in c.get("ports", [])}
+          if "metrics" not in ports:
+              sys.exit("no metrics containerPort declared")
+          admin = env.get("SITE_ADMIN_ADDR", ":2112")
+          bound = int(admin.rsplit(":", 1)[1])
+          if ports["metrics"] != bound:
+              sys.exit("containerPort %s does not match bound port %s" % (ports["metrics"], bound))
+          svc = next(d for d in docs if d["kind"] == "Service" and "metrics" in d["metadata"]["name"])
+          target = svc["spec"]["ports"][0]["targetPort"]
+          if target != "metrics":
+              sys.exit("metrics Service targets %r instead of the port name" % target)
+          print("metrics wired: bound=%s containerPort=%s targetPort=%s" % (bound, ports["metrics"], target))
+          if c.get("command") != ["pangolin-cli"] or c.get("args", [])[:2] != ["up", "site"]:
+              sys.exit("container does not run `pangolin-cli up site`: command=%r args=%r" % (c.get("command"), c.get("args")))
+          stale = sorted(n for n in env if n.startswith("NEWT_"))
+          if stale:
+              sys.exit("NEWT_-prefixed env vars rendered, expected SITE_: %s" % ", ".join(stale))
+          print("command: %s %s" % (" ".join(c["command"]), " ".join(c["args"])))
+          PY
+
+      - name: Verify image tags match appVersion
+        run: |
+          set -euo pipefail
+          APP_VERSION="$(helm show chart charts/pangolin-cli | awk '/^appVersion:/ {gsub(/"/,"",$2); print $2}')"
+          echo "appVersion: ${APP_VERSION}"
+          if ! grep -q "fosrl/pangolin-cli:${APP_VERSION}" <(helm template demo charts/pangolin-cli --namespace pangolin-cli -f charts/pangolin-cli/examples/values/bare-minimum.yaml); then
+            echo "ERROR: rendered Pangolin CLI image does not use appVersion ${APP_VERSION}"
+            exit 1
+          fi
+          if ! grep -q "image: docker.io/fosrl/pangolin-cli:${APP_VERSION}" charts/pangolin-cli/Chart.yaml; then
+            echo "ERROR: Chart.yaml artifacthub.io/images is not on appVersion ${APP_VERSION}"
+            exit 1
+          fi
+
+      - name: Verify generated values.schema.json is current
+        run: |
+          set -euo pipefail
+          helm plugin install https://github.com/losisin/helm-values-schema-json.git --version v2.3.1 || true
+          cp charts/pangolin-cli/values.schema.json /tmp/pangolin-cli.schema.before
+          helm schema -f charts/pangolin-cli/values.yaml -o charts/pangolin-cli/values.schema.json \
+            --config charts/pangolin-cli/.schema.yaml --draft 7 --k8s-schema-version v1.33.1 --use-helm-docs
+          diff -u /tmp/pangolin-cli.schema.before charts/pangolin-cli/values.schema.json
+
+      - name: Run helm-unittest
+        run: helm unittest --strict charts/pangolin-cli
+
+      - name: Upload rendered manifests
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pangolin-cli-rendered-manifests
+          path: rendered-pangolin-cli/*.yaml
+          if-no-files-found: ignore

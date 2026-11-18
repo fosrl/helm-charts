@@ -1,0 +1,125 @@
+{{- if .Values.global.tests.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-test
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: test
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name | quote }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace | quote }}
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: hook-succeeded,hook-failed,before-hook-creation
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Release.Name }}-test
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: test
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name | quote }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace | quote }}
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-4"
+    helm.sh/hook-delete-policy: hook-succeeded,hook-failed,before-hook-creation
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "services"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Release.Name }}-test
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: test
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name | quote }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace | quote }}
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-3"
+    helm.sh/hook-delete-policy: hook-succeeded,hook-failed,before-hook-creation
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ .Release.Name }}-test
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-test
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Release.Name }}-test
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: test
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: hook-succeeded,hook-failed,before-hook-creation
+spec:
+  serviceAccountName: {{ .Release.Name }}-test
+  restartPolicy: Never
+  containers:
+    - name: kubectl
+      image: {{ .Values.global.tests.image.repository }}:{{ .Values.global.tests.image.tag }}
+      imagePullPolicy: {{ .Values.global.tests.image.pullPolicy | default "IfNotPresent" }}
+      command: ["/bin/bash", "-lc"]
+      args:
+        - >-
+          set -euo pipefail;
+          echo Waiting for workloads to be Ready;
+          if kubectl get sts -l app.kubernetes.io/instance={{ .Release.Name }} -n {{ .Release.Namespace }} --no-headers 2>/dev/null | grep -q .; then
+            kubectl rollout status sts -l app.kubernetes.io/instance={{ .Release.Name }} -n {{ .Release.Namespace }} --timeout=300s;
+          fi;
+          kubectl rollout status deploy -l app.kubernetes.io/instance={{ .Release.Name }} -n {{ .Release.Namespace }} --timeout=300s;
+          echo OK;
+          
+      resources:
+        {{- $r := (default (dict) .Values.global.tests.resources) }}
+        {{- if kindIs "map" $r }}
+        requests:
+          {{- if kindIs "map" (index $r "requests") }}
+          cpu: {{ default "50m" (index $r "requests" "cpu") | quote }}
+          memory: {{ default "64Mi" (index $r "requests" "memory") | quote }}
+          {{- else }}
+          cpu: "50m"
+          memory: "64Mi"
+          {{- end }}
+        limits:
+          {{- if kindIs "map" (index $r "limits") }}
+          cpu: {{ default "200m" (index $r "limits" "cpu") | quote }}
+          memory: {{ default "128Mi" (index $r "limits" "memory") | quote }}
+          {{- else }}
+          cpu: "200m"
+          memory: "128Mi"
+          {{- end }}
+        {{- else }}
+        requests:
+          cpu: "50m"
+          memory: "64Mi"
+        limits:
+          cpu: "200m"
+          memory: "128Mi"
+        {{- end }}
+{{- end }}
+

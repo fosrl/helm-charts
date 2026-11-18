@@ -1,0 +1,8 @@
+# RBAC disabled
+siteInstances:
+  - name: no-rbac
+    enabled: true
+    auth:
+      existingSecretName: site-auth
+rbac:
+  create: false

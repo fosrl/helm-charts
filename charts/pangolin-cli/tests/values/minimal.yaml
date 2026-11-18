@@ -1,0 +1,19 @@
+# Minimal values for pangolin-cli chart rendering
+# - One enabled instance using an existing Secret for credentials
+# - Metrics disabled by default
+# - No Services created (acceptClients=false or service.enabledWhenAcceptClients true but not accepting)
+
+siteInstances:
+  - name: main-tunnel
+    enabled: true
+    auth:
+      existingSecretName: site-auth
+    service:
+      enabledWhenAcceptClients: true
+
+global:
+  metrics:
+    enabled: false
+  tests:
+    enabled: false
+

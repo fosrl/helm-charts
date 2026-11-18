@@ -1,0 +1,526 @@
+{{- $root := $ -}}
+{{- range $index, $inst := $root.Values.siteInstances }}
+{{- if $inst.enabled }}
+{{- /* Validate blueprintFile has corresponding blueprintData */ -}}
+{{- if and $inst.blueprintFile (not $inst.blueprintData) }}
+{{- fail (printf "siteInstances[%d].blueprintFile is set but blueprintData is empty. Provide blueprintData or reference an existing ConfigMap." $index) }}
+{{- end }}
+{{- /* Validate provisioningBlueprintFile has corresponding provisioningBlueprintData */ -}}
+{{- if and $inst.provisioningBlueprintFile (not $inst.provisioningBlueprintData) }}
+{{- fail (printf "siteInstances[%d].provisioningBlueprintFile is set but provisioningBlueprintData is empty. Provide provisioningBlueprintData." $index) }}
+{{- end }}
+{{- /* Validate configPersistence settings when enabled */ -}}
+{{- $cp := (default (dict) $inst.configPersistence) -}}
+{{- $cpEnabled := and (kindIs "map" $cp) (default false $cp.enabled) -}}
+{{- $cpType := (default "emptyDir" $cp.type) -}}
+{{- if and $cpEnabled (not (or (eq $cpType "emptyDir") (eq $cpType "persistentVolumeClaim"))) }}
+{{- fail (printf "siteInstances[%d].configPersistence.type must be one of [emptyDir, persistentVolumeClaim]" $index) }}
+{{- end }}
+{{- if and $cpEnabled (eq $cpType "persistentVolumeClaim") (not $cp.existingClaim) }}
+{{- fail (printf "siteInstances[%d].configPersistence.type is persistentVolumeClaim but existingClaim is empty" $index) }}
+{{- end }}
+{{- if and $inst.useNativeInterface (not $root.Values.global.nativeMode.enabled) }}
+{{- fail (printf "siteInstances[%d].useNativeInterface requires global.nativeMode.enabled=true. The native interface needs a root, privileged container with NET_ADMIN and SYS_MODULE, and that permission gate is deliberately separate so it is granted on purpose." $index) }}
+{{- end }}
+{{- if and $inst.useNativeMainInterface (not $root.Values.global.nativeMode.enabled) }}
+{{- fail (printf "siteInstances[%d].useNativeMainInterface requires global.nativeMode.enabled=true. Building the main tunnel as a kernel device needs the same privileges as useNativeInterface, and without the gate the site would receive the flag while running unprivileged." $index) }}
+{{- end }}
+{{- if and $inst.preferEndpoint (not $inst.useCommandArgs) }}
+{{- fail (printf "siteInstances[%d].preferEndpoint is only read as the --prefer-endpoint flag; there is no PREFER_ENDPOINT environment variable. Set useCommandArgs: true on this instance, or drop preferEndpoint." $index) }}
+{{- end }}
+{{- if and (kindIs "map" $inst.updown) $inst.updown.enabled (not (and $inst.updown.script (hasKey ($root.Values.global.updownScripts | default dict) $inst.updown.script))) }}
+{{- fail (printf "siteInstances[%d].updown.enabled=true but updown.script %q does not name an entry in global.updownScripts. The chart would mount a ConfigMap it never renders and the Pod would stay in ContainerCreating." $index (default "" $inst.updown.script)) }}
+{{- end }}
+{{- /* Warn about inline secrets - show warning but don't fail */ -}}
+{{- if and $inst.secret (not (get (default dict $inst.auth) "existingSecretName")) }}
+{{- $root := $ -}}
+{{- $warning := printf "WARNING: siteInstances[%d].secret contains inline secret. Use auth.existingSecretName for production to avoid secrets in values." $index }}
+{{- $_ := printf "%s\n" $warning }}
+{{- end }}
+{{- /* Warn about Docker socket mount - security sensitive */ -}}
+{{- if and (kindIs "map" $inst.dockerSocket) $inst.dockerSocket.enabled }}
+{{- $root := $ -}}
+{{- $warning := printf "WARNING: siteInstances[%d].dockerSocket.enabled is set. Mounting the host Docker socket grants container escape potential. Use only in development/trusted environments." $index }}
+{{- $_ := printf "%s\n" $warning }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "pangolin-cli.instance.fullname" (dict "root" $root "inst" $inst) }}
+  labels:
+  {{- include "pangolin-cli.labels" $root | nindent 4 }}
+  {{- $md := dict "pangolin-cli.instance" $inst.name "app.kubernetes.io/component" "site" }}
+  {{- toYaml $md | nindent 4 }}
+  {{- range $k, $v := $root.Values.global.deploymentLabels }}
+    {{ $k }}: {{ $v | quote }}
+  {{- end }}
+  {{- /* Merge top-level annotations from global */}}
+  {{- $topAnns := dict }}
+  {{- range $k, $v := $root.Values.global.additionalAnnotations }}
+  {{- $_ := set $topAnns $k (printf "%v" $v) }}
+  {{- end }}
+  {{- range $k, $v := $root.Values.global.deploymentAnnotations }}
+  {{- $_ := set $topAnns $k (printf "%v" $v) }}
+  {{- end }}
+  {{- if gt (len $topAnns) 0 }}
+  annotations:
+    {{- toYaml $topAnns | nindent 4 }}
+  {{- end }}
+spec:
+  revisionHistoryLimit: {{ $root.Values.global.revisionHistoryLimit | default 3 }}
+  replicas: {{ $inst.replicas | default 1 }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ $root.Release.Name }}
+      pangolin-cli.instance: {{ $inst.name }}
+  template:
+    metadata:
+      labels:
+  {{- $pl := dict "app.kubernetes.io/instance" $root.Release.Name "pangolin-cli.instance" $inst.name "app.kubernetes.io/component" "site" }}
+  {{- toYaml $pl | nindent 8 }}
+  {{- /* Metrics: use effectiveMetrics helper to respect allowGlobalOverride */ -}}
+  {{- $gm := (default (dict) $root.Values.global.metrics) -}}
+  {{- $m := (include "pangolin-cli.effectiveMetrics" (list $inst $gm)) | fromJson -}}
+  {{- range $k, $v := $root.Values.global.additionalLabels }}
+        {{ $k }}: {{ $v | quote }}
+  {{- end }}
+  {{- range $k, $v := $root.Values.global.podLabels }}
+        {{ $k }}: {{ $v | quote }}
+  {{- end }}
+      {{- /* Build annotations in a temp dict, then emit only if non-empty */}}
+      {{- $anns := dict }}
+      {{- range $k, $v := $root.Values.global.podAnnotations }}
+      {{- $_ := set $anns $k (printf "%v" $v) }}
+      {{- end }}
+      {{- /* Default Prometheus annotations if enabled and none provided */}}
+      {{- if and $m.enabled (not $m.annotations) }}
+      {{- $_ := set $anns "prometheus.io/scrape" "true" }}
+      {{- $_ := set $anns "prometheus.io/port" (include "pangolin-cli.metrics.listenPort" (dict "root" $root "inst" $inst)) }}
+      {{- $_ := set $anns "prometheus.io/path" (printf "%v" ($m.path | default "/metrics")) }}
+      {{- end }}
+      {{- $instAnns := $m.annotations | default dict }}
+      {{- range $k, $v := $instAnns }}
+      {{- $_ := set $anns $k (printf "%v" $v) }}
+      {{- end }}
+      {{- if gt (len $anns) 0 }}
+      annotations:
+        {{- toYaml $anns | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- $canOverride := (default false $inst.allowGlobalOverride) -}}
+      {{- $nativeEnabled := eq (include "pangolin-cli.instance.nativeEnabled" (dict "root" $root "inst" $inst)) "true" -}}
+      {{- $ips := include "pangolin-cli.imagePullSecrets" $root -}}
+      {{- if $ips }}
+{{ $ips | nindent 6 }}
+      {{- end }}
+      {{- $instServiceAccount := (default dict $inst.serviceAccount) -}}
+      {{- $instServiceAccountCreateRaw := (get $instServiceAccount "create") -}}
+      {{- $instServiceAccountCreate := false -}}
+      {{- if kindIs "bool" $instServiceAccountCreateRaw -}}
+      {{- $instServiceAccountCreate = $instServiceAccountCreateRaw -}}
+      {{- else if kindIs "string" $instServiceAccountCreateRaw -}}
+      {{- $instServiceAccountCreate = eq (lower $instServiceAccountCreateRaw) "true" -}}
+      {{- end -}}
+      {{- $instServiceAccountName := (default "" (get $instServiceAccount "name")) -}}
+      {{- $useInstanceServiceAccount := and $canOverride (or $instServiceAccountCreate (ne $instServiceAccountName "")) -}}
+      {{- if $useInstanceServiceAccount }}
+      serviceAccountName: {{ include "pangolin-cli.instance.serviceAccountName" (dict "root" $root "inst" $inst) }}
+      {{- else if or $root.Values.serviceAccount.create $root.Values.serviceAccount.name }}
+      serviceAccountName: {{ include "pangolin-cli.serviceAccountName" $root }}
+      {{- end }}
+      {{- with $root.Values.global.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      {{- if $useInstanceServiceAccount }}
+      automountServiceAccountToken: {{ default false (get $instServiceAccount "automountServiceAccountToken") }}
+      {{- else }}
+      automountServiceAccountToken: {{ default false $root.Values.serviceAccount.automountServiceAccountToken }}
+      {{- end }}
+      {{- /* 
+        Security Context Logic:
+        
+        PRIORITY ORDER:
+        1. Native mode (global.nativeMode.enabled AND a native interface is requested): privileged + root
+        2. Instance override (if allowGlobalOverride): user-defined securityContext
+        3. Global override: user-defined securityContext  
+        4. Default secure mode: non-root with restricted capabilities
+        
+        VALIDATION:
+        - If user sets runAsUser: 0 but also sets capabilities.drop, fail rendering
+        - This prevents invalid security combinations
+      */ -}}
+      {{- /* Validate: user override cannot combine root with capabilities.drop */ -}}
+      {{- if and $canOverride (kindIs "map" $inst.securityContext) (hasKey $inst.securityContext "capabilities") }}
+        {{- $overrideSecCtx := $inst.securityContext }}
+        {{- $overrideRunAsUser := (hasKey $overrideSecCtx "runAsUser") | ternary (index $overrideSecCtx "runAsUser") 0 }}
+        {{- $overrideCaps := (hasKey $overrideSecCtx "capabilities") | ternary (index $overrideSecCtx "capabilities") (dict "drop" (list)) }}
+        {{- $overrideCapsDrop := (hasKey $overrideCaps "drop") | ternary (index $overrideCaps "drop") (list) }}
+        {{- if and (eq ($overrideRunAsUser | int) 0) (gt (len $overrideCapsDrop) 0) }}
+          {{- fail "siteInstances[].securityContext: Dropping capabilities is not supported when running as root. Either remove runAsUser: 0 or capabilities.drop from your securityContext override." }}
+        {{- end }}
+      {{- end }}
+      
+      {{- /* Pod-level securityContext */ -}}
+      {{- if and $canOverride $inst.podSecurityContext }}
+      securityContext:
+        {{- toYaml $inst.podSecurityContext | nindent 8 }}
+      {{- else if $root.Values.global.podSecurityContext }}
+      securityContext:
+        {{- toYaml $root.Values.global.podSecurityContext | nindent 8 }}
+      {{- end }}
+      {{- if $nativeEnabled }}
+      {{- if $inst.hostNetwork }}
+      hostNetwork: true
+      {{- end }}
+      {{- if $inst.hostPID }}
+      hostPID: true
+      {{- end }}
+      {{- end }}
+      {{- with $inst.initContainers }}
+      initContainers:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: site
+          image: {{ include "pangolin-cli.image" $root }}
+          {{- $g := $root.Values.global.image -}}
+          {{- $l := $root.Values.image -}}
+          {{- $digest := default (default "" $l.digest) $g.digest -}}
+          {{- $tag := default (default $root.Chart.AppVersion $l.tag) $g.tag -}}
+          {{- if and (eq (trim $tag) "latest") (not $digest) }}
+          {{- printf "# WARNING: Do not use 'latest' tag for production deployments!" | nindent 10 }}
+          {{- end }}
+          imagePullPolicy: {{ include "pangolin-cli.imagePullPolicy" $root }}
+          {{- if $nativeEnabled }}
+          securityContext:
+            runAsUser: 0
+            allowPrivilegeEscalation: true
+            privileged: true
+            capabilities:
+              add:
+                - NET_ADMIN
+                - SYS_MODULE
+          {{- else if and $canOverride $inst.securityContext }}
+          securityContext:
+            {{- toYaml $inst.securityContext | nindent 12 }}
+          {{- else if $root.Values.global.securityContext }}
+          securityContext:
+            {{- toYaml $root.Values.global.securityContext | nindent 12 }}
+          {{- else }}
+          securityContext:
+            runAsUser: 65534
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          {{- end }}
+          {{- if not $inst.useCommandArgs }}
+          {{- include "pangolin-cli.command" $root | nindent 10 }}
+          env:
+            {{- include "pangolin-cli.instance.env" (dict "root" $root "inst" $inst) | trim | nindent 12 }}
+          {{- else }}
+          {{- include "pangolin-cli.instance.commandArgs" (dict "root" $root "inst" $inst) | nindent 10 }}
+          env:
+            {{- $auth := default (dict) $inst.auth -}}
+            {{- $keys := (default dict (get $auth "keys")) -}}
+            {{- $existing := default "" (get $auth "existingSecretName") -}}
+            {{- $createSecret := true -}}
+            {{- if hasKey $auth "createSecret" }}{{- $createSecret = (index $auth "createSecret") -}}{{- end -}}
+            {{- $envVarsDirect := default false (get $auth "envVarsDirect") -}}
+            {{- $hasInlineCredentials := and $inst.pangolinEndpoint $inst.id $inst.secret -}}
+            {{- $endpointKey := default "PANGOLIN_ENDPOINT" (get $keys "endpointKey") -}}
+            {{- $idKey := default "SITE_ID" (get $keys "idKey") -}}
+            {{- $secretKey := default "SITE_SECRET" (get $keys "secretKey") -}}
+            {{- $generatedSecretName := include "pangolin-cli.instance.fullname" (dict "root" $root "inst" $inst) -}}
+            {{- $authSecretName := ternary $existing $generatedSecretName (ne $existing "") -}}
+            {{- if or $existing (and $hasInlineCredentials $createSecret (not $envVarsDirect)) }}
+            - name: PANGOLIN_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $authSecretName }}
+                  key: {{ $endpointKey }}
+            - name: SITE_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $authSecretName }}
+                  key: {{ $idKey }}
+            - name: SITE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $authSecretName }}
+                  key: {{ $secretKey }}
+            {{- else if and $envVarsDirect $hasInlineCredentials }}
+            - name: PANGOLIN_ENDPOINT
+              value: {{ $inst.pangolinEndpoint | quote }}
+            - name: SITE_ID
+              value: {{ $inst.id | quote }}
+            - name: SITE_SECRET
+              value: {{ $inst.secret | quote }}
+            {{- end }}
+            {{- include "pangolin-cli.instance.extraEnv" (dict "root" $root "inst" $inst) | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: wg
+              containerPort: 51820
+              protocol: UDP
+            - name: tester
+              containerPort: 51821
+              protocol: UDP
+            {{- if $m.enabled }}
+            - name: {{ $m.portName | default "metrics" }}
+              containerPort: {{ include "pangolin-cli.metrics.listenPort" $m }}
+              protocol: TCP
+            {{- end }}
+          {{- /* Emit volumeMounts only if we have any */}}
+          {{- $hasDockerMount := and (kindIs "map" $inst.dockerSocket) $inst.dockerSocket.enabled }}
+          {{- $mtls := (default (dict) $inst.mtls) }}
+          {{- $hasMtlsMount := and $mtls.enabled (or (not $mtls.secretName) $mtls.secretName) }}
+          {{- $hasPemMount := and $mtls.enabled (eq (default "pkcs12" $mtls.mode) "pem") }}
+          {{- $hasUpdownMount := and (kindIs "map" $inst.updown) $inst.updown.enabled }}
+          {{- $cp := (default (dict) $inst.configPersistence) -}}
+          {{- $hasConfigPersistenceMount := and (kindIs "map" $cp) (default false $cp.enabled) -}}
+          {{- $healthPath := default $root.Values.global.health.path $inst.healthFile }}
+          {{- $healthDir := dir $healthPath }}
+          {{- $hasHealthMount := and $root.Values.global.health.enabled (ne $healthDir "/") (ne $healthDir ".") }}
+          {{- $hasBlueprintMount := $inst.blueprintFile }}
+          {{- $hasProvisioningBlueprintMount := $inst.provisioningBlueprintFile }}
+          {{- $hasExtraMounts := gt (len (default (list) $inst.extraVolumeMounts)) 0 }}
+          {{- if or $hasDockerMount $hasMtlsMount $hasPemMount $hasUpdownMount $hasConfigPersistenceMount $hasBlueprintMount $hasProvisioningBlueprintMount $hasExtraMounts $hasHealthMount }}
+          volumeMounts:
+            {{- if $hasHealthMount }}
+            - name: site-health
+              mountPath: {{ $healthDir | quote }}
+            {{- end }}
+            {{- if and (kindIs "map" $inst.dockerSocket) $inst.dockerSocket.enabled (not $inst.useNativeInterface) }}
+            - name: docker-socket
+              mountPath: {{ $inst.dockerSocket.path }}
+              readOnly: true
+            {{- else if and (kindIs "map" $inst.dockerSocket) $inst.dockerSocket.enabled }}
+            - name: docker-socket
+              mountPath: {{ $inst.dockerSocket.path }}
+            {{- end }}
+            {{- /* PKCS12 mode */ -}}
+            {{- if and $mtls.enabled (eq (default "pkcs12" $mtls.mode) "pkcs12") $mtls.secretName }}
+            {{- $cp := ternary $mtls.certPath "/certs/client.p12" (and (kindIs "map" $mtls) (kindIs "string" $mtls.certPath) (ne $mtls.certPath "")) -}}
+            - name: mtls-cert
+              mountPath: {{ dir $cp | quote }}
+              readOnly: true
+            {{- end }}
+            {{- /* PEM mode */ -}}
+            {{- if and $mtls.enabled (eq (default "pkcs12" $mtls.mode) "pem") }}
+            {{- $pem := (default (dict) $mtls.pem) }}
+            {{- if $pem.clientCertPath }}
+            - name: mtls-client-cert
+              mountPath: {{ dir $pem.clientCertPath | quote }}
+              readOnly: true
+            {{- end }}
+            {{- if $pem.clientKeyPath }}
+            - name: mtls-client-key
+              mountPath: {{ dir $pem.clientKeyPath | quote }}
+              readOnly: true
+            {{- end }}
+            {{- if $pem.caPath }}
+            - name: mtls-ca-cert
+              mountPath: {{ dir $pem.caPath | quote }}
+              readOnly: true
+            {{- end }}
+            {{- end }}
+            {{- /* Writable config persistence mount */ -}}
+            {{- if $hasConfigPersistenceMount }}
+            - name: config-persistence
+              mountPath: {{ default "/var/lib/pangolin" $cp.mountPath | quote }}
+            {{- end }}
+            {{- /* Blueprint file mount */ -}}
+            {{- if $inst.blueprintFile }}
+            - name: blueprint-file
+              mountPath: {{ dir $inst.blueprintFile | quote }}
+              readOnly: true
+            {{- end }}
+            {{- /* Provisioning blueprint file mount */ -}}
+            {{- if $inst.provisioningBlueprintFile }}
+            - name: provisioning-blueprint-file
+              mountPath: {{ dir $inst.provisioningBlueprintFile | quote }}
+              readOnly: true
+            {{- end }}
+            {{- if and (kindIs "map" $inst.updown) $inst.updown.enabled }}
+            - name: updown-script
+              mountPath: {{ default "/opt/pangolin/updown" $inst.updown.mountPath }}
+            {{- end }}
+            {{- with $inst.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- end }}
+          {{- if $root.Values.global.health.enabled }}
+          livenessProbe:
+            exec:
+              command:
+                - test
+                - "-f"
+                - {{ default $root.Values.global.health.path $inst.healthFile | quote }}
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            exec:
+              command:
+                - test
+                - "-f"
+                - {{ default $root.Values.global.health.path $inst.healthFile | quote }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: {{ $root.Values.global.health.readinessFailureThreshold | default 3 }}
+          {{- end }}
+          {{- /* Lifecycle hooks for graceful WireGuard shutdown */}}
+          {{- if and $inst.lifecycle (kindIs "map" $inst.lifecycle) }}
+          lifecycle:
+            {{- toYaml $inst.lifecycle | nindent 12 }}
+          {{- end }}
+          {{- /* Resource resolution (#23): a non-empty per-instance `resources` wins, then
+                 `global.resources`, then nothing at all. There is deliberately no
+                 `allowGlobalOverride` gate here - that flag guards identity and security
+                 overrides, while resources are per-workload sizing, and gating them while
+                 `global.resources` shipped non-empty made the documented per-instance key a
+                 no-op on every default install. Omitting the key entirely when both are
+                 empty lets LimitRange and namespace defaults apply instead of a chart
+                 opinion that could not be switched off. */}}
+          {{- $instResources := $inst.resources | default dict }}
+          {{- $resources := ternary $instResources ($root.Values.global.resources | default dict) (gt (len $instResources) 0) }}
+          {{- if gt (len $resources) 0 }}
+          resources:
+            {{- toYaml $resources | nindent 12 }}
+          {{- end }}
+      {{- with $inst.extraContainers }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- /* Emit volumes only if we have any */}}
+  {{- $hasDockerVol := and (kindIs "map" $inst.dockerSocket) $inst.dockerSocket.enabled }}
+  {{- $mtls := (default (dict) $inst.mtls) }}
+  {{- $hasMtlsVol := and $mtls.enabled }}
+  {{- $hasPemVol := and $mtls.enabled (eq (default "pkcs12" $mtls.mode) "pem") }}
+  {{- $hasUpdownVol := and (kindIs "map" $inst.updown) $inst.updown.enabled }}
+      {{- $cp := (default (dict) $inst.configPersistence) -}}
+      {{- $hasConfigPersistenceVol := and (kindIs "map" $cp) (default false $cp.enabled) -}}
+      {{- $healthPathVol := default $root.Values.global.health.path $inst.healthFile }}
+      {{- $healthDirVol := dir $healthPathVol }}
+      {{- $hasHealthVol := and $root.Values.global.health.enabled (ne $healthDirVol "/") (ne $healthDirVol ".") }}
+  {{- $hasBlueprintVol := $inst.blueprintFile }}
+      {{- $hasProvisioningBlueprintVol := $inst.provisioningBlueprintFile }}
+  {{- $hasExtraVols := gt (len (default (list) $inst.extraVolumes)) 0 }}
+        {{- if or $hasDockerVol $hasMtlsVol $hasPemVol $hasUpdownVol $hasConfigPersistenceVol $hasBlueprintVol $hasProvisioningBlueprintVol $hasExtraVols $hasHealthVol }}
+      volumes:
+        {{- if $hasHealthVol }}
+        - name: site-health
+          emptyDir: {}
+        {{- end }}
+        {{- if and (kindIs "map" $inst.dockerSocket) $inst.dockerSocket.enabled }}
+        - name: docker-socket
+          hostPath:
+            path: {{ $inst.dockerSocket.path }}
+            type: Socket
+        {{- end }}
+        {{- /* PKCS12 mode */ -}}
+        {{- if and $mtls.enabled (eq (default "pkcs12" $mtls.mode) "pkcs12") }}
+        - name: mtls-cert
+          {{- if $mtls.secretName }}
+          secret:
+            secretName: {{ $mtls.secretName }}
+          {{- else }}
+          secret:
+            secretName: {{ include "pangolin-cli.instance.fullname" (dict "root" $root "inst" $inst) }}
+          {{- end }}
+        {{- end }}
+        {{- /* PEM mode */ -}}
+        {{- if and $mtls.enabled (eq (default "pkcs12" $mtls.mode) "pem") }}
+        {{- $pem := (default (dict) $mtls.pem) }}
+        {{- if $pem.secretName }}
+        - name: mtls-client-cert
+          secret:
+            secretName: {{ $pem.secretName }}
+            items:
+              - key: client.crt
+                path: {{ $pem.clientCertPath | base }}
+        {{- if $pem.clientKeyPath }}
+        - name: mtls-client-key
+          secret:
+            secretName: {{ $pem.secretName }}
+            items:
+              - key: client.key
+                path: {{ $pem.clientKeyPath | base }}
+        {{- end }}
+        {{- if $pem.caPath }}
+        - name: mtls-ca-cert
+          secret:
+            secretName: {{ $pem.secretName }}
+            items:
+              - key: ca.crt
+                path: {{ $pem.caPath | base }}
+        {{- end }}
+        {{- end }}
+        {{- end }}
+        {{- /* Blueprint file */ -}}
+        {{- if $inst.blueprintFile }}
+        - name: blueprint-file
+          configMap:
+            name: {{ include "pangolin-cli.instance.fullname" (dict "root" $root "inst" $inst) }}-blueprint
+        {{- end }}
+        {{- /* Provisioning blueprint file */ -}}
+        {{- if $inst.provisioningBlueprintFile }}
+        - name: provisioning-blueprint-file
+          configMap:
+            name: {{ include "pangolin-cli.instance.fullname" (dict "root" $root "inst" $inst) }}-provisioning-blueprint
+        {{- end }}
+        {{- /* Writable config persistence */ -}}
+        {{- if $hasConfigPersistenceVol }}
+        - name: config-persistence
+          {{- $cpType := (default "emptyDir" $cp.type) -}}
+          {{- if eq $cpType "emptyDir" }}
+          emptyDir: {}
+          {{- else if eq $cpType "persistentVolumeClaim" }}
+          persistentVolumeClaim:
+            claimName: {{ $cp.existingClaim | quote }}
+          {{- end }}
+        {{- end }}
+        {{- if and (kindIs "map" $inst.updown) $inst.updown.enabled }}
+        - name: updown-script
+          configMap:
+            name: {{ include "pangolin-cli.instance.fullname" (dict "root" $root "inst" $inst) }}-updown
+            defaultMode: 0755
+        {{- end }}
+        {{- with $inst.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- end }}
+      {{- /* Merge global and instance scheduling: instance wins for map keys; tolerations concatenate */}}
+      {{- $gNode := (default (dict) $root.Values.global.nodeSelector) -}}
+      {{- $iNode := (default (dict) $inst.nodeSelector) -}}
+      {{- $node := mergeOverwrite (deepCopy $gNode) $iNode -}}
+      {{- if $node }}
+      nodeSelector:
+        {{- toYaml $node | nindent 8 }}
+      {{- end }}
+      {{- $gAff := (default (dict) $root.Values.global.affinity) -}}
+      {{- $iAff := (default (dict) $inst.affinity) -}}
+      {{- $aff := mergeOverwrite (deepCopy $gAff) $iAff -}}
+      {{- if or $aff.nodeAffinity $aff.podAffinity $aff.podAntiAffinity }}
+      affinity:
+        {{- toYaml $aff | nindent 8 }}
+      {{- end }}
+      {{- $gTol := (default (list) $root.Values.global.tolerations) -}}
+      {{- $iTol := (default (list) $inst.tolerations) -}}
+      {{- $tols := concat $gTol $iTol -}}
+      {{- if gt (len $tols) 0 }}
+      tolerations:
+        {{- toYaml $tols | nindent 8 }}
+      {{- end }}
+      {{- /* Topology spread constraints: instance overrides global */ -}}
+      {{- $gTopo := (default (list) $root.Values.global.topologySpreadConstraints) -}}
+      {{- $iTopo := (default (list) $inst.topologySpreadConstraints) -}}
+      {{- $topo := concat $gTopo $iTopo -}}
+      {{- if gt (len $topo) 0 }}
+      topologySpreadConstraints:
+        {{- toYaml $topo | nindent 8 }}
+      {{- end }}
+{{- end }}
+{{- end }}

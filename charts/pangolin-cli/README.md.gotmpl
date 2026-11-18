@@ -1,0 +1,150 @@
+<!-- markdownlint-disable MD013 -->
+<!-- markdownlint-disable MD034 -->
+<!-- markdownlint-disable MD056 -->
+<!-- markdownlint-disable MD060 -->
+
+# Pangolin CLI Helm Chart
+
+{{ template "chart.badgesSection" . }}
+
+{{ template "chart.description" . }}
+
+Each entry in `siteInstances` becomes a Deployment running `pangolin-cli up site`,
+which connects a Pangolin site from inside the cluster.
+
+## How the site is configured
+
+- Image: `docker.io/fosrl/pangolin-cli` (also published as `ghcr.io/fosrl/cli`).
+- Command: the container always runs `pangolin-cli up site`. The image entrypoint is
+  not used, because it calls `update-ca-certificates` and exits as the chart's default
+  non-root user on a read-only root filesystem.
+- Settings are passed as environment variables by default, or as command-line flags with
+  `useCommandArgs: true`. Site-specific variables use the `SITE_` prefix (`SITE_ID`,
+  `SITE_SECRET`, `SITE_PROVISIONING_KEY`, `SITE_NAME`, `SITE_UDP_PROXY_IDLE_TIMEOUT`,
+  `SITE_METRICS_PROMETHEUS_ENABLED`, `SITE_METRICS_OTLP_ENABLED`,
+  `SITE_METRICS_ASYNC_BYTES`, `SITE_ADMIN_ADDR`, `SITE_REGION`, `SITE_PPROF_ENABLED`).
+  The rest (`PANGOLIN_ENDPOINT`, `LOG_LEVEL`, `MTU`, ...) have no prefix.
+- Credentials come from a Secret with the keys `PANGOLIN_ENDPOINT`, `SITE_ID` and
+  `SITE_SECRET`. Use `auth.keys` if your Secret names them differently.
+- Pods carry `app.kubernetes.io/component: site` and `pangolin-cli.instance: <name>`,
+  and the container is named `site`.
+
+## ✨ Features
+
+- Env var or CLI flag configuration
+- Provisioning key support (key-based bootstrap)
+- First-class writable config persistence for CONFIG_FILE (emptyDir or existing PVC)
+- Provisioning blueprint support (single-use)
+- Optional mTLS (PKCS12) secret mount
+- Optional up/down script injection
+- Native WireGuard (privileged) mode (opt-in)
+- Health file based probes & helm test Jobs
+- RBAC Role/ClusterRole (opt-in)
+- NetworkPolicy (opt-in)
+- Prometheus metrics, PodMonitor, ServiceMonitor, PrometheusRule (opt-in)
+- Optional pprof endpoint enablement (opt-in)
+- Multi-instance (array-driven) deployments with per-instance overrides
+
+## Prerequisites
+
+- Kubernetes >= 1.30.14
+- Helm 3.x
+- kubectl >= v1.30.14
+- Site credentials (ID and secret) or a provisioning key from Pangolin
+
+## Quick Start
+
+```console
+helm repo add fossorial https://charts.fossorial.io
+helm repo update fossorial
+
+kubectl create secret generic pangolin-site \
+  --from-literal=PANGOLIN_ENDPOINT=https://pangolin.example.com \
+  --from-literal=SITE_ID=<site-id> \
+  --from-literal=SITE_SECRET=<site-secret>
+
+helm install my-site fossorial/pangolin-cli \
+  --set siteInstances[0].name=main-tunnel \
+  --set siteInstances[0].enabled=true \
+  --set siteInstances[0].auth.existingSecretName=pangolin-site
+```
+
+Replace the `<site-id>` and `<site-secret>` placeholders with the credentials Pangolin
+shows when you create the site. To have the site created for you instead, use a
+provisioning key as in the examples below.
+
+## Provisioning examples
+
+### Provisioning (emptyDir) + writable config persistence
+
+```yaml
+siteInstances:
+  - name: main-tunnel
+    enabled: true
+    pangolinEndpoint: https://pangolin.example.com
+    provisioningKey: "YOUR_PROVISIONING_KEY"
+    siteName: "my-site"
+
+    # Required for provisioning-based installs so the CLI can write credentials
+    configPersistence:
+      enabled: true
+      type: emptyDir
+      mountPath: /var/lib/pangolin
+      fileName: config.json
+```
+
+### Provisioning (existing PVC) + writable config persistence
+
+```yaml
+siteInstances:
+  - name: main-tunnel
+    enabled: true
+    pangolinEndpoint: https://pangolin.example.com
+    provisioningKey: "YOUR_PROVISIONING_KEY"
+    siteName: "my-site"
+
+    configPersistence:
+      enabled: true
+      type: persistentVolumeClaim
+      existingClaim: my-site-config
+      mountPath: /var/lib/pangolin
+      fileName: config.json
+```
+
+### Provisioning blueprint (single-use)
+
+```yaml
+siteInstances:
+  - name: main-tunnel
+    enabled: true
+    pangolinEndpoint: https://pangolin.example.com
+    provisioningKey: "YOUR_PROVISIONING_KEY"
+    siteName: "my-site"
+
+    configPersistence:
+      enabled: true
+      type: emptyDir
+
+    provisioningBlueprintFile: /etc/pangolin/provisioning-blueprint.yaml
+    provisioningBlueprintData: |
+      version: 1
+      routes: []
+```
+
+### pprof enablement
+
+```yaml
+global:
+  metrics:
+    pprofEnabled: true
+```
+
+{{ template "chart.valuesSection" . }}
+
+## Service exposure vs. acceptClients
+
+- Service resources are controlled by `siteInstances[x].service.enabled`.
+- `acceptClients` sets no environment variable or flag. With `service.enabledWhenAcceptClients: true` it also creates the Service, and with a NetworkPolicy it adds the client ingress rule.
+- To refuse client connections at runtime, set `disableClients: true`.
+
+{{ template "chart.maintainersSection" . }}

@@ -1,0 +1,78 @@
+apiVersion: v2
+version: 0.1.0
+appVersion: "0.20.0"
+kubeVersion: ">=1.30.14-0"
+name: pangolin-cli
+description: Helm chart to run Pangolin sites with the Pangolin CLI (fosrl/cli)
+type: application
+keywords:
+  - pangolin
+  - pangolin-cli
+  - site
+  - vpn
+  - wireguard
+  - networking
+home: https://digpangolin.com/
+icon: https://raw.githubusercontent.com/fosrl/pangolin/refs/heads/main/public/logo/pangolin_orange.svg
+sources:
+  - https://github.com/fosrl/helm-charts
+  - https://github.com/fosrl/cli
+maintainers:
+  - name: Fossorial Inc
+    email: contact@pangolin.net
+annotations:
+  artifacthub.io/category: networking
+  artifacthub.io/changes: |
+    - kind: added
+      description: "Initial release. Runs Pangolin sites with `pangolin-cli up site`, configured through SITE_* environment variables or CLI flags."
+  artifacthub.io/containsSecurityUpdates: "false"
+  artifacthub.io/images: |
+    - name: pangolin-cli-dockerhub
+      image: docker.io/fosrl/pangolin-cli:0.20.0
+      whitelisted: false
+      platforms:
+        - linux/amd64
+        - linux/arm64
+        - linux/arm/v7
+    - name: pangolin-cli-ghcr
+      image: ghcr.io/fosrl/cli:0.20.0
+      whitelisted: false
+      platforms:
+        - linux/amd64
+        - linux/arm64
+        - linux/arm/v7
+  artifacthub.io/license: MIT
+  artifacthub.io/links: |
+    - name: support
+      url: https://github.com/fosrl/helm-charts/issues
+    - name: documentation
+      url: https://docs.digpangolin.com/self-host/manual/kubernetes
+  artifacthub.io/prerelease: "false"
+  artifacthub.io/signKey: |
+    fingerprint: 48E7F670FCC13645FC48B08D587294B228C2EC2C
+    url: https://charts.fossorial.io/pgp_keys.asc
+
+# Other annotations for artifacthub.io:
+# References:
+#   - https://artifacthub.io/docs/topics/annotations/helm/
+#
+# artifacthub.io/crds: |
+#   - kind: MyKind
+#     version: v1
+#     name: mykind
+#     displayName: My Kind
+#     description: Some nice description
+# artifacthub.io/crdsExamples: |
+#   - apiVersion: v1
+#     kind: MyKind
+#     metadata:
+#       name: mykind
+#     spec:
+#       replicas: 1
+# artifacthub.io/operator: "true"
+# artifacthub.io/operatorCapabilities: Basic Install
+#
+#
+# artifacthub.io/screenshots: |
+#   - title: Pangolin CLI
+#     url: https://raw.githubusercontent.com/fosrl/pangolin/refs/heads/main/public/logo/pangolin_orange.svg

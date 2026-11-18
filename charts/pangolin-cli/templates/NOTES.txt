@@ -1,0 +1,66 @@
+Thank you for installing the Pangolin CLI site chart!
+
+ChartVersion: {{ .Chart.Version }}
+AppVersion: {{ .Chart.AppVersion }}
+
+Quick checks:
+- Pods:     kubectl get pods -n {{ include "pangolin-cli.namespace" . }} -l app.kubernetes.io/component=site
+- Services: kubectl get svc  -n {{ include "pangolin-cli.namespace" . }} -l app.kubernetes.io/instance={{ .Release.Name }},app.kubernetes.io/name={{ .Chart.Name }}
+- Test:     helm test {{ .Release.Name }} -n {{ include "pangolin-cli.namespace" . }}
+
+In-cluster access examples over the site tunnel:
+- Direct Service: <service>.<namespace>.svc.<cluster-dns>:<port>
+
+Services (per instance):
+{{- $root := . -}}
+{{- range $i, $inst := .Values.siteInstances }}
+{{- if $inst.enabled }}
+- {{ $inst.name }}: kubectl get svc -n {{ include "pangolin-cli.namespace" $root }} {{ include "pangolin-cli.instance.fullname" (dict "root" $root "inst" $inst) }}
+{{- end }}
+{{- end }}
+
+{{- if .Values.global.metrics.enabled }}
+Metrics (optional):
+- Scrape path: {{ .Values.global.metrics.path | default "/metrics" }}
+- Scrape port: {{ .Values.global.metrics.port | default 9090 }}
+{{- if .Values.global.metrics.service.enabled }}
+- Port-forward to metrics Service:
+kubectl port-forward -n {{ include "pangolin-cli.namespace" . }} svc/{{ include "pangolin-cli.fullname" . }}-metrics 9090:{{ .Values.global.metrics.service.port | default 9090 }}
+{{- end }}
+{{- end }}
+
+Troubleshooting:
+- Events:   kubectl get events -n {{ include "pangolin-cli.namespace" . }}
+- Pods:  kubectl get pods -n {{ include "pangolin-cli.namespace" . }} -l app.kubernetes.io/component=site
+- Services: kubectl get svc -n {{ include "pangolin-cli.namespace" . }} -l app.kubernetes.io/instance={{ .Release.Name }}
+{{- $root := . -}}
+{{- range $i, $inst := .Values.siteInstances }}
+{{- if $inst.enabled }}
+- Logs ({{ $inst.name }}):  kubectl logs deployment/{{ include "pangolin-cli.instance.fullname" (dict "root" $root "inst" $inst) }} -n {{ include "pangolin-cli.namespace" $root }}
+- Describe ({{ $inst.name }}): kubectl describe deploy/{{ include "pangolin-cli.instance.fullname" (dict "root" $root "inst" $inst) }} -n {{ include "pangolin-cli.namespace" $root }}
+{{- end }}
+{{- end }}
+
+{{- /* Warning about inline secrets */ -}}
+{{- $hasInlineSecret := false -}}
+{{- $hasEnvVarsDirect := false -}}
+{{- range $i, $inst := .Values.siteInstances }}
+{{- $auth := (default (dict) $inst.auth) -}}
+{{- $createSecret := (default true $auth.createSecret) -}}
+{{- $envVarsDirect := (default false $auth.envVarsDirect) -}}
+{{- if and $inst.enabled $inst.secret (not (get $auth "existingSecretName")) (not $envVarsDirect) $createSecret }}
+{{- $hasInlineSecret = true }}
+{{- end }}
+{{- if and $inst.enabled $envVarsDirect $inst.secret }}
+{{- $hasEnvVarsDirect = true }}
+{{- end }}
+{{- end }}
+{{- if $hasInlineSecret }}
+WARNING: Inline secrets detected in siteInstances[].secret!
+This deployment has credentials stored in plain text in the Helm values.
+For production deployments, use auth.existingSecretName to reference an external Secret.
+{{- end }}
+{{- if $hasEnvVarsDirect }}
+WARNING: auth.envVarsDirect is enabled - credentials will be visible in the Deployment manifest!
+Consider using auth.existingSecretName or the default createSecret mode for better security.
+{{- end }}
