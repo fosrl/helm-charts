@@ -1,0 +1,225 @@
+suite: Site volumes and mounts
+templates:
+  - templates/deployment.yaml
+tests:
+  - it: mounts docker socket when enabled
+    set:
+      siteInstances:
+        - name: test-docker
+          enabled: true
+          dockerSocket:
+            enabled: true
+            path: /var/run/docker.sock
+          pangolinEndpoint: https://example.com
+          id: test
+    asserts:
+      - isKind:
+          of: Deployment
+
+  - it: mounts blueprint ConfigMap when blueprintFile specified
+    set:
+      siteInstances:
+        - name: test-blueprint
+          enabled: true
+          blueprintFile: /config/blueprint.yaml
+          blueprintData: |
+            version: 1
+          pangolinEndpoint: https://example.com
+          id: test
+    asserts:
+      - isKind:
+          of: Deployment
+
+  - it: mounts updown ConfigMap when enabled
+    set:
+      global:
+        updownScripts:
+          hook.sh: echo hi
+      siteInstances:
+        - name: test-updown
+          enabled: true
+          updown:
+            enabled: true
+            script: hook.sh
+            mountPath: /opt/updown
+          pangolinEndpoint: https://example.com
+          id: test
+    asserts:
+      - isKind:
+          of: Deployment
+
+  - it: mounts PEM certificates when mtls mode is pem
+    set:
+      siteInstances:
+        - name: test-mtls-pem
+          enabled: true
+          mtls:
+            enabled: true
+            mode: pem
+            pem:
+              secretName: my-pem-secret
+              clientCertPath: /certs/client.crt
+              clientKeyPath: /certs/client.key
+              caPath: /certs/ca.crt
+          pangolinEndpoint: https://example.com
+          id: test
+    asserts:
+      - isKind:
+          of: Deployment
+
+  - it: mounts config-persistence volume and volumeMount when configPersistence enabled (emptyDir)
+    set:
+      siteInstances:
+        - name: test-cfg-persist-emptydir
+          enabled: true
+          configPersistence:
+            enabled: true
+            type: emptyDir
+            mountPath: /var/lib/pangolin
+            fileName: config.json
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: config-persistence
+            mountPath: "/var/lib/pangolin"
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: config-persistence
+            emptyDir: {}
+
+  - it: mounts config-persistence volume with persistentVolumeClaim when type is PVC
+    set:
+      siteInstances:
+        - name: test-cfg-persist-pvc
+          enabled: true
+          configPersistence:
+            enabled: true
+            type: persistentVolumeClaim
+            existingClaim: my-site-config
+            mountPath: /var/lib/pangolin
+            fileName: config.json
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: config-persistence
+            mountPath: "/var/lib/pangolin"
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: config-persistence
+            persistentVolumeClaim:
+              claimName: "my-site-config"
+
+  - it: mounts provisioning-blueprint-file volume and volumeMount when provisioningBlueprintFile is set
+    set:
+      siteInstances:
+        - name: test-prov-blueprint
+          enabled: true
+          provisioningBlueprintFile: /etc/pangolin/provisioning-blueprint.yaml
+          provisioningBlueprintData: |
+            version: 1
+            routes: []
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: provisioning-blueprint-file
+            mountPath: "/etc/pangolin"
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: provisioning-blueprint-file
+            configMap:
+              name: RELEASE-NAME-pangolin-cli-test-prov-blueprint-provisioning-blueprint
+
+  - it: does not mount config-persistence volume when configPersistence is disabled
+    set:
+      siteInstances:
+        - name: test-no-cfg-persist
+          enabled: true
+          pangolinEndpoint: https://example.com
+          id: test
+          secret: test-secret
+    asserts:
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: config-persistence
+
+  # #25: the same bare-dash toYaml pattern lived here; the indent happened to be deeper
+  # than the eaten dash so it parsed, but the output carried stray bare dashes.
+  - it: renders multiple extra volumes and mounts without stray dashes
+    set:
+      siteInstances:
+        - name: main-tunnel
+          enabled: true
+          auth:
+            existingSecretName: site-cred
+          extraVolumes:
+            - name: one
+              emptyDir: {}
+            - name: two
+              persistentVolumeClaim:
+                claimName: two-claim
+          extraVolumeMounts:
+            - name: one
+              mountPath: /one
+            - name: two
+              mountPath: /two
+              readOnly: true
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: one
+            emptyDir: {}
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: two
+            persistentVolumeClaim:
+              claimName: two-claim
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: two
+            mountPath: /two
+            readOnly: true
+
+  - it: keeps chart-owned mounts alongside the extras
+    set:
+      global:
+        updownScripts:
+          s: echo hi
+      siteInstances:
+        - name: main-tunnel
+          enabled: true
+          auth:
+            existingSecretName: site-cred
+          updown:
+            enabled: true
+            script: s
+          extraVolumes:
+            - name: extra
+              emptyDir: {}
+          extraVolumeMounts:
+            - name: extra
+              mountPath: /extra
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: updown-script
+            mountPath: /opt/pangolin/updown
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: extra
+            mountPath: /extra
+      - lengthEqual:
+          path: spec.template.spec.containers[0].volumeMounts
+          count: 2

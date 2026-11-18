@@ -32,16 +32,18 @@ spec:
   selector:
     {{- if eq .Values.deployment.mode "single" }}
     {{- include "pangolin.single.selectorLabels" $root | nindent 4 }}
+    {{- else if eq (include "pangolin.traefik.inGerbilPod" $root) "true" }}
+    {{- include "pangolin.gerbil.selectorLabels" $root | nindent 4 }}
     {{- else }}
     {{- include "pangolin.traefik.standalone.selectorLabels" $root | nindent 4 }}
     {{- end }}
   ports:
     - name: web
       port: 80
-      targetPort: 8000
+      targetPort: web
       protocol: TCP
     - name: websecure
       port: 443
-      targetPort: 8443
+      targetPort: websecure
       protocol: TCP
 {{- end }}

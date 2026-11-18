@@ -1,0 +1,163 @@
+suite: Security Context
+templates:
+  - templates/deployment.yaml
+tests:
+  - it: native mode uses privileged security context with root
+    set:
+      global:
+        nativeMode:
+          enabled: true
+      siteInstances:
+        - name: native-mode
+          enabled: true
+          useNativeInterface: true
+          auth:
+            existingSecretName: site-auth
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsUser
+          value: 0
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.privileged
+          value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.capabilities.add[0]
+          value: NET_ADMIN
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.capabilities.add[1]
+          value: SYS_MODULE
+      - notExists:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop
+
+  # The gate is a permission, not an instruction: an instance that asks for no native
+  # operation must not be handed root, privileged, NET_ADMIN and SYS_MODULE for nothing.
+  - it: global native mode alone grants no privilege
+    set:
+      global:
+        nativeMode:
+          enabled: true
+      siteInstances:
+        - name: global-native
+          enabled: true
+          auth:
+            existingSecretName: site-auth
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsUser
+          value: 65534
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsNonRoot
+          value: true
+      - notExists:
+          path: spec.template.spec.containers[0].securityContext.privileged
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: USE_NATIVE_INTERFACE
+            value: "true"
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: USE_NATIVE_MAIN_INTERFACE
+            value: "true"
+
+  - it: native main interface receives the same privilege as the native interface
+    set:
+      global:
+        nativeMode:
+          enabled: true
+      siteInstances:
+        - name: native-main
+          enabled: true
+          useNativeMainInterface: true
+          auth:
+            existingSecretName: site-auth
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsUser
+          value: 0
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.privileged
+          value: true
+      - contains:
+          path: spec.template.spec.containers[0].securityContext.capabilities.add
+          content: NET_ADMIN
+
+  - it: rejects a native interface without the permission gate
+    set:
+      siteInstances:
+        - name: ungated
+          enabled: true
+          useNativeInterface: true
+          auth:
+            existingSecretName: site-auth
+    asserts:
+      - failedTemplate:
+          errorPattern: "useNativeInterface requires global.nativeMode.enabled=true"
+
+  - it: rejects a native main interface without the permission gate
+    set:
+      siteInstances:
+        - name: ungated-main
+          enabled: true
+          useNativeMainInterface: true
+          auth:
+            existingSecretName: site-auth
+    asserts:
+      - failedTemplate:
+          errorPattern: "useNativeMainInterface requires global.nativeMode.enabled=true"
+
+  - it: instance override with allowGlobalOverride uses custom securityContext
+    set:
+      siteInstances:
+        - name: custom-sec
+          enabled: true
+          allowGlobalOverride: true
+          securityContext:
+            runAsUser: 1000
+            runAsNonRoot: true
+          auth:
+            existingSecretName: site-auth
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsUser
+          value: 1000
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsNonRoot
+          value: true
+
+  - it: hostNetwork enabled in native mode
+    set:
+      global:
+        nativeMode:
+          enabled: true
+      siteInstances:
+        - name: native-hostnet
+          enabled: true
+          useNativeInterface: true
+          hostNetwork: true
+          auth:
+            existingSecretName: site-auth
+    asserts:
+      - equal:
+          path: spec.template.spec.hostNetwork
+          value: true
+
+  - it: fails when securityContext has root with capabilities.drop
+    set:
+      siteInstances:
+        - name: invalid-sec
+          enabled: true
+          allowGlobalOverride: true
+          securityContext:
+            runAsUser: 0
+            capabilities:
+              drop: ["ALL"]
+          auth:
+            existingSecretName: site-auth
+    asserts:
+      - failedTemplate:
+          errorPattern: "Dropping capabilities is not supported when running as root"

@@ -1,0 +1,133 @@
+suite: Service rendering
+templates:
+  - templates/service.yaml
+tests:
+  - it: renders a Service (decoupled from acceptClients)
+    set:
+      siteInstances:
+        - name: main-tunnel
+          enabled: true
+          acceptClients: false
+          auth:
+            existingSecretName: site-auth
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: spec.selector["pangolin-cli.instance"]
+          value: main-tunnel
+      - equal:
+          path: spec.ports[0].port
+          value: 51820
+
+  - it: defaults to ClusterIP when service.type not set
+    set:
+      siteInstances:
+        - name: main
+          enabled: true
+          auth:
+            existingSecretName: site-auth
+      global:
+        tests:
+          enabled: true
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: spec.type
+          value: ClusterIP
+      - equal:
+          path: spec.ports[0].port
+          value: 51820
+      - equal:
+          path: spec.ports[1].port
+          value: 51821
+      - notExists:
+          path: spec.ports[0].nodePort
+      - notExists:
+          path: spec.ports[1].nodePort
+
+  - it: renders NodePort with fixed nodePorts when specified
+    set:
+      siteInstances:
+        - name: fixed
+          enabled: true
+          auth:
+            existingSecretName: site-auth
+          service:
+            type: NodePort
+            nodePorts:
+              wg: 30080
+              tester: 30081
+      global:
+        tests:
+          enabled: true
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: spec.type
+          value: NodePort
+      - equal:
+          path: spec.ports[0].nodePort
+          value: 30080
+      - equal:
+          path: spec.ports[1].nodePort
+          value: 30081
+
+  - it: renders NodePort and lets Kubernetes assign nodePorts when not set
+    set:
+      siteInstances:
+        - name: auto
+          enabled: true
+          auth:
+            existingSecretName: site-auth
+          service:
+            type: NodePort
+      global:
+        tests:
+          enabled: true
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: spec.type
+          value: NodePort
+      - notExists:
+          path: spec.ports[0].nodePort
+      - notExists:
+          path: spec.ports[1].nodePort
+
+  - it: service.enabled=false disables Service rendering
+    set:
+      siteInstances:
+        - name: disabled
+          enabled: true
+          auth:
+            existingSecretName: site-auth
+          service:
+            enabled: false
+      global:
+        tests:
+          enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: service.enabledWhenAcceptClients can enable Service when service.enabled is false
+    set:
+      siteInstances:
+        - name: accept-clients-service
+          enabled: true
+          acceptClients: true
+          auth:
+            existingSecretName: site-auth
+          service:
+            enabled: false
+            enabledWhenAcceptClients: true
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: spec.selector["pangolin-cli.instance"]
+          value: accept-clients-service

@@ -401,7 +401,7 @@ tests:
           path: metadata.name
           value: RELEASE-NAME-pangolin-pangolin-egress
       - equal:
-          path: spec.egress[2].ports[0].port
+          path: spec.egress[3].ports[0].port
           value: 587
 
   - it: pangolin-only extraEgress does not apply to controller egress policy
@@ -488,7 +488,7 @@ tests:
           path: metadata.name
           value: RELEASE-NAME-pangolin-pangolin-egress
       - notExists:
-          path: spec.egress[2]
+          path: spec.egress[3]
 
   - it: gerbil-only extraEgress applies only to gerbil egress policy
     set:
@@ -528,7 +528,7 @@ tests:
           path: metadata.name
           value: RELEASE-NAME-pangolin-pangolin-egress
       - notExists:
-          path: spec.egress[2]
+          path: spec.egress[3]
 
   - it: global extraEgress still applies to pangolin egress policy
     set:
@@ -548,7 +548,7 @@ tests:
           path: metadata.name
           value: RELEASE-NAME-pangolin-pangolin-egress
       - equal:
-          path: spec.egress[2].ports[0].port
+          path: spec.egress[3].ports[0].port
           value: 443
 
   - it: global extraEgress also applies to controller egress policy

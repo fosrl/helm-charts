@@ -1,0 +1,12 @@
+siteInstances:
+  - name: ci-blueprint
+    enabled: true
+    pangolinEndpoint: https://example.com
+    provisioningKey: test-key
+    siteName: ci-site
+    configPersistence:
+      enabled: true
+    provisioningBlueprintFile: /etc/pangolin/provisioning.yaml
+    provisioningBlueprintData: |
+      version: 1
+      routes: []

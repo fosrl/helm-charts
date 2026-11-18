@@ -8,6 +8,7 @@ tests:
       deployment.type: standalone
       deployment.mode: multi
       traefik.enabled: true
+      traefik.runInGerbilPod: false
       traefik.config.letsencryptEmail: ops@example.com
       traefik.config.dynamicRouters.host: pangolin.local
       traefik.config.dashboard: false
@@ -22,6 +23,7 @@ tests:
       deployment.type: standalone
       deployment.mode: multi
       traefik.enabled: true
+      traefik.runInGerbilPod: false
       traefik.config.letsencryptEmail: ops@example.com
       traefik.config.dynamicRouters.host: pangolin.local
       traefik.config.dashboard: false
@@ -36,6 +38,7 @@ tests:
       deployment.type: standalone
       deployment.mode: multi
       traefik.enabled: true
+      traefik.runInGerbilPod: false
       traefik.config.letsencryptEmail: ops@example.com
       traefik.config.dynamicRouters.host: pangolin.local
       traefik.config.dashboard: true
@@ -51,6 +54,7 @@ tests:
       deployment.type: standalone
       deployment.mode: multi
       traefik.enabled: true
+      traefik.runInGerbilPod: false
       traefik.config.letsencryptEmail: ops@example.com
       traefik.config.dynamicRouters.host: pangolin.local
     template: templates/service-traefik.yaml
@@ -71,6 +75,7 @@ tests:
       deployment.type: standalone
       deployment.mode: multi
       traefik.enabled: true
+      traefik.runInGerbilPod: false
       traefik.config.letsencryptEmail: ops@example.com
       traefik.config.dynamicRouters.host: pangolin.local
       traefik.config.insecureSkipVerify: false
@@ -86,6 +91,7 @@ tests:
       deployment.type: standalone
       deployment.mode: multi
       traefik.enabled: true
+      traefik.runInGerbilPod: false
       traefik.config.letsencryptEmail: ops@example.com
       traefik.config.dynamicRouters.host: pangolin.local
       traefik.config.insecureSkipVerify: true

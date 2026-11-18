@@ -167,7 +167,7 @@ tests:
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: acme
+            name: traefik-data
             persistentVolumeClaim:
               claimName: RELEASE-NAME-pangolin-traefik-acme
 

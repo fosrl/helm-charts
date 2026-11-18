@@ -1,6 +1,7 @@
 extends: default
 ignore: |
   charts/newt/templates/**
+  charts/pangolin-cli/templates/**
 rules:
   comments:
     min-spaces-from-content: 1

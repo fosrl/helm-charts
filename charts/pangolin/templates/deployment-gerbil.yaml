@@ -4,6 +4,7 @@
 {{- $gerbil := .Values.gerbil -}}
 {{- $startupMode := include "pangolin.gerbil.startupMode" . -}}
 {{- $hostGateway := eq (include "pangolin.gerbil.hostGateway.enabled" .) "true" -}}
+{{- $withTraefik := eq (include "pangolin.traefik.inGerbilPod" .) "true" -}}
 {{- $fullname := printf "%s-gerbil" (include "pangolin.fullname" .) -}}
 {{- $namespace := include "pangolin.namespace" . -}}
 {{- $saName := include "pangolin.serviceAccountName.gerbil" . -}}
@@ -39,7 +40,7 @@ spec:
   {{- if $root.Values.runtime.minReadySeconds }}
   minReadySeconds: {{ $root.Values.runtime.minReadySeconds }}
   {{- end }}
-  {{- include "pangolin.updateStrategy" (dict "root" $root "override" ($gerbil.deployment.updateStrategy | default dict) "blockSurge" (eq (include "pangolin.gerbil.blocksSurge" $root) "true")) | nindent 2 }}
+  {{- include "pangolin.updateStrategy" (dict "root" $root "override" ($gerbil.deployment.updateStrategy | default dict) "blockSurge" (or (eq (include "pangolin.gerbil.blocksSurge" $root) "true") (and $withTraefik (eq (include "pangolin.traefik.blocksSurge" $root) "true")))) | nindent 2 }}
   template:
     metadata:
       labels:
@@ -206,7 +207,15 @@ spec:
             {{- include "pangolin.renderResources" (dict "resources" $gerbil.resources "root" .) | nindent 12 }}
           securityContext:
             {{- toYaml (mergeOverwrite (deepCopy $root.Values.global.containerSecurityContext) $gerbil.securityContext) | nindent 12 }}
+        {{- if $withTraefik }}
+        {{- /* Shares Gerbil's network namespace, where wg0 and the routes to tunnel
+               backends live. See pangolin.traefik.inGerbilPod. */}}
+        {{- include "pangolin.traefik.container" (dict "root" $root) | nindent 8 }}
+        {{- end }}
       volumes:
+        {{- if $withTraefik }}
+        {{- include "pangolin.traefik.volumes" $root | nindent 8 }}
+        {{- end }}
         - name: gerbil-config
           {{- if $gerbil.persistence.enabled }}
           persistentVolumeClaim:

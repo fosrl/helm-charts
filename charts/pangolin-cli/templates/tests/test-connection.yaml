@@ -1,0 +1,151 @@
+{{- if .Values.global.tests.enabled }}
+{{- $root := . -}}
+{{- range $i, $inst := .Values.siteInstances }}
+{{- if $inst.enabled }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "pangolin-cli.instance.fullname" (dict "root" $root "inst" $inst) }}-test
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded,hook-failed
+  labels:
+    {{- include "pangolin-cli.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: test
+    pangolin-cli.instance: {{ $inst.name }}
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 60
+  template:
+    spec:
+      serviceAccountName: {{ $root.Release.Name }}-test
+      automountServiceAccountToken: true
+      restartPolicy: Never
+      {{- $ips := include "pangolin-cli.imagePullSecrets" $root -}}
+      {{- if $ips }}
+{{ $ips | nindent 6 }}
+      {{- end }}
+      containers:
+        - name: test
+          image: {{ printf "%s:%s" $root.Values.global.tests.image.repository $root.Values.global.tests.image.tag }}
+          {{- if eq $root.Values.global.tests.image.tag "latest" }}
+          # WARNING: Do not use 'latest' tag for production or CI deployments!
+          {{- end }}
+          imagePullPolicy: {{ default "IfNotPresent" $root.Values.global.tests.image.pullPolicy | quote }}
+          command: ["/bin/bash", "-lc"]
+          args:
+            - |
+              set -euo pipefail
+              echo "Waiting for pod of instance {{ $inst.name }}..."
+
+              POD=$(kubectl get pods -n {{ include "pangolin-cli.namespace" $root }} \
+                -l app.kubernetes.io/instance={{ $root.Release.Name }},pangolin-cli.instance={{ $inst.name }} \
+                -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+
+              if [ -z "$POD" ]; then
+                echo "Pod for instance {{ $inst.name }} not found"; exit 1
+              fi
+
+              for i in $(seq 1 60); do
+                PHASE=$(kubectl get pod "$POD" -n {{ include "pangolin-cli.namespace" $root }} -o jsonpath='{.status.phase}' 2>/dev/null || true)
+                if [ "$PHASE" = "Running" ]; then
+                  break
+                fi
+                sleep 2
+              done
+
+              if [ "$PHASE" != "Running" ]; then
+                echo "Pod $POD did not become Running in time (phase=$PHASE)"; exit 1
+              fi
+
+              if [ -z "$POD" ]; then
+                echo "Pod for instance {{ $inst.name }} not found"; exit 1
+              fi
+              echo "Checking health file..."
+              kubectl exec -n {{ include "pangolin-cli.namespace" $root }} "$POD" -- test -f {{ default $root.Values.global.health.path $inst.healthFile }}
+              echo "Health OK for instance {{ $inst.name }}"
+
+              # Determine Service and Namespace
+              SVC="{{ include "pangolin-cli.instance.fullname" (dict "root" $root "inst" $inst) }}"
+              NS="{{ include "pangolin-cli.namespace" $root }}"
+
+              # External reachability check via Service type
+              TYPE=$(kubectl get svc "$SVC" -n "$NS" -o jsonpath='{.spec.type}' 2>/dev/null || true)
+              if [ "$TYPE" = "LoadBalancer" ]; then
+                echo "Waiting for LoadBalancer ingress on Service/$SVC ..."
+                for i in $(seq 1 60); do
+                  INGRESS=$(kubectl get svc "$SVC" -n "$NS" -o jsonpath='{.status.loadBalancer.ingress[0].ip}{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+                  if [ -n "$INGRESS" ]; then
+                    echo "LoadBalancer ingress is ready: $INGRESS"
+                    break
+                  fi
+                  sleep 3
+                done
+                if [ -z "$INGRESS" ]; then
+                  echo "No LoadBalancer ingress assigned for Service/$SVC within timeout" ; exit 1
+                fi
+              elif [ "$TYPE" = "NodePort" ]; then
+                echo "Checking NodePort assignment on Service/$SVC ..."
+                WGNP=$(kubectl get svc "$SVC" -n "$NS" -o jsonpath='{.spec.ports[?(@.name=="wg")].nodePort}' 2>/dev/null || true)
+                TESTERNP=$(kubectl get svc "$SVC" -n "$NS" -o jsonpath='{.spec.ports[?(@.name=="tester")].nodePort}' 2>/dev/null || true)
+                if [ -z "$WGNP" ] || [ -z "$TESTERNP" ]; then
+                  echo "NodePort(s) not assigned for Service/$SVC" ; exit 1
+                fi
+                echo "NodePorts assigned: wg=$WGNP tester=$TESTERNP"
+              else
+                echo "Service/$SVC type=$TYPE (external check skipped)"
+              fi
+
+              # Pangolin endpoint reachability (best effort)
+              ENDPOINT="{{ $inst.pangolinEndpoint }}"
+              if [ -n "$ENDPOINT" ]; then
+                echo "Checking Pangolin endpoint reachability: $ENDPOINT"
+                if command -v curl >/dev/null 2>&1; then
+                  curl -skf --max-time 10 "$ENDPOINT" >/dev/null || { echo "Pangolin endpoint not reachable: $ENDPOINT" ; exit 1; }
+                elif command -v wget >/dev/null 2>&1; then
+                  wget -q --spider "$ENDPOINT" || { echo "Pangolin endpoint not reachable: $ENDPOINT" ; exit 1; }
+                else
+                  echo "No curl/wget in test image; skipping Pangolin endpoint check"
+                fi
+              else
+                echo "No inline Pangolin endpoint configured (likely using Secret); skipping endpoint check"
+              fi
+          resources:
+            requests:
+              {{- if kindIs "map" $inst.resources }}
+              {{- $r := index $inst.resources "requests" }}
+              {{- if kindIs "map" $r }}
+              cpu: {{ default "100m" (index $r "cpu") | quote }}
+              memory: {{ default "128Mi" (index $r "memory") | quote }}
+              ephemeral-storage: {{ default "128Mi" (index $r "ephemeral-storage") | quote }}
+              {{- else }}
+              cpu: "100m"
+              memory: "128Mi"
+              ephemeral-storage: "128Mi"
+              {{- end }}
+              {{- else }}
+              cpu: "100m"
+              memory: "128Mi"
+              ephemeral-storage: "128Mi"
+              {{- end }}
+            limits:
+              {{- if kindIs "map" $inst.resources }}
+              {{- $l := index $inst.resources "limits" }}
+              {{- if kindIs "map" $l }}
+              cpu: {{ default "500m" (index $l "cpu") | quote }}
+              memory: {{ default "256Mi" (index $l "memory") | quote }}
+              ephemeral-storage: {{ default "128Mi" (index $l "ephemeral-storage") | quote }}
+              {{- else }}
+              cpu: "500m"
+              memory: "256Mi"
+              ephemeral-storage: "128Mi"
+              {{- end }}
+              {{- else }}
+              cpu: "500m"
+              memory: "256Mi"
+              ephemeral-storage: "128Mi"
+              {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,702 @@
+suite: Site all environment variables
+templates:
+  - templates/deployment.yaml
+tests:
+  - it: renders PANGOLIN_ENDPOINT from existing secret
+    set:
+      siteInstances:
+        - name: test-env
+          enabled: true
+          auth:
+            existingSecretName: my-secret
+          extraEnv: {}
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: spec.template.spec.containers[0].env[0].name
+          value: PANGOLIN_ENDPOINT
+      - equal:
+          path: spec.template.spec.containers[0].env[1].name
+          value: SITE_ID
+      - equal:
+          path: spec.template.spec.containers[0].env[2].name
+          value: SITE_SECRET
+
+  - it: renders inline credentials when no existing secret
+    set:
+      siteInstances:
+        - name: test-inline
+          enabled: true
+          pangolinEndpoint: https://pangolin.example.com
+          id: my-id
+          secret: my-secret
+          extraEnv: {}
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: spec.template.spec.containers[0].env[0].name
+          value: PANGOLIN_ENDPOINT
+      - equal:
+          path: spec.template.spec.containers[0].env[0].valueFrom.secretKeyRef.key
+          value: PANGOLIN_ENDPOINT
+
+  - it: renders PORT when specified
+    set:
+      siteInstances:
+        - name: test-port
+          enabled: true
+          port: "51821"
+          extraEnv: {}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PORT
+            value: "51821"
+
+  - it: renders MTU when non-default
+    set:
+      siteInstances:
+        - name: test-mtu
+          enabled: true
+          mtu: 1400
+          extraEnv: {}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MTU
+            value: "1400"
+
+  - it: renders DNS when specified
+    set:
+      siteInstances:
+        - name: test-dns
+          enabled: true
+          dns: 8.8.8.8
+          extraEnv: {}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DNS
+            value: "8.8.8.8"
+
+  - it: renders PING_INTERVAL when specified
+    set:
+      siteInstances:
+        - name: test-ping
+          enabled: true
+          pingInterval: 5s
+          extraEnv: {}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PING_INTERVAL
+            value: "5s"
+
+  - it: renders PING_TIMEOUT when specified
+    set:
+      siteInstances:
+        - name: test-ping-timeout
+          enabled: true
+          pingTimeout: 10s
+          extraEnv: {}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PING_TIMEOUT
+            value: "10s"
+
+  # acceptClients is chart-side only; there is no ACCEPT_CLIENTS variable (use DISABLE_CLIENTS).
+  # acceptClients still gates the client Service and NetworkPolicy rule chart-side.
+  - it: does not render the removed ACCEPT_CLIENTS variable
+    set:
+      siteInstances:
+        - name: main-tunnel
+          enabled: true
+          auth:
+            existingSecretName: site-cred
+          acceptClients: true
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: ACCEPT_CLIENTS
+            value: "true"
+
+  - it: renders NO_CLOUD when enabled
+    set:
+      siteInstances:
+        - name: test-nocloud
+          enabled: true
+          noCloud: true
+          extraEnv: {}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: NO_CLOUD
+            value: "true"
+
+  - it: renders DISABLE_CLIENTS when enabled
+    set:
+      siteInstances:
+        - name: test-disable-clients
+          enabled: true
+          disableClients: true
+          extraEnv: {}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DISABLE_CLIENTS
+            value: "true"
+
+  - it: renders BLUEPRINT_FILE when specified
+    set:
+      siteInstances:
+        - name: test-blueprint
+          enabled: true
+          blueprintFile: /etc/pangolin/blueprint.yaml
+          blueprintData: |
+            # simple blueprint
+            routes: []
+          extraEnv: {}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: BLUEPRINT_FILE
+            value: "/etc/pangolin/blueprint.yaml"
+
+  - it: renders DOCKER_SOCKET env vars when enabled
+    set:
+      siteInstances:
+        - name: test-docker
+          enabled: true
+          dockerSocket:
+            enabled: true
+            path: /var/run/docker.sock
+            enforceNetworkValidation: true
+          extraEnv: {}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DOCKER_SOCKET
+            value: "/var/run/docker.sock"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DOCKER_ENFORCE_NETWORK_VALIDATION
+            value: "true"
+
+  - it: renders INTERFACE when non-default
+    set:
+      siteInstances:
+        - name: test-iface
+          enabled: true
+          interface: wg0
+          extraEnv: {}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: INTERFACE
+            value: "wg0"
+
+  - it: renders CONFIG_FILE when specified
+    set:
+      siteInstances:
+        - name: test-config
+          enabled: true
+          configFile: /etc/pangolin/config.yaml
+          extraEnv: {}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CONFIG_FILE
+            value: "/etc/pangolin/config.yaml"
+
+  - it: renders UPDOWN_SCRIPT when enabled
+    set:
+      global:
+        updownScripts:
+          hook.sh: echo hi
+      siteInstances:
+        - name: test-updown
+          enabled: true
+          updown:
+            enabled: true
+            script: hook.sh
+            mountPath: /opt/updown
+            fileName: script.sh
+          extraEnv: {}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: UPDOWN_SCRIPT
+            value: "/opt/updown/script.sh"
+
+  - it: renders ENFORCE_HC_CERT when enabled
+    set:
+      siteInstances:
+        - name: test-hc-cert
+          enabled: true
+          enforceHcCert: true
+          extraEnv: {}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: ENFORCE_HC_CERT
+            value: "true"
+
+  - it: renders SITE_ADMIN_ADDR when custom
+    set:
+      siteInstances:
+        - name: test-admin
+          enabled: true
+          extraEnv: {}
+      global:
+        metrics:
+          enabled: true
+          adminAddr: "0.0.0.0:2112"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SITE_ADMIN_ADDR
+            value: "0.0.0.0:2112"
+
+  - it: renders SITE_METRICS_ASYNC_BYTES when enabled
+    set:
+      siteInstances:
+        - name: test-async
+          enabled: true
+          extraEnv: {}
+      global:
+        metrics:
+          enabled: true
+          asyncBytes: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SITE_METRICS_ASYNC_BYTES
+            value: "true"
+
+  - it: renders SITE_REGION when specified
+    set:
+      siteInstances:
+        - name: test-region
+          enabled: true
+          extraEnv: {}
+      global:
+        metrics:
+          enabled: true
+          region: "us-west-2"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SITE_REGION
+            value: "us-west-2"
+
+  - it: renders SITE_METRICS_OTLP_ENABLED when enabled
+    set:
+      siteInstances:
+        - name: test-otlp
+          enabled: true
+          extraEnv: {}
+      global:
+        metrics:
+          enabled: true
+          otlpEnabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SITE_METRICS_OTLP_ENABLED
+            value: "true"
+
+  - it: renders OTEL env vars when configured
+    set:
+      siteInstances:
+        - name: test-otel
+          enabled: true
+          extraEnv: {}
+      global:
+        metrics:
+          enabled: true
+          otlpEnabled: true
+          otel:
+            exporterOtlpEndpoint: "https://otlp.example.com:4317"
+            exporterOtlpProtocol: grpc
+            exporterOtlpHeaders: "x-api-key=abc123"
+            serviceName: site-service
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTEL_EXPORTER_OTLP_ENDPOINT
+            value: "https://otlp.example.com:4317"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTEL_EXPORTER_OTLP_PROTOCOL
+            value: "grpc"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTEL_EXPORTER_OTLP_HEADERS
+            value: "x-api-key=abc123"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTEL_SERVICE_NAME
+            value: "site-service"
+
+  - it: renders LOG_LEVEL from instance when allowGlobalOverride is true
+    set:
+      siteInstances:
+        - name: test-log
+          enabled: true
+          allowGlobalOverride: true
+          logLevel: DEBUG
+          extraEnv: {}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LOG_LEVEL
+            value: "DEBUG"
+
+  - it: renders LOG_LEVEL from global when instance override not allowed
+    set:
+      siteInstances:
+        - name: test-log-global
+          enabled: true
+          logLevel: WARN
+          extraEnv: {}
+      global:
+        logLevel: ERROR
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LOG_LEVEL
+            value: "ERROR"
+
+  - it: renders USE_NATIVE_INTERFACE when native mode enabled
+    set:
+      siteInstances:
+        - name: test-native
+          enabled: true
+          useNativeInterface: true
+          extraEnv: {}
+      global:
+        nativeMode:
+          enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: USE_NATIVE_INTERFACE
+            value: "true"
+
+  - it: renders HEALTH_FILE when health enabled
+    set:
+      siteInstances:
+        - name: test-health
+          enabled: true
+          healthFile: /tmp/custom-health
+          extraEnv: {}
+      global:
+        health:
+          enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: HEALTH_FILE
+            value: "/tmp/custom-health"
+
+  - it: renders extraEnv from instance
+    set:
+      siteInstances:
+        - name: test-extraenv
+          enabled: true
+          extraEnv:
+            MY_CUSTOM_VAR: custom-value
+            ANOTHER_VAR: "123"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MY_CUSTOM_VAR
+            value: custom-value
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: ANOTHER_VAR
+            value: "123"
+
+  - it: renders SITE_PROVISIONING_KEY when provisioningKey is set
+    set:
+      siteInstances:
+        - name: test-prov-key
+          enabled: true
+          provisioningKey: "prov-key-abc123"
+          siteName: "my-site"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SITE_PROVISIONING_KEY
+            value: "prov-key-abc123"
+
+  - it: renders SITE_NAME when siteName is set
+    set:
+      siteInstances:
+        - name: test-site-name
+          enabled: true
+          provisioningKey: "prov-key-abc123"
+          siteName: "my-site"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SITE_NAME
+            value: "my-site"
+
+  - it: does not render SITE_ID when only provisioningKey is set
+    set:
+      siteInstances:
+        - name: test-prov-only
+          enabled: true
+          provisioningKey: "prov-key-abc123"
+          siteName: "my-site"
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SITE_ID
+
+  - it: renders CONFIG_FILE from configPersistence when enabled
+    set:
+      siteInstances:
+        - name: test-cfg-persist
+          enabled: true
+          configPersistence:
+            enabled: true
+            type: emptyDir
+            mountPath: /var/lib/pangolin
+            fileName: config.json
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CONFIG_FILE
+            value: "/var/lib/pangolin/config.json"
+
+  - it: falls back to legacy configFile when configPersistence is disabled
+    set:
+      siteInstances:
+        - name: test-legacy-config
+          enabled: true
+          configFile: /etc/pangolin/custom-config.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CONFIG_FILE
+            value: "/etc/pangolin/custom-config.yaml"
+
+  - it: renders SITE_PPROF_ENABLED when global.metrics.pprofEnabled is true
+    set:
+      siteInstances:
+        - name: test-pprof
+          enabled: true
+      global:
+        metrics:
+          pprofEnabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SITE_PPROF_ENABLED
+            value: "true"
+
+  - it: does not render SITE_PPROF_ENABLED when global.metrics.pprofEnabled is false
+    set:
+      siteInstances:
+        - name: test-no-pprof
+          enabled: true
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SITE_PPROF_ENABLED
+
+  - it: renders PROVISIONING_BLUEPRINT_FILE when provisioningBlueprintFile is set
+    set:
+      siteInstances:
+        - name: test-prov-blueprint
+          enabled: true
+          provisioningBlueprintFile: /etc/pangolin/provisioning-blueprint.yaml
+          provisioningBlueprintData: |
+            version: 1
+            routes: []
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PROVISIONING_BLUEPRINT_FILE
+            value: "/etc/pangolin/provisioning-blueprint.yaml"
+
+  # --- SSH, native main interface and UDP proxy options -----------------------
+  - it: renders DISABLE_SSH when enabled
+    set:
+      siteInstances:
+        - name: main-tunnel
+          enabled: true
+          auth:
+            existingSecretName: site-cred
+          disableSSH: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DISABLE_SSH
+            value: "true"
+
+  - it: renders the native main interface settings
+    set:
+      siteInstances:
+        - name: main-tunnel
+          enabled: true
+          auth:
+            existingSecretName: site-cred
+          useNativeMainInterface: true
+          interfaceMain: wg-main
+      global:
+        nativeMode:
+          enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: USE_NATIVE_MAIN_INTERFACE
+            value: "true"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: INTERFACE_MAIN
+            value: wg-main
+
+  - it: renders the UDP proxy idle timeout
+    set:
+      siteInstances:
+        - name: main-tunnel
+          enabled: true
+          auth:
+            existingSecretName: site-cred
+          udpProxyIdleTimeout: 120s
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SITE_UDP_PROXY_IDLE_TIMEOUT
+            value: 120s
+
+  # --- endpoint reporting and auth daemon options --------------------------------
+  - it: joins localEndpointInterfaces into LOCAL_ENDPOINT_INTERFACES
+    set:
+      siteInstances:
+        - name: main-tunnel
+          enabled: true
+          auth:
+            existingSecretName: site-cred
+          localEndpointInterfaces:
+            - eth0
+            - eth1
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LOCAL_ENDPOINT_INTERFACES
+            value: eth0,eth1
+
+  - it: omits LOCAL_ENDPOINT_INTERFACES by default so the site reports every interface
+    set:
+      siteInstances:
+        - name: main-tunnel
+          enabled: true
+          auth:
+            existingSecretName: site-cred
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          any: true
+          content:
+            name: LOCAL_ENDPOINT_INTERFACES
+
+  # AD_KEY is a credential, so it is only ever referenced from a Secret.
+  - it: references the auth daemon key from a Secret and never inlines it
+    set:
+      siteInstances:
+        - name: main-tunnel
+          enabled: true
+          auth:
+            existingSecretName: site-cred
+          authDaemon:
+            keySecretName: site-ad
+            keySecretKey: preSharedKey
+            principalsFile: /etc/ssh/principals
+            caCertPath: /etc/ssh/ca.pem
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AD_KEY
+            valueFrom:
+              secretKeyRef:
+                name: site-ad
+                key: preSharedKey
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AD_PRINCIPALS_FILE
+            value: /etc/ssh/principals
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AD_CA_CERT_PATH
+            value: /etc/ssh/ca.pem
+
+  - it: renders none of these options by default
+    set:
+      siteInstances:
+        - name: main-tunnel
+          enabled: true
+          auth:
+            existingSecretName: site-cred
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DISABLE_SSH
+            value: "true"
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: USE_NATIVE_MAIN_INTERFACE
+            value: "true"

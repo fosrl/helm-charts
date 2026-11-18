@@ -209,7 +209,7 @@ generate_example_values() {
     log_pass "Generated $out"
   }
   
-  if [ "$(basename "$chart")" = "newt" ]; then
+  if [ "$(basename "$chart")" = "newt" ] || [ "$(basename "$chart")" = "pangolin-cli" ]; then
     gen_one bare-minimum
     gen_one minimalistic
     gen_one minimalistic-metrics

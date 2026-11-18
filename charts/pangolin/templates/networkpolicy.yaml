@@ -168,7 +168,8 @@ regression, so an existing narrow configuration is carried over untouched.
 {{- $selController := ternary $selSingle (dict "app.kubernetes.io/name" (include "pangolin.name" $root) "app.kubernetes.io/instance" $root.Release.Name "app.kubernetes.io/component" "controller") $singleMode -}}
 {{- $selGerbil := ternary $selSingle (dict "app.kubernetes.io/name" (include "pangolin.name" $root) "app.kubernetes.io/instance" $root.Release.Name "app.kubernetes.io/component" "gerbil") $singleMode -}}
 {{- $selEmbeddedPostgres := dict "app.kubernetes.io/name" (include "pangolin.name" $root) "app.kubernetes.io/instance" $root.Release.Name "app.kubernetes.io/component" "embedded-postgres" -}}
-{{- $selTraefik := dict "app.kubernetes.io/name" (include "pangolin.name" $root) "app.kubernetes.io/instance" $root.Release.Name "app.kubernetes.io/component" "traefik-standalone" -}}
+{{- $traefikInGerbil := eq (include "pangolin.traefik.inGerbilPod" $root) "true" -}}
+{{- $selTraefik := ternary $selGerbil (dict "app.kubernetes.io/name" (include "pangolin.name" $root) "app.kubernetes.io/instance" $root.Release.Name "app.kubernetes.io/component" "traefik-standalone") $traefikInGerbil -}}
 
 {{- if $renderPangolin -}}
 {{- $pangolinIngress := list -}}
@@ -293,6 +294,23 @@ over loopback, which NetworkPolicy does not govern.
 {{- end -}}
 {{- if $allowHttpsEgress -}}
 {{- $pangolinEgress = append $pangolinEgress (dict "to" (list (dict "ipBlock" (dict "cidr" "0.0.0.0/0"))) "ports" (list (dict "protocol" "TCP" "port" 443))) -}}
+{{- end -}}
+{{- /* Pangolin pushes every peer to Gerbil's HTTP API (POST /peer on site and client
+       registration). Without this rule no tunnel can come up (#39). Single mode needs
+       none: Gerbil shares the Pod and is reached over loopback. */ -}}
+{{- if and $renderGerbil (not $singleMode) -}}
+{{- $gerbilApiPort := $root.Values.gerbil.ports.internalApi | default 3004 -}}
+{{- if eq (include "pangolin.gerbil.hostGateway.enabled" $root) "true" -}}
+{{- $gerbilNodeTo := list -}}
+{{- range $cidr := ((($npGerbil.hostGateway) | default dict).nodeCIDRs | default list) -}}
+{{- $gerbilNodeTo = append $gerbilNodeTo (dict "ipBlock" (dict "cidr" $cidr)) -}}
+{{- end -}}
+{{- if gt (len $gerbilNodeTo) 0 -}}
+{{- $pangolinEgress = append $pangolinEgress (dict "to" $gerbilNodeTo "ports" (list (dict "protocol" "TCP" "port" $gerbilApiPort))) -}}
+{{- end -}}
+{{- else -}}
+{{- $pangolinEgress = append $pangolinEgress (dict "to" (list (dict "podSelector" (dict "matchLabels" $selGerbil))) "ports" (list (dict "protocol" "TCP" "port" $gerbilApiPort))) -}}
+{{- end -}}
 {{- end -}}
 {{- if $extraEgress -}}
 {{- $pangolinEgress = concat $pangolinEgress $extraEgress -}}
@@ -445,6 +463,11 @@ spec:
 {{- if $allowExternal -}}
 {{- $gerbilIngress = append $gerbilIngress (dict "ports" (list (dict "protocol" "UDP" "port" $root.Values.gerbil.ports.wg1) (dict "protocol" "UDP" "port" $root.Values.gerbil.ports.wg2))) -}}
 {{- end -}}
+{{- /* The chart-managed Traefik runs in this Pod and is the public entry point. A
+       Traefik in its own Deployment has no policy at all, so this keeps the same reach. */ -}}
+{{- if $traefikInGerbil -}}
+{{- $gerbilIngress = append $gerbilIngress (dict "ports" (list (dict "protocol" "TCP" "port" 8000) (dict "protocol" "TCP" "port" (include "pangolin.traefik.websecurePort" $root | int)))) -}}
+{{- end -}}
 {{- $internalApiFrom := list -}}
 {{- if $renderPangolin -}}
 {{- $internalApiFrom = append $internalApiFrom (dict "podSelector" (dict "matchLabels" $selPangolin)) -}}
@@ -510,6 +533,11 @@ spec:
   {{- else }}
   ingress: []
   {{- end }}
+{{- /* No egress policy while Traefik shares the Pod: it has to reach every backend a
+       resource can point at (local and LAN targets, cluster Services, the Kubernetes API,
+       ACME and plugin downloads), none of which can be enumerated here. A Traefik in its
+       own Deployment is not restricted either. */}}
+{{- if not $traefikInGerbil }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -532,6 +560,7 @@ spec:
     - Egress
   egress:
     {{- toYaml $gerbilEgress | nindent 4 }}
+{{- end }}
 {{- end }}
 
 {{ if $renderEmbeddedPostgres }}

@@ -1,0 +1,77 @@
+{{- $root := $ -}}
+{{- $vals := $root.Values | default dict -}}
+{{- $global := (default (dict) (get $vals "global")) -}}
+{{- $gm := (default (dict) (get $global "metrics")) -}}
+{{- $tm := (default (dict) (get $vals "metrics")) -}}
+{{- $m := mergeOverwrite (deepCopy $gm) $tm -}}
+
+{{- /* Determine if we should render PodMonitor: global enabled and either global.podMonitor.enabled or any instance's effective metrics.podMonitor.enabled */ -}}
+{{- $mPM := (default (dict) (get $m "podMonitor")) -}}
+{{- $shouldPM := false -}}
+{{- if $m.enabled -}}
+  {{- if $mPM.enabled -}}
+    {{- $shouldPM = true -}}
+  {{- else -}}
+    {{- range $i, $inst := (get $vals "siteInstances") -}}
+      {{- if $inst.enabled -}}
+        {{- $eff := (include "pangolin-cli.effectiveMetrics" (list $inst $gm)) | fromJson -}}
+        {{- $effPM := (default (dict) (get $eff "podMonitor")) -}}
+        {{- if $effPM.enabled -}}
+          {{- $shouldPM = true -}}
+          {{- break -}}
+        {{- end -}}
+      {{- end -}}
+    {{- end -}}
+  {{- end -}}
+{{- end -}}
+
+{{- if $shouldPM -}}
+apiVersion: {{ $mPM.apiVersion | default "monitoring.coreos.com/v1" }}
+kind: PodMonitor
+metadata:
+  name: {{ include "pangolin-cli.fullname" . }}
+  {{- with $mPM.namespace }}
+  {{- if . }}
+  namespace: {{ . }}
+  {{- end }}
+  {{- end }}
+  labels:
+    {{- include "pangolin-cli.labels" . | nindent 4 }}
+    {{- with $mPM.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with $mPM.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  podMetricsEndpoints:
+    - port: {{ $mPM.portName | default "metrics" }}
+      {{- with $mPM.scheme }}
+      scheme: {{ . }}
+      {{- end }}
+      {{- with $mPM.path }}
+      path: {{ . }}
+      {{- end }}
+      {{- with $mPM.interval }}
+      interval: {{ . }}
+      {{- end }}
+      {{- with $mPM.scrapeTimeout }}
+      scrapeTimeout: {{ . }}
+      {{- end }}
+      {{- with $mPM.relabelings }}
+      relabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $mPM.metricRelabelings }}
+      metricRelabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: site
+  namespaceSelector:
+    matchNames:
+      - {{ include "pangolin-cli.namespace" . }}
+{{- end }}

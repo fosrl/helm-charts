@@ -196,6 +196,10 @@
                             "description": "Enable lease-based leader election.",
                             "type": "boolean"
                         },
+                        "ingressClass": {
+                            "description": "Ingress class written as `kubernetes.io/ingress.class` on every IngressRoute, IngressRouteTCP and IngressRouteUDP the controller creates. Must match `providers.kubernetesCRD.ingressClass` of the Traefik that should serve them; the default also matches a Traefik that sets no ingress class. Requires controller \u003e= 0.1.0.",
+                            "type": "string"
+                        },
                         "leaseLockNamespace": {
                             "description": "Namespace used for the leader election Lease. Defaults to targetNamespace when empty.",
                             "type": "string"
@@ -211,6 +215,11 @@
                         "readOnly": {
                             "description": "Run controller in read-only mode and disable mutating operations.",
                             "type": "boolean"
+                        },
+                        "resyncInterval": {
+                            "description": "Re-apply Pangolin's full configuration at this interval even when it has not changed, repairing objects edited or deleted by hand. `0s` disables it. Requires controller \u003e= 0.1.0.",
+                            "type": "string",
+                            "pattern": "^[0-9]+(ms|s|m|h)$"
                         },
                         "targetNamespace": {
                             "description": "Namespace where Traefik CRDs/resources live. Defaults to `deployment.traefikNamespace` or release namespace when empty.",
@@ -2125,7 +2134,7 @@
                             "type": "string"
                         },
                         "tag": {
-                            "description": "Traefik image tag for the chart-managed standalone Traefik. Kept on the same minor as the bundled Traefik chart (`deployment.installTraefikController`), which ships v3.7.13.",
+                            "description": "Traefik image tag for the chart-managed standalone Traefik. Kept on the same minor as the bundled Traefik chart (`deployment.installTraefikController`), which ships v3.7.19.",
                             "type": "string"
                         }
                     }
@@ -2816,8 +2825,50 @@
                                     "minimum": 1
                                 },
                                 "subnet_group": {
-                                    "description": "Supernet for WireGuard address allocation.",
+                                    "description": "Supernet for WireGuard address allocation. Pangolin 1.26 defaults new installs to 100.89.137.0/18 with block_size 22; the chart keeps /20 and 24 because changing them on an existing install changes how site subnets are allocated.",
                                     "type": "string"
+                                }
+                            }
+                        },
+                        "offline_checker": {
+                            "description": "-------- offline_checker section ---------- How long a site, client or remote exit node may go without a ping before Pangolin marks it offline, and how often the check runs. Each key is emitted only when set, so Pangolin's defaults (in parentheses) apply otherwise. Requires Pangolin \u003e= 1.25.0.",
+                            "type": "object",
+                            "properties": {
+                                "check_interval_ms": {
+                                    "description": "How often the offline checks run, in milliseconds (30000).",
+                                    "type": [
+                                        "integer",
+                                        "null"
+                                    ],
+                                    "minimum": 1
+                                },
+                                "newt_threshold_ms": {
+                                    "description": "Newt site threshold in milliseconds (120000).",
+                                    "type": [
+                                        "integer",
+                                        "null"
+                                    ]
+                                },
+                                "newt_wireguard_threshold_ms": {
+                                    "description": "WireGuard site threshold in milliseconds (480000). These sites do not ping and are judged by their last bandwidth update instead.",
+                                    "type": [
+                                        "integer",
+                                        "null"
+                                    ]
+                                },
+                                "olm_threshold_ms": {
+                                    "description": "Client threshold in milliseconds (120000).",
+                                    "type": [
+                                        "integer",
+                                        "null"
+                                    ]
+                                },
+                                "remote_exit_node_threshold_ms": {
+                                    "description": "Remote exit node threshold in milliseconds (120000).",
+                                    "type": [
+                                        "integer",
+                                        "null"
+                                    ]
                                 }
                             }
                         },
@@ -2962,6 +3013,10 @@
                                         }
                                     }
                                 },
+                                "custom_ip_header": {
+                                    "description": "Header Badger reads the real client IP from when the request comes from a `trust_ips` address (for example `X-Real-IP`). Empty keeps Pangolin's default. Requires Pangolin \u003e= 1.26.0.",
+                                    "type": "string"
+                                },
                                 "dashboard_session_length_hours": {
                                     "description": "Dashboard session lifetime in hours. Upstream default is 720 (30 days). For production environments with stricter security requirements, consider reducing to 168 (7 days) or 336 (14 days) to limit session exposure.",
                                     "type": "integer",
@@ -3041,6 +3096,13 @@
                                 "session_cookie_name": {
                                     "description": "Session cookie name.",
                                     "type": "string"
+                                },
+                                "trust_ips": {
+                                    "description": "Proxy addresses (IPs or CIDRs) whose client-IP headers Badger trusts. Setting any entry replaces Badger's built-in Cloudflare ranges. Empty keeps Pangolin's default. Requires Pangolin \u003e= 1.26.0.",
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
                                 },
                                 "trust_proxy": {
                                     "description": "Number of trusted reverse-proxy hops. Use 0 to disable trust-proxy.",
@@ -4105,7 +4167,7 @@
                     }
                 },
                 "colocateWithGerbil": {
-                    "description": "Pin the chart-managed Traefik Pods onto the node currently running Gerbil, using a required podAffinity on kubernetes.io/hostname. Only meaningful together with `gerbil.hostGateway.enabled`. auto     - follow gerbil.hostGateway.enabled (default) required - always pin disabled - never pin Suppressed automatically when it could not be satisfied (single mode, Gerbil disabled, or a startupMode that keeps Gerbil at zero replicas), because a required affinity against a workload that never schedules would leave Traefik Pending forever. The term is IgnoredDuringExecution: if Gerbil moves, already-running Traefik Pods stay put and keep returning 502 until they are restarted.",
+                    "description": "Pin the chart-managed Traefik Pods onto the node currently running Gerbil, using a required podAffinity on kubernetes.io/hostname. Only meaningful together with `gerbil.hostGateway.enabled` and `traefik.runInGerbilPod=false`; a Traefik in the Gerbil Pod is already on the right node. auto     - follow gerbil.hostGateway.enabled (default) required - always pin disabled - never pin Suppressed automatically when it could not be satisfied (single mode, Gerbil disabled, or a startupMode that keeps Gerbil at zero replicas), because a required affinity against a workload that never schedules would leave Traefik Pending forever. The term is IgnoredDuringExecution: if Gerbil moves, already-running Traefik Pods stay put and keep returning 502 until they are restarted.",
                     "type": "string",
                     "enum": [
                         "auto",
@@ -4135,7 +4197,7 @@
                             "type": "string"
                         },
                         "acmeDelayBeforeCheck": {
-                            "description": "Delay before ACME validation checks.",
+                            "description": "Seconds to wait before checking DNS propagation. Only used with the Cloudflare DNS challenge (when `traefik.cloudflare` credentials are configured); the HTTP challenge is used otherwise.",
                             "type": "integer",
                             "minimum": 0
                         },
@@ -4370,7 +4432,7 @@
                     }
                 },
                 "replicaCount": {
-                    "description": "Number of standalone Traefik replicas in multi mode.",
+                    "description": "Number of Traefik replicas when it runs in its own Deployment. Must be 1 while it runs in the Gerbil Pod (PANGOLIN-076).",
                     "type": "integer",
                     "minimum": 1
                 },
@@ -4406,6 +4468,10 @@
                             }
                         }
                     }
+                },
+                "runInGerbilPod": {
+                    "description": "Run the chart-managed Traefik as a container in the Gerbil Pod (deployment.type=standalone, deployment.mode=multi). Traefik then shares Gerbil's network namespace, where the WireGuard interface and the routes to tunnel backends live - the Docker Compose layout. A Traefik in a Pod of its own has no route to the 100.89.x.x addresses Pangolin advertises and answers 502 for every tunnel-backed resource unless gerbil.hostGateway is used. Ignored when Gerbil does not run (gerbil.enabled=false or a startupMode other than `normal`); Traefik then gets its own Deployment. While Traefik shares the Pod, the Gerbil egress NetworkPolicy is not rendered, because Traefik must reach backends the chart cannot enumerate.",
+                    "type": "boolean"
                 },
                 "securityContext": {
                     "type": "object",

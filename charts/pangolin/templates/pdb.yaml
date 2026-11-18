@@ -85,7 +85,9 @@ spec:
   {{- end }}
 {{- end }}
 
-{{- if and $root.Values.traefik.enabled (eq $root.Values.deployment.type "standalone") }}
+{{- /* Only a separate Traefik Deployment needs its own budget: in single mode and in the
+       Gerbil Pod the Pod's own budget covers it, and this selector would match nothing. */}}
+{{- if eq (include "pangolin.traefik.separateDeployment" $root) "true" }}
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget

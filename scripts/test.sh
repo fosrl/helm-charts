@@ -524,6 +524,10 @@ newtInstances:
           - alert: NewtDown
             expr: up == 0
 EOF
+  # The pangolin-cli chart names its instance list siteInstances.
+  if [ "$(basename "$chart")" = "pangolin-cli" ]; then
+    sed -i.bak 's/^newtInstances:/siteInstances:/; s/newt-cred/site-cred/; s/NewtDown/SiteDown/' "$metrics_tmp/c-values.yaml"
+  fi
   helm template test-c "$chart" -f "$metrics_tmp/c-values.yaml" > "$metrics_tmp/c.yaml" 2>/dev/null || true
   if grep -q "Kind: PrometheusRule\|kind: PrometheusRule" "$metrics_tmp/c.yaml"; then
     log_pass "PrometheusRule present with allowGlobalOverride"
@@ -615,7 +619,7 @@ main() {
     run_yamllint "$chart"
     run_matrix_render "$chart"
     
-    if [ "$RUN_METRICS" = "true" ] && [ "$(basename "$chart")" = "newt" ]; then
+    if [ "$RUN_METRICS" = "true" ] && { [ "$(basename "$chart")" = "newt" ] || [ "$(basename "$chart")" = "pangolin-cli" ]; }; then
       run_metrics_override_tests "$chart"
     fi
     

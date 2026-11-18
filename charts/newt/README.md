@@ -38,7 +38,6 @@ See [QUICKSTART-NEWT.md](../QUICKSTART-NEWT.md) for detailed instructions.
 
 ## Newt 1.11.0 notes (Chart version 1.3.0+)
 
-- This chart targets Newt 1.11.0 by default.
 - Upstream ping defaults changed in Newt 1.11.0. If you rely on the older 1.10.1 behavior, set `newtInstances[x].pingInterval` and `newtInstances[x].pingTimeout` explicitly.
 - Legacy installs using ID/secret (including `auth.existingSecretName`) still work unchanged.
 
@@ -427,4 +426,4 @@ global:
 
 | Name | Email | Url |
 | ---- | ------ | --- |
-| marcschaeferger | <info@marcschaeferger.de> | <https://github.com/marcschaeferger> |
+| Fossorial Inc | <contact@pangolin.net> |  |

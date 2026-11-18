@@ -1,0 +1,26 @@
+# Metrics values for pangolin-cli chart rendering
+# - Metrics enabled
+# - Metrics Service enabled
+# - ServiceMonitor enabled (PodMonitor disabled)
+# - PrometheusRule enabled
+
+siteInstances:
+  - name: main-tunnel
+    enabled: true
+    auth:
+      existingSecretName: site-auth
+
+global:
+  metrics:
+    enabled: true
+    service:
+      enabled: true
+    serviceMonitor:
+      enabled: true
+    podMonitor:
+      enabled: false
+    prometheusRule:
+      enabled: true
+  tests:
+    enabled: false
+

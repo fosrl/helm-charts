@@ -84,6 +84,26 @@ data:
       {{- with $server.maxmind_asn_path }}
       maxmind_asn_path: {{ . | quote }}
       {{- end }}
+      {{- with $server.trust_ips }}
+      trust_ips: {{ . | toJson }}
+      {{- end }}
+      {{- with $server.custom_ip_header }}
+      custom_ip_header: {{ . | quote }}
+      {{- end }}
+    {{- /* Emitted only when at least one threshold is set, and then only the keys
+           that are, so Pangolin's defaults keep applying to the rest. */}}
+    {{- $offline := dict -}}
+    {{- range $k, $v := ($cfg.offline_checker | default dict) }}
+    {{- if not (kindIs "invalid" $v) }}
+    {{- $_ := set $offline $k $v }}
+    {{- end }}
+    {{- end }}
+    {{- if gt (len $offline) 0 }}
+    offline_checker:
+      {{- range $k := keys $offline | sortAlpha }}
+      {{ $k }}: {{ int64 (get $offline $k) }}
+      {{- end }}
+    {{- end }}
     gerbil:
       start_port: {{ $gerbil.start_port | default 51820 }}
       clients_start_port: {{ $gerbil.clients_start_port | default 21820 }}

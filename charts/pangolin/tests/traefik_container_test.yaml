@@ -1,0 +1,69 @@
+suite: chart-managed Traefik container
+templates:
+  - templates/deployment-gerbil.yaml
+set:
+  deployment.type: standalone
+  deployment.mode: multi
+  traefik.enabled: true
+  traefik.config.letsencryptEmail: ops@example.com
+  traefik.config.dynamicRouters.host: pangolin.example.com
+tests:
+  # --ping and the probes use the `traefik` entrypoint, which defaults to :8080.
+  - it: binds the admin entrypoint to the probed port
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[1].args
+          content: --entrypoints.traefik.address=:8085
+      - equal:
+          path: spec.template.spec.containers[1].startupProbe.httpGet.port
+          value: 8085
+
+  # Without a challenge every certificate request fails with "ACME challenge not specified".
+  - it: uses the HTTP challenge on the HTTP entrypoint by default
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[1].args
+          content: --certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web
+      - contains:
+          path: spec.template.spec.containers[1].args
+          content: --certificatesresolvers.letsencrypt.acme.caserver=https://acme-v02.api.letsencrypt.org/directory
+
+  - it: uses the Cloudflare DNS challenge when credentials are configured
+    set:
+      traefik.cloudflare.existingSecretName: cf
+      traefik.config.acmeDelayBeforeCheck: 30
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[1].args
+          content: --certificatesresolvers.letsencrypt.acme.dnschallenge.provider=cloudflare
+      - contains:
+          path: spec.template.spec.containers[1].args
+          content: --certificatesresolvers.letsencrypt.acme.dnschallenge.propagation.delaybeforechecks=30s
+      - notContains:
+          path: spec.template.spec.containers[1].args
+          content: --certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web
+
+  - it: honours custom entrypoint and resolver names
+    set:
+      traefik.config.httpEntrypoint: http
+      traefik.config.httpsEntrypoint: https
+      traefik.config.certResolver: le
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[1].args
+          content: --entrypoints.http.address=:8000
+      - contains:
+          path: spec.template.spec.containers[1].args
+          content: --entrypoints.https.address=:9443
+      - contains:
+          path: spec.template.spec.containers[1].args
+          content: --certificatesresolvers.le.acme.httpchallenge.entrypoint=http
+
+  # Traefik does not create the directory acme.json lives in.
+  - it: always mounts a data directory
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: traefik-data
+            emptyDir: {}

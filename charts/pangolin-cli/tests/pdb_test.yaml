@@ -1,0 +1,25 @@
+suite: PodDisruptionBudget validation
+templates:
+  - templates/poddisruptionbudget.yaml
+tests:
+  - it: renders PDB when global PDB is enabled with minAvailable
+    set:
+      global:
+        podDisruptionBudget:
+          enabled: true
+          minAvailable: 1
+    asserts:
+      - isKind:
+          of: PodDisruptionBudget
+      - equal:
+          path: spec.minAvailable
+          value: 1
+
+  - it: does not render PDB when global PDB is disabled
+    set:
+      global:
+        podDisruptionBudget:
+          enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0

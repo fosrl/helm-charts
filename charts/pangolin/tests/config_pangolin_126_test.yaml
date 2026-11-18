@@ -1,0 +1,66 @@
+suite: Pangolin 1.26 configuration surface
+templates:
+  - templates/configmap-pangolin.yaml
+  - templates/configmap-controller.yaml
+  - templates/rbac.yaml
+tests:
+  - it: omits the new optional keys by default
+    template: templates/configmap-pangolin.yaml
+    asserts:
+      - notMatchRegex:
+          path: data["config.yml"]
+          pattern: "trust_ips|custom_ip_header|offline_checker"
+
+  - it: renders trust_ips and custom_ip_header when set
+    template: templates/configmap-pangolin.yaml
+    set:
+      pangolin.config.server.trust_ips:
+        - 10.0.0.0/8
+        - 192.0.2.1
+      pangolin.config.server.custom_ip_header: X-Real-IP
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: 'trust_ips: \["10.0.0.0/8","192.0.2.1"\]'
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: 'custom_ip_header: "X-Real-IP"'
+
+  - it: renders only the offline_checker keys that are set
+    template: templates/configmap-pangolin.yaml
+    set:
+      pangolin.config.offline_checker.newt_threshold_ms: 300000
+    asserts:
+      - matchRegex:
+          path: data["config.yml"]
+          pattern: "offline_checker:\n  newt_threshold_ms: 300000\n"
+      - notMatchRegex:
+          path: data["config.yml"]
+          pattern: "check_interval_ms"
+
+  - it: passes the ingress class and resync interval to the controller
+    template: templates/configmap-controller.yaml
+    set:
+      controller.config.ingressClass: edge
+      controller.config.resyncInterval: 5m
+    asserts:
+      - equal:
+          path: data.INGRESS_CLASS
+          value: edge
+      - equal:
+          path: data.RESYNC_INTERVAL
+          value: 5m
+
+  # The controller writes the client-CA Secrets mTLS TLSOptions reference.
+  - it: lets the controller manage Secrets
+    template: templates/rbac.yaml
+    documentSelector:
+      path: kind
+      value: Role
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["services", "endpoints", "secrets"]
+            verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]

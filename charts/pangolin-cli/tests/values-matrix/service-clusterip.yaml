@@ -1,0 +1,11 @@
+# Service rendering tests
+siteInstances:
+  - name: service-basic
+    enabled: true
+    auth:
+      existingSecretName: site-auth
+    service:
+      enabled: true
+      type: ClusterIP
+      port: 51820
+      testerPort: 51821

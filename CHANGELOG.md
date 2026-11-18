@@ -9,9 +9,42 @@ This changelog is chart-scoped to support multiple charts over time.
 
 ## Pangolin Chart (`charts/pangolin`)
 
-### Unreleased
+### 0.1.0 - 2026-11-18
 
 #### Fixed
+
+- Pangolin can reach Gerbil's HTTP API under the chart's own NetworkPolicy. The Pangolin
+  egress policy had no rule for `gerbil.ports.internalApi`, so every peer registration
+  failed with `ECONNREFUSED` and no tunnel could come up
+  ([#39](https://github.com/fosrl/helm-charts/issues/39)). In host gateway mode the rule
+  targets `networkPolicy.gerbil.hostGateway.nodeCIDRs`.
+- The chart-managed Traefik starts and stays up. Its probes target `/ping` on
+  `traefik.config.adminPort`, but the `traefik` entrypoint was never bound there and
+  defaulted to :8080, so every probe failed.
+- The chart-managed Traefik can issue certificates. Without persistence `/data` did not
+  exist, so Traefik dropped the resolver (`open /data/acme.json: no such file or
+  directory`); it is now an `emptyDir` in that case. The resolver also had no challenge,
+  so every request failed with `ACME challenge not specified`; it now uses the HTTP
+  challenge, or the Cloudflare DNS challenge when `traefik.cloudflare` credentials are
+  configured. `traefik.config.acmeCaServer` is applied.
+- `traefik.config.acmeDelayBeforeCheck` no longer renders
+  `--certificatesresolvers.letsencrypt.acme.delaybeforecheck`, a flag Traefik v3 rejects
+  at startup (`field not found`). It now sets the DNS challenge propagation delay.
+- The chart-managed Traefik's Kubernetes providers can read the API. Its ServiceAccount
+  does not automount a token, so the providers failed every watch; a projected token is
+  now mounted into the Traefik container only.
+- `traefik.persistence.enabled=true` without `existingClaim` creates the
+  `<release>-pangolin-traefik-acme` PVC the Pods mount. Nothing created it before, so the
+  Pods stayed Pending.
+- The chart-managed Traefik's HTTPS listener moves from container port 8443 to 9443.
+  Gerbil's SNI proxy binds 8443, so Traefik failed with `bind: address already in use`
+  wherever the two share a network namespace (single mode, and now the Gerbil Pod).
+  Gerbil gets `LOCAL_PROXY_PORT=9443` there so its SNI proxy forwards to Traefik. The
+  Service ports (80/443) are unchanged.
+- `traefik.config.httpEntrypoint`, `httpsEntrypoint` and `certResolver` are applied to the
+  chart-managed Traefik; the names were hardcoded.
+- The controller Role grants `secrets`. pangolin-kube-controller 0.1.0 writes the client
+  CA Secrets that mTLS `TLSOption`s reference.
 
 - `pangolin.config.server.internal_hostname` now defaults to the in-cluster FQDN instead
   of the bare Service name. Badger resolves it from inside the Traefik Pod, so with
@@ -42,6 +75,15 @@ This changelog is chart-scoped to support multiple charts over time.
   onto the default, so telemetry could not be turned off.
 
 #### Added
+
+- The Pangolin 1.23-1.26 configuration surface: `server.trust_ips` and
+  `server.custom_ip_header` (Badger's trusted proxies, Pangolin >= 1.26) and
+  `offline_checker.*` (offline thresholds and check interval, Pangolin >= 1.25). Each is
+  emitted only when set, so Pangolin's defaults apply otherwise.
+- `traefik.runInGerbilPod` (default `true`). See the breaking change below.
+- `controller.config.ingressClass` (default `traefik`) and
+  `controller.config.resyncInterval` (default `10m`) for pangolin-kube-controller 0.1.0.
+- `PANGOLIN-076` rejects `traefik.replicaCount > 1` while Traefik runs in the Gerbil Pod.
 
 - `database.sqlite.persistence.*` is implemented: it renders a PVC and mounts the
   directory holding `database.sqlite.path` in both `multi` and `single` mode. The values
@@ -78,9 +120,22 @@ This changelog is chart-scoped to support multiple charts over time.
 
 #### Changed
 
-- Bumped Pangolin appVersion to `1.22.2`, the Gerbil image to `1.5.1`, the
-  pangolin-kube-controller image to `0.1.0-alpha.2` and the chart to `0.1.0-alpha.2`.
-  The chart remains a prerelease.
+- Bumped Pangolin appVersion to `1.26.0`, Gerbil to `1.6.0`, pangolin-kube-controller to
+  `0.1.0`, Badger to `v1.8.0` (permanent redirects need it), and the chart to `0.1.0`. The
+  chart and the controller leave prerelease. pangolin-kube-controller 0.1.0 is required:
+  earlier builds produced TraefikServices the API server stripped of their servers, and
+  could not handle TCP/UDP, mTLS or redirects.
+- **BREAKING (standalone, multi mode):** the chart-managed Traefik runs as a container in
+  the Gerbil Pod instead of its own Deployment, so it shares Gerbil's network namespace
+  and reaches tunnel backends; a separate Traefik Pod returned `502` for every
+  tunnel-backed resource ([#20](https://github.com/fosrl/helm-charts/issues/20)). On
+  upgrade the `<release>-pangolin-traefik` Deployment and its PDB are removed, the
+  Traefik Service selects the Gerbil Pod, the Traefik ClusterRoleBinding moves to the
+  Gerbil ServiceAccount, and the Gerbil egress NetworkPolicy is no longer rendered.
+  Set `traefik.runInGerbilPod=false` to keep the previous layout. Controller mode is
+  unaffected.
+- Bumped the bundled Traefik chart to `42.4.1` and `images.traefik.tag` to `v3.7.19`, and
+  the CloudNativePG charts to `cloudnative-pg` `0.29.2` / `cluster` `0.9.0`.
 - `images.traefik.tag` moves from `v3.6.15` to `v3.7.13`. The v3.6 line is out of upstream
   security support, and the bundled Traefik chart already installs v3.7.13, so the two ways
   this chart can run Traefik no longer sit on different minors.
@@ -136,6 +191,26 @@ This changelog is chart-scoped to support multiple charts over time.
 #### Added
 
 - Initial alpha release of the Pangolin Helm chart (`charts/pangolin`).
+
+---
+
+## Pangolin CLI Chart (`charts/pangolin-cli`)
+
+### 0.1.0 - 2026-11-18
+
+#### Added
+
+- New chart that runs Pangolin sites with the Pangolin CLI (`pangolin-cli up site`,
+  image `docker.io/fosrl/pangolin-cli`, also `ghcr.io/fosrl/cli`). Each entry in
+  `siteInstances` becomes a Deployment.
+- The container command is always `pangolin-cli up site`. The image entrypoint is skipped
+  because it runs `update-ca-certificates` under `set -e`, which exits 1 as uid 65534 on a
+  read-only root filesystem, and it only reaches `up site` when both `SITE_ID` and
+  `SITE_SECRET` are set.
+- Site settings use `SITE_`-prefixed environment variables (`SITE_ID`, `SITE_SECRET`,
+  `SITE_PROVISIONING_KEY`, `SITE_NAME`, `SITE_UDP_PROXY_IDLE_TIMEOUT`, `SITE_METRICS_*`,
+  `SITE_ADMIN_ADDR`, `SITE_REGION`, `SITE_PPROF_ENABLED`), and the generated Secret uses
+  the keys `SITE_ID` / `SITE_SECRET`.
 
 ---
 
