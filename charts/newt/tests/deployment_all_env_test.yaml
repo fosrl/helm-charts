@@ -647,6 +647,38 @@ tests:
             name: NEWT_UDP_PROXY_IDLE_TIMEOUT
             value: 120s
 
+  # --- options Newt gained through 1.20 ------------------------------------------
+  - it: joins localEndpointInterfaces into LOCAL_ENDPOINT_INTERFACES
+    set:
+      newtInstances:
+        - name: main-tunnel
+          enabled: true
+          auth:
+            existingSecretName: newt-cred
+          localEndpointInterfaces:
+            - eth0
+            - eth1
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LOCAL_ENDPOINT_INTERFACES
+            value: eth0,eth1
+
+  - it: omits LOCAL_ENDPOINT_INTERFACES by default so Newt reports every interface
+    set:
+      newtInstances:
+        - name: main-tunnel
+          enabled: true
+          auth:
+            existingSecretName: newt-cred
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          any: true
+          content:
+            name: LOCAL_ENDPOINT_INTERFACES
+
   # AD_KEY is a credential, so it is only ever referenced from a Secret.
   - it: references the auth daemon key from a Secret and never inlines it
     set:

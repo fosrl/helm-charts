@@ -368,6 +368,10 @@ Every consumer - security context, env and CLI args - reads this one helper so t
 - name: NEWT_UDP_PROXY_IDLE_TIMEOUT
   value: {{ $inst.udpProxyIdleTimeout | quote }}
 {{- end }}
+{{- if $inst.localEndpointInterfaces }}
+- name: LOCAL_ENDPOINT_INTERFACES
+  value: {{ join "," $inst.localEndpointInterfaces | quote }}
+{{- end }}
 {{- $authDaemon := default (dict) $inst.authDaemon }}
 {{- if and $authDaemon.keySecretName $authDaemon.keySecretKey }}
 - name: AD_KEY
@@ -512,6 +516,7 @@ Every consumer - security context, env and CLI args - reads this one helper so t
 {{- if and $inst.interfaceMain (ne $inst.interfaceMain "newt") }}{{- $args = append $args (printf "--interface-main=%s" $inst.interfaceMain) }}{{- end }}
 {{- if $inst.preferEndpoint }}{{- $args = append $args (printf "--prefer-endpoint=%s" $inst.preferEndpoint) }}{{- end }}
 {{- if $inst.udpProxyIdleTimeout }}{{- $args = append $args (printf "--udp-proxy-idle-timeout=%s" $inst.udpProxyIdleTimeout) }}{{- end }}
+{{- if $inst.localEndpointInterfaces }}{{- $args = append $args (printf "--local-endpoint-interfaces=%s" (join "," $inst.localEndpointInterfaces)) }}{{- end }}
 {{- if $inst.blueprintFile }}{{- $args = append $args (printf "--blueprint-file=%s" $inst.blueprintFile) }}{{- end }}
 {{- if $inst.enforceHcCert }}{{- $args = append $args "--enforce-hc-cert" }}{{- end }}
 {{- /* Metrics CLI args */ -}}

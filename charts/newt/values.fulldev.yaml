@@ -650,6 +650,12 @@ newtInstances:
     # -- Idle timeout for proxied UDP flows, e.g. "90s"
     # (NEWT_UDP_PROXY_IDLE_TIMEOUT). Empty uses the Newt default.
     udpProxyIdleTimeout: ""
+    # -- Restrict the local endpoints Newt reports to Pangolin to these network
+    # interface names, e.g. ["eth0"] (LOCAL_ENDPOINT_INTERFACES). Clients on the same
+    # network use those addresses to connect directly. Empty reports every interface.
+    # Mostly useful with hostNetwork: true, where the pod sees all node interfaces.
+    # Requires Newt >= 1.17.0.
+    localEndpointInterfaces: [] # @schema type: array ; item: string ; default: []
     authDaemon:
       # -- Name of an existing Secret holding the auth daemon pre-shared key (AD_KEY).
       # The key is only ever referenced, never rendered into the manifest.

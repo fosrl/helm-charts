@@ -7,9 +7,9 @@ This file tracks chart versions, default app versions, and related defaults for 
 | Item | Value |
 | --- | --- |
 | Chart version | `1.6.0` |
-| App version | `1.16.0` |
+| App version | `1.20.0` |
 | Kubernetes version | `>=1.30.14-0` |
-| Default image tag | `1.16.0` |
+| Default image tag | `1.20.0` |
 
 Sources:
 

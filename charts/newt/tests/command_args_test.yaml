@@ -99,3 +99,21 @@ tests:
           content:
             name: PREFER_ENDPOINT
             value: "1.2.3.4:51820"
+
+  - it: renders local-endpoint-interfaces as a comma-joined CLI flag in args mode
+    set:
+      newtInstances:
+        - name: args-mode
+          enabled: true
+          useCommandArgs: true
+          localEndpointInterfaces:
+            - eth0
+            - wlan0
+          pangolinEndpoint: "https://pangolin.example.com"
+          id: abc123
+          secret: s3cret
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--local-endpoint-interfaces=eth0,wlan0"
+
