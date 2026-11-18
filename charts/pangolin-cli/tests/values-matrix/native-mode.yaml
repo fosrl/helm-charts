@@ -1,0 +1,12 @@
+# Native mode enabled
+siteInstances:
+  - name: native-mode
+    enabled: true
+    useNativeInterface: true
+    hostNetwork: true
+    hostPID: true
+    auth:
+      existingSecretName: site-auth
+global:
+  nativeMode:
+    enabled: true

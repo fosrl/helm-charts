@@ -1,0 +1,8 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ServiceMonitor (stub)",
+  "type": "object",
+  "description": "Permissive stub schema for Prometheus Operator ServiceMonitor to enable offline kubeconform validation.",
+  "additionalProperties": true
+}
+

@@ -1,0 +1,37 @@
+# Reference example that sets every option the chart supports
+global:
+  image:
+    registry: docker.io
+    repository: fosrl/pangolin-cli
+    tag: latest
+  logLevel: INFO
+  metrics:
+    enabled: true
+    service:
+      enabled: true
+      type: ClusterIP
+      port: 9090
+siteInstances:
+  - name: main-tunnel
+    enabled: true
+    pangolinEndpoint: "https://pangolin.example.com"
+    id: example-id
+    secret: example-secret
+    mtu: 1380
+    dns: 8.8.8.8
+    acceptClients: false
+    useNativeInterface: false
+    service:
+      enabled: true
+      type: LoadBalancer
+      port: 51820
+      testerPort: 51821
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "500m"
+        memory: "256Mi"
+    extraEnv:
+      EXAMPLE_FLAG: "true"

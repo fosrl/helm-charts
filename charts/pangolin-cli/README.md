@@ -1,0 +1,462 @@
+<!-- markdownlint-disable MD013 -->
+<!-- markdownlint-disable MD034 -->
+<!-- markdownlint-disable MD056 -->
+<!-- markdownlint-disable MD060 -->
+
+# Pangolin CLI Helm Chart
+
+![Version: 0.1.0](https://img.shields.io/badge/Version-0.1.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.20.0](https://img.shields.io/badge/AppVersion-0.20.0-informational?style=flat-square)
+
+Helm chart to run Pangolin sites with the Pangolin CLI (fosrl/cli)
+
+Each entry in `siteInstances` becomes a Deployment running `pangolin-cli up site`,
+which connects a Pangolin site from inside the cluster.
+
+## How the site is configured
+
+- Image: `docker.io/fosrl/pangolin-cli` (also published as `ghcr.io/fosrl/cli`).
+- Command: the container always runs `pangolin-cli up site`. The image entrypoint is
+  not used, because it calls `update-ca-certificates` and exits as the chart's default
+  non-root user on a read-only root filesystem.
+- Settings are passed as environment variables by default, or as command-line flags with
+  `useCommandArgs: true`. Site-specific variables use the `SITE_` prefix (`SITE_ID`,
+  `SITE_SECRET`, `SITE_PROVISIONING_KEY`, `SITE_NAME`, `SITE_UDP_PROXY_IDLE_TIMEOUT`,
+  `SITE_METRICS_PROMETHEUS_ENABLED`, `SITE_METRICS_OTLP_ENABLED`,
+  `SITE_METRICS_ASYNC_BYTES`, `SITE_ADMIN_ADDR`, `SITE_REGION`, `SITE_PPROF_ENABLED`).
+  The rest (`PANGOLIN_ENDPOINT`, `LOG_LEVEL`, `MTU`, ...) have no prefix.
+- Credentials come from a Secret with the keys `PANGOLIN_ENDPOINT`, `SITE_ID` and
+  `SITE_SECRET`. Use `auth.keys` if your Secret names them differently.
+- Pods carry `app.kubernetes.io/component: site` and `pangolin-cli.instance: <name>`,
+  and the container is named `site`.
+
+## ✨ Features
+
+- Env var or CLI flag configuration
+- Provisioning key support (key-based bootstrap)
+- First-class writable config persistence for CONFIG_FILE (emptyDir or existing PVC)
+- Provisioning blueprint support (single-use)
+- Optional mTLS (PKCS12) secret mount
+- Optional up/down script injection
+- Native WireGuard (privileged) mode (opt-in)
+- Health file based probes & helm test Jobs
+- RBAC Role/ClusterRole (opt-in)
+- NetworkPolicy (opt-in)
+- Prometheus metrics, PodMonitor, ServiceMonitor, PrometheusRule (opt-in)
+- Optional pprof endpoint enablement (opt-in)
+- Multi-instance (array-driven) deployments with per-instance overrides
+
+## Prerequisites
+
+- Kubernetes >= 1.30.14
+- Helm 3.x
+- kubectl >= v1.30.14
+- Site credentials (ID and secret) or a provisioning key from Pangolin
+
+## Quick Start
+
+```console
+helm repo add fossorial https://charts.fossorial.io
+helm repo update fossorial
+
+kubectl create secret generic pangolin-site \
+  --from-literal=PANGOLIN_ENDPOINT=https://pangolin.example.com \
+  --from-literal=SITE_ID=<site-id> \
+  --from-literal=SITE_SECRET=<site-secret>
+
+helm install my-site fossorial/pangolin-cli \
+  --set siteInstances[0].name=main-tunnel \
+  --set siteInstances[0].enabled=true \
+  --set siteInstances[0].auth.existingSecretName=pangolin-site
+```
+
+Replace the `<site-id>` and `<site-secret>` placeholders with the credentials Pangolin
+shows when you create the site. To have the site created for you instead, use a
+provisioning key as in the examples below.
+
+## Provisioning examples
+
+### Provisioning (emptyDir) + writable config persistence
+
+```yaml
+siteInstances:
+  - name: main-tunnel
+    enabled: true
+    pangolinEndpoint: https://pangolin.example.com
+    provisioningKey: "YOUR_PROVISIONING_KEY"
+    siteName: "my-site"
+
+    # Required for provisioning-based installs so the CLI can write credentials
+    configPersistence:
+      enabled: true
+      type: emptyDir
+      mountPath: /var/lib/pangolin
+      fileName: config.json
+```
+
+### Provisioning (existing PVC) + writable config persistence
+
+```yaml
+siteInstances:
+  - name: main-tunnel
+    enabled: true
+    pangolinEndpoint: https://pangolin.example.com
+    provisioningKey: "YOUR_PROVISIONING_KEY"
+    siteName: "my-site"
+
+    configPersistence:
+      enabled: true
+      type: persistentVolumeClaim
+      existingClaim: my-site-config
+      mountPath: /var/lib/pangolin
+      fileName: config.json
+```
+
+### Provisioning blueprint (single-use)
+
+```yaml
+siteInstances:
+  - name: main-tunnel
+    enabled: true
+    pangolinEndpoint: https://pangolin.example.com
+    provisioningKey: "YOUR_PROVISIONING_KEY"
+    siteName: "my-site"
+
+    configPersistence:
+      enabled: true
+      type: emptyDir
+
+    provisioningBlueprintFile: /etc/pangolin/provisioning-blueprint.yaml
+    provisioningBlueprintData: |
+      version: 1
+      routes: []
+```
+
+### pprof enablement
+
+```yaml
+global:
+  metrics:
+    pprofEnabled: true
+```
+
+## Values
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| global.additionalAnnotations | object | `{}` | Additional annotations applied to all rendered resources. |
+| global.additionalLabels | object | `{}` | Additional labels applied to all rendered resources. |
+| global.additionalServiceAnnotations | object | `{}` | Additional annotations applied to external Service resources. |
+| global.additionalServiceLabels | object | `{}` | Additional labels applied to external Service resources. |
+| global.affinity | object | `{"nodeAffinity":{},"podAffinity":{},"podAntiAffinity":{}}` | Pod affinity and anti-affinity |
+| global.affinity.nodeAffinity | object | `{}` | Node affinity rules |
+| global.affinity.podAffinity | object | `{}` | Pod affinity rules |
+| global.affinity.podAntiAffinity | object | `{}` | Pod anti-affinity rules |
+| global.deploymentAnnotations | object | `{}` | Additional annotations applied to Deployment resources. |
+| global.deploymentLabels | object | `{}` | Additional labels applied to Deployment resources. |
+| global.extraEnv | object | `{}` | Extra environment variables injected into all containers (global scope). Map format: KEY: "value" |
+| global.fullnameOverride | string | `""` | Fully override the computed fullname. |
+| global.health | object | `{"enabled":false,"path":"/tmp/healthy","readinessFailureThreshold":3}` | --------------------------------------------------------------------------- |
+| global.health.path | string | `"/tmp/healthy"` | Health file path checked by probes |
+| global.health.readinessFailureThreshold | int | `3` | Readiness probe failure threshold |
+| global.image | object | `{"digest":"","imagePullPolicy":"IfNotPresent","imagePullSecrets":[],"registry":"docker.io","repository":"fosrl/pangolin-cli","tag":""}` | Global container image configuration used by all chart components. |
+| global.image.digest | string | `""` | Image digest (overrides tag when set). Format: sha256:<64-hex>. |
+| global.image.imagePullPolicy | string | `"IfNotPresent"` | Image pull policy. |
+| global.image.imagePullSecrets | list | `[]` | Image pull secrets (list of Kubernetes Secret references). Each entry should be an object like: { name: "my-secret" } |
+| global.image.registry | string | `"docker.io"` | Container image registry (e.g., docker.io, ghcr.io, registry.example.com). |
+| global.image.repository | string | `"fosrl/pangolin-cli"` | Container image repository (e.g., fosrl/pangolin-cli). |
+| global.image.tag | string | `""` | Image tag (defaults to Chart.appVersion if empty). |
+| global.logLevel | string | `"INFO"` | Global log level |
+| global.metrics | object | `{"adminAddr":":2112","annotations":{},"asyncBytes":false,"enabled":false,"otel":{"exporterOtlpEndpoint":"","exporterOtlpHeaders":"","exporterOtlpProtocol":"","serviceName":""},"otlpEnabled":false,"path":"/metrics","podMonitor":{"annotations":{},"apiVersion":"monitoring.coreos.com/v1","enabled":false,"honorLabels":true,"interval":"30s","labels":{},"metricRelabelings":[],"namespace":"","path":"/metrics","portName":"metrics","relabelings":[],"scheme":"http","scrapeTimeout":"10s"},"port":9090,"portName":"metrics","pprofEnabled":false,"prometheusRule":{"apiVersion":"monitoring.coreos.com/v1","enabled":false,"labels":{},"namespace":"","rules":[]},"region":"","service":{"annotations":{},"enabled":false,"port":2112,"portName":"metrics","type":"ClusterIP"},"serviceMonitor":{"apiVersion":"monitoring.coreos.com/v1","enabled":false,"interval":"30s","jobLabel":"","labels":{},"metricRelabelings":[],"namespace":"","relabelings":[],"sampleLimit":0,"scheme":"http","scrapeTimeout":"10s","targetLabels":[]},"targetPortName":""}` | --------------------------------------------------------------------------- @section Global Metrics |
+| global.metrics.adminAddr | string | `":2112"` | Address the site binds for the metrics/admin server (SITE_ADMIN_ADDR). AUTHORITATIVE for the metrics port: the container port, the Service targetPort and the prometheus.io/port annotation are all derived from it, so they cannot drift apart the way they did before (#16). ":2112" listens on all interfaces, which in-cluster Prometheus scraping requires. "127.0.0.1:2112" restricts to loopback and therefore disables scraping. |
+| global.metrics.annotations | object | `{}` | Extra annotations added to metrics-related objects (e.g., Pods/Service depending on chart logic) |
+| global.metrics.asyncBytes | bool | `false` | Enable async bytes metrics (SITE_METRICS_ASYNC_BYTES) |
+| global.metrics.enabled | bool | `false` | Enable Prometheus-compatible metrics exposure |
+| global.metrics.otel | object | `{"exporterOtlpEndpoint":"","exporterOtlpHeaders":"","exporterOtlpProtocol":"","serviceName":""}` | OTEL exporter configuration (used when otlpEnabled=true) These are passed as environment variables to the container |
+| global.metrics.otel.exporterOtlpEndpoint | string | `""` | OTLP endpoint (OTEL_EXPORTER_OTLP_ENDPOINT) |
+| global.metrics.otel.exporterOtlpHeaders | string | `""` | OTLP headers (OTEL_EXPORTER_OTLP_HEADERS) - comma-separated key=value pairs |
+| global.metrics.otel.exporterOtlpProtocol | string | `""` | OTLP exporter protocol (OTEL_EXPORTER_OTLP_PROTOCOL) - grpc, http/protobuf, or http/json |
+| global.metrics.otel.serviceName | string | `""` | Service name for OTLP (OTEL_SERVICE_NAME) |
+| global.metrics.otlpEnabled | bool | `false` | Enable OTLP exporter (SITE_METRICS_OTLP_ENABLED) |
+| global.metrics.path | string | `"/metrics"` | Metrics HTTP path |
+| global.metrics.podMonitor | object | `{"annotations":{},"apiVersion":"monitoring.coreos.com/v1","enabled":false,"honorLabels":true,"interval":"30s","labels":{},"metricRelabelings":[],"namespace":"","path":"/metrics","portName":"metrics","relabelings":[],"scheme":"http","scrapeTimeout":"10s"}` | --------------------------------------------------------------------------- |
+| global.metrics.podMonitor.annotations | object | `{}` | Extra annotations applied to the PodMonitor |
+| global.metrics.podMonitor.apiVersion | string | `"monitoring.coreos.com/v1"` | PodMonitor API version (Prometheus Operator) |
+| global.metrics.podMonitor.enabled | bool | `false` | Create a PodMonitor resource |
+| global.metrics.podMonitor.honorLabels | bool | `true` | Whether to honor labels from the scraped target |
+| global.metrics.podMonitor.interval | string | `"30s"` | Scrape interval (Prometheus duration, e.g., 30s, 1m) |
+| global.metrics.podMonitor.labels | object | `{}` | Extra labels applied to the PodMonitor |
+| global.metrics.podMonitor.metricRelabelings | list | `[]` | Metric relabeling rules (Prometheus Operator schema; treated as opaque objects) |
+| global.metrics.podMonitor.namespace | string | `""` | Namespace override for PodMonitor (empty = release namespace) |
+| global.metrics.podMonitor.path | string | `"/metrics"` | Metrics path |
+| global.metrics.podMonitor.portName | string | `"metrics"` | Scrape port name (must match a named port on the Pod/Service endpoints) |
+| global.metrics.podMonitor.relabelings | list | `[]` | Relabeling rules (Prometheus Operator schema; treated as opaque objects) |
+| global.metrics.podMonitor.scheme | string | `"http"` | HTTP scheme for scraping |
+| global.metrics.podMonitor.scrapeTimeout | string | `"10s"` | Scrape timeout (must be <= interval) |
+| global.metrics.port | int | `9090` | DEPRECATED: use `adminAddr`, which is the address the site actually binds. Kept for compatibility: when set to a non-default value while `adminAddr` is still ":2112", it is used as the listen port so existing values files render the same port numbers as before. It no longer defines the container port on its own. |
+| global.metrics.portName | string | `"metrics"` | Optional Service port name (used when creating a Service) |
+| global.metrics.pprofEnabled | bool | `false` | Enable pprof endpoints (SITE_PPROF_ENABLED). Disabled by default. |
+| global.metrics.prometheusRule | object | `{"apiVersion":"monitoring.coreos.com/v1","enabled":false,"labels":{},"namespace":"","rules":[]}` | --------------------------------------------------------------------------- |
+| global.metrics.prometheusRule.apiVersion | string | `"monitoring.coreos.com/v1"` | PrometheusRule API version (Prometheus Operator) |
+| global.metrics.prometheusRule.enabled | bool | `false` | Create a PrometheusRule resource |
+| global.metrics.prometheusRule.labels | object | `{}` | Extra labels applied to the PrometheusRule |
+| global.metrics.prometheusRule.namespace | string | `""` | Namespace override for PrometheusRule (empty = release namespace) |
+| global.metrics.prometheusRule.rules | list | `[]` | Rule groups/rules (templated). Structure is PrometheusRule-compatible; treated as opaque objects. |
+| global.metrics.region | string | `""` | Region for metrics/telemetry (SITE_REGION) |
+| global.metrics.service | object | `{"annotations":{},"enabled":false,"port":2112,"portName":"metrics","type":"ClusterIP"}` | --------------------------------------------------------------------------- |
+| global.metrics.service.annotations | object | `{}` | Additional Service annotations |
+| global.metrics.service.enabled | bool | `false` | Create a dedicated Service for metrics scraping |
+| global.metrics.service.port | int | `2112` | Service port exposed for scraping (matches adminAddr default port 2112) |
+| global.metrics.service.portName | string | `"metrics"` | Service port name |
+| global.metrics.service.type | string | `"ClusterIP"` | Kubernetes Service type |
+| global.metrics.serviceMonitor | object | `{"apiVersion":"monitoring.coreos.com/v1","enabled":false,"interval":"30s","jobLabel":"","labels":{},"metricRelabelings":[],"namespace":"","relabelings":[],"sampleLimit":0,"scheme":"http","scrapeTimeout":"10s","targetLabels":[]}` | --------------------------------------------------------------------------- |
+| global.metrics.serviceMonitor.apiVersion | string | `"monitoring.coreos.com/v1"` | ServiceMonitor API version (Prometheus Operator) |
+| global.metrics.serviceMonitor.enabled | bool | `false` | Create a ServiceMonitor resource |
+| global.metrics.serviceMonitor.interval | string | `"30s"` | Scrape interval (Prometheus duration, e.g., 30s, 1m) |
+| global.metrics.serviceMonitor.jobLabel | string | `""` | Job label override (if your Prometheus setup uses a custom jobLabel) |
+| global.metrics.serviceMonitor.labels | object | `{}` | Extra labels applied to the ServiceMonitor |
+| global.metrics.serviceMonitor.metricRelabelings | list | `[]` | Metric relabeling rules (Prometheus Operator schema; treated as opaque objects) |
+| global.metrics.serviceMonitor.namespace | string | `""` | Namespace override for ServiceMonitor (empty = release namespace) |
+| global.metrics.serviceMonitor.relabelings | list | `[]` | Relabeling rules (Prometheus Operator schema; treated as opaque objects) |
+| global.metrics.serviceMonitor.sampleLimit | int | `0` | Sample limit (0 = unlimited) |
+| global.metrics.serviceMonitor.scheme | string | `"http"` | HTTP scheme for scraping |
+| global.metrics.serviceMonitor.scrapeTimeout | string | `"10s"` | Scrape timeout (Prometheus duration) |
+| global.metrics.serviceMonitor.targetLabels | list | `[]` | Labels to transfer from the target Service onto metrics |
+| global.metrics.targetPortName | string | `""` | Optional container port name to target instead of numeric port |
+| global.nameOverride | string | `""` | Override chart name (replaces .Chart.Name). |
+| global.namespaceOverride | string | `""` | Override the namespace for rendered resources (defaults to .Release.Namespace). |
+| global.nativeMode.enabled | bool | `false` | Permission gate for native WireGuard interfaces. This grants nothing on its own: an instance becomes root and privileged only when it also sets useNativeInterface or useNativeMainInterface. Those settings are rejected while this is false. |
+| global.networkPolicy | object | `{"components":{"custom":{"egress":[],"enabled":false,"ingress":[],"policyTypes":["Ingress","Egress"]},"defaultApp":{"egress":[],"enabled":true,"ingress":[],"policyTypes":["Ingress","Egress"]},"dns":{"egress":[{"ports":[{"port":53,"protocol":"UDP"},{"port":53,"protocol":"TCP"}],"to":[{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"kube-system"}},"podSelector":{"matchLabels":{"k8s-app":"kube-dns"}}}]}],"enabled":false},"kubeApi":{"egress":[{"ports":[{"port":6443,"protocol":"TCP"}],"to":[{"ipBlock":{"cidr":"0.0.0.0/0"}},{"ipBlock":{"cidr":"::/0"}}]}],"enabled":false}},"defaultMode":"merge","enabled":false,"ruleSets":{}}` | Instance-level networkPolicy can inherit, merge, or replace these settings. |
+| global.networkPolicy.components | object | `{"custom":{"egress":[],"enabled":false,"ingress":[],"policyTypes":["Ingress","Egress"]},"defaultApp":{"egress":[],"enabled":true,"ingress":[],"policyTypes":["Ingress","Egress"]},"dns":{"egress":[{"ports":[{"port":53,"protocol":"UDP"},{"port":53,"protocol":"TCP"}],"to":[{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"kube-system"}},"podSelector":{"matchLabels":{"k8s-app":"kube-dns"}}}]}],"enabled":false},"kubeApi":{"egress":[{"ports":[{"port":6443,"protocol":"TCP"}],"to":[{"ipBlock":{"cidr":"0.0.0.0/0"}},{"ipBlock":{"cidr":"::/0"}}]}],"enabled":false}}` | --------------------------------------------------------------------------- |
+| global.networkPolicy.components.custom | object | `{"egress":[],"enabled":false,"ingress":[],"policyTypes":["Ingress","Egress"]}` | ----------------------------------------------------------------------- |
+| global.networkPolicy.components.custom.egress | list | `[]` | Custom egress rules (raw NetworkPolicySpec.egress objects) |
+| global.networkPolicy.components.custom.ingress | list | `[]` | Custom ingress rules (raw NetworkPolicySpec.ingress objects) |
+| global.networkPolicy.components.defaultApp | object | `{"egress":[],"enabled":true,"ingress":[],"policyTypes":["Ingress","Egress"]}` | ----------------------------------------------------------------------- |
+| global.networkPolicy.components.defaultApp.egress | list | `[]` | Raw Kubernetes NetworkPolicySpec.egress rules |
+| global.networkPolicy.components.defaultApp.ingress | list | `[]` | Raw Kubernetes NetworkPolicySpec.ingress rules |
+| global.networkPolicy.components.defaultApp.policyTypes | list | `["Ingress","Egress"]` | NetworkPolicy policyTypes |
+| global.networkPolicy.components.dns | object | `{"egress":[{"ports":[{"port":53,"protocol":"UDP"},{"port":53,"protocol":"TCP"}],"to":[{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"kube-system"}},"podSelector":{"matchLabels":{"k8s-app":"kube-dns"}}}]}],"enabled":false}` | ----------------------------------------------------------------------- |
+| global.networkPolicy.components.dns.egress | list | `[{"ports":[{"port":53,"protocol":"UDP"},{"port":53,"protocol":"TCP"}],"to":[{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"kube-system"}},"podSelector":{"matchLabels":{"k8s-app":"kube-dns"}}}]}]` | DNS egress rules (raw NetworkPolicySpec.egress objects) |
+| global.networkPolicy.components.kubeApi | object | `{"egress":[{"ports":[{"port":6443,"protocol":"TCP"}],"to":[{"ipBlock":{"cidr":"0.0.0.0/0"}},{"ipBlock":{"cidr":"::/0"}}]}],"enabled":false}` | ----------------------------------------------------------------------- |
+| global.networkPolicy.components.kubeApi.egress | list | `[{"ports":[{"port":6443,"protocol":"TCP"}],"to":[{"ipBlock":{"cidr":"0.0.0.0/0"}},{"ipBlock":{"cidr":"::/0"}}]}]` | Kubernetes API egress rules |
+| global.networkPolicy.defaultMode | string | `"merge"` | siteInstances[].networkPolicy.mode |
+| global.networkPolicy.enabled | bool | `false` | siteInstances[].networkPolicy.enabled: true |
+| global.networkPolicy.ruleSets | object | `{}` | Optional named rule sets referenced via siteInstances[].networkPolicy.includeRuleSets   Each ruleSet must resemble a NetworkPolicySpec fragment:    policyTypes: ["Ingress","Egress"]    ingress: [...]    egress: [...]   Example:  ruleSets:    allow-internet:      policyTypes: ["Egress"]      egress:        - to:            - ipBlock: { cidr: 0.0.0.0/0 }          ports:            - { port: 80, protocol: TCP }            - { port: 443, protocol: TCP } |
+| global.nodeSelector | object | `{}` | Node selector constraints applied to all Pods. |
+| global.notes.defaultTraefikTarget | string | `"traefik.kube-system.svc.cluster.local:80"` | Default internal Traefik service target for NOTES output |
+| global.podAnnotations | object | `{}` | Additional annotations applied to Pod resources. |
+| global.podDisruptionBudget | object | `{"annotations":{},"enabled":false,"labels":{},"maxUnavailable":"","minAvailable":1}` | --------------------------------------------------------------------------- |
+| global.podDisruptionBudget.annotations | object | `{}` | Additional annotations |
+| global.podDisruptionBudget.labels | object | `{}` | Additional labels |
+| global.podDisruptionBudget.maxUnavailable | string | `""` | Maximum unavailable pods (mutually exclusive with minAvailable) |
+| global.podDisruptionBudget.minAvailable | int | `1` | Minimum available pods (mutually exclusive with maxUnavailable) |
+| global.podLabels | object | `{}` | Additional labels applied to Pod resources. |
+| global.podSecurityContext | object | `{}` | Pod-level securityContext override |
+| global.priorityClassName | string | `""` | PriorityClass applied to all Pods. |
+| global.resources | object | `{}` | Default resource requests/limits for every site container. Empty by default (#23): the chart imposes no sizing, so the container inherits any LimitRange or namespace default instead. A non-empty `siteInstances[].resources` always overrides this. CPU limits in particular are a deliberate choice, not a sensible default, because throttling a WireGuard data path degrades it silently. Example:   resources:     requests:       cpu: 100m       memory: 128Mi       ephemeral-storage: 128Mi     limits:       memory: 256Mi |
+| global.revisionHistoryLimit | int | `3` | Number of old ReplicaSets/ControllerRevisions to retain. |
+| global.securityContext | object | `{}` | Container-level securityContext override SECURITY NOTE: By default (when nativeMode is disabled), the site runs as non-root:   runAsUser: 65534   runAsNonRoot: true   allowPrivilegeEscalation: false   readOnlyRootFilesystem: true   capabilities.drop: ["ALL"]  When global.nativeMode.enabled=true AND the instance requests a native interface:   runAsUser: 0 (root)   allowPrivilegeEscalation: true   privileged: true   capabilities.add: [NET_ADMIN, SYS_MODULE]  IMPORTANT: Do NOT set capabilities.drop when running as root - this is invalid. |
+| global.statefulsetAnnotations | object | `{}` | Additional annotations applied to StatefulSet resources. |
+| global.tests | object | `{"enabled":false,"image":{"pullPolicy":"IfNotPresent","repository":"registry.k8s.io/kubectl","tag":"1.30.14"},"resources":{"limits":{"cpu":"200m","memory":"256Mi"},"requests":{"cpu":"100m","memory":"128Mi"}}}` | --------------------------------------------------------------------------- |
+| global.tests.image.repository | string | `"registry.k8s.io/kubectl"` | Container image repository for Helm test jobs. |
+| global.tolerations | list | `[]` | Tolerations applied to all Pods. Each item must be a Kubernetes Toleration object: key, operator (Exists|Equal), value, effect (NoSchedule|PreferNoSchedule|NoExecute), tolerationSeconds |
+| global.topologySpreadConstraints | list | `[]` | Pod topology spread constraints (applied to all Pods) |
+| global.updownScripts | object | `{}` | Map of filename -> script content (mounted when updown.enabled=true) |
+| image.digest | string | `""` | Image digest (sha256:...) |
+| image.pullPolicy | string | `"IfNotPresent"` | Image pull policy (fallback when global.image.imagePullPolicy not set) |
+| image.repository | string | `""` | Container image repository (fallback; prefer global.image) |
+| image.tag | string | `""` | Image tag (ignored if digest is set) |
+| namespace | object | `{"create":false,"labels":{},"name":"","podSecurity":{"audit":"","enforce":"","warn":""}}` | Namespace configuration for resources created by this chart. |
+| namespace.create | bool | `false` | Create namespaces used by this chart. When false, rely on the Helm release namespace or --create-namespace. |
+| namespace.labels | object | `{}` | Additional labels applied to created namespaces. |
+| namespace.name | string | `""` | Default namespace name. Empty means use .Release.Namespace. |
+| namespace.podSecurity | object | `{"audit":"","enforce":"","warn":""}` | Pod Security Admission labels for created namespaces. |
+| namespace.podSecurity.audit | string | `""` | Pod Security Admission audit level. |
+| namespace.podSecurity.enforce | string | `""` | Pod Security Admission enforce level. |
+| namespace.podSecurity.warn | string | `""` | Pod Security Admission warn level. |
+| rbac | object | `{"annotations":{},"clusterRole":false,"create":false,"labels":{}}` | --------------------------------------------------------------------------- |
+| rbac.annotations | object | `{}` | Additional annotations applied to RBAC resources. |
+| rbac.clusterRole | bool | `false` | Create ClusterRole/ClusterRoleBinding instead of namespaced Role/RoleBinding. |
+| rbac.create | bool | `false` | Create RBAC resources (Role/RoleBinding or ClusterRole/ClusterRoleBinding). |
+| rbac.labels | object | `{}` | Additional labels applied to RBAC resources. |
+| serviceAccount | object | `{"annotations":{},"automountServiceAccountToken":false,"create":true,"name":""}` | --------------------------------------------------------------------------- |
+| serviceAccount.annotations | object | `{}` | Additional annotations applied to the ServiceAccount. |
+| serviceAccount.automountServiceAccountToken | bool | `false` | Control automounting of the ServiceAccount token on Pods. |
+| serviceAccount.create | bool | `true` | Create a dedicated ServiceAccount for this release. |
+| serviceAccount.name | string | `""` | ServiceAccount name. If empty and create=true, the chart generates a name. If create=false and empty, the "default" ServiceAccount is used. |
+| siteInstances | list | `[{"acceptClients":false,"affinity":{"nodeAffinity":{},"podAffinity":{},"podAntiAffinity":{}},"allowGlobalOverride":false,"auth":{"createSecret":true,"envVarsDirect":false,"existingSecretName":"","keys":{"endpointKey":"PANGOLIN_ENDPOINT","idKey":"SITE_ID","secretKey":"SITE_SECRET"}},"authDaemon":{"caCertPath":"","generateRandomPassword":false,"keySecretKey":"","keySecretName":"","principalsFile":""},"blueprintData":"","blueprintFile":"","configFile":"","configPersistence":{"enabled":false,"existingClaim":"","fileName":"config.json","mountPath":"/var/lib/pangolin","type":"emptyDir"},"disableClients":false,"disableSSH":false,"dns":"","dockerSocket":{"enabled":false,"enforceNetworkValidation":false,"path":"/var/run/docker.sock"},"enabled":true,"enforceHcCert":false,"extraContainers":[],"extraEnv":{},"extraVolumeMounts":[],"extraVolumes":[],"healthFile":"/tmp/healthy","hostNetwork":false,"hostPID":false,"id":"","initContainers":[],"interface":"pangolin","interfaceMain":"pangolin","lifecycle":{},"localEndpointInterfaces":[],"logLevel":"INFO","metrics":{"annotations":{},"enabled":false,"path":"/metrics","podMonitor":{"annotations":{},"apiVersion":"monitoring.coreos.com/v1","enabled":false,"honorLabels":true,"interval":"30s","labels":{},"metricRelabelings":[],"namespace":"","path":"/metrics","portName":"metrics","relabelings":[],"scheme":"http","scrapeTimeout":"10s"},"port":9090,"portName":"metrics","prometheusRule":{"apiVersion":"monitoring.coreos.com/v1","enabled":false,"labels":{},"namespace":"","rules":[]},"service":{"annotations":{},"enabled":false,"port":9090,"portName":"metrics","type":"ClusterIP"},"serviceMonitor":{"apiVersion":"monitoring.coreos.com/v1","enabled":false,"interval":"30s","jobLabel":"","labels":{},"metricRelabelings":[],"namespace":"","relabelings":[],"sampleLimit":0,"scheme":"http","scrapeTimeout":"10s","targetLabels":[]},"targetPortName":""},"mtls":{"certPath":"/certs/client.p12","enabled":false,"mode":"pkcs12","p12Base64":"","pem":{"caPath":"/certs/ca.crt","clientCertPath":"/certs/client.crt","clientKeyPath":"/certs/client.key","secretName":""},"secretName":""},"mtu":1280,"name":"main-tunnel","namespace":{"create":null,"labels":{},"name":"","podSecurity":{"audit":"","enforce":"","warn":""}},"networkPolicy":{"components":{"custom":{"egress":[],"enabled":false,"ingress":[],"policyTypes":["Ingress","Egress"]},"defaultApp":{"egress":[],"enabled":false,"ingress":[],"policyTypes":[]},"dns":{"egress":[],"enabled":false},"kubeApi":{"egress":[],"enabled":false}},"enabled":null,"includeRuleSets":[],"mode":"merge","useGlobalComponents":{"custom":true,"defaultApp":true,"dns":false,"kubeApi":false}},"noCloud":false,"nodeSelector":{},"pangolinEndpoint":"","pingInterval":"","pingTimeout":"","podDisruptionBudget":{},"podSecurityContext":{},"port":"","preferEndpoint":"","provisioningBlueprintData":"","provisioningBlueprintFile":"","provisioningKey":"","replicas":1,"resources":{},"secret":"","securityContext":{},"service":{"annotations":{},"enabled":true,"enabledWhenAcceptClients":true,"externalTrafficPolicy":"","labels":{},"loadBalancerClass":"","loadBalancerIP":"","loadBalancerSourceRanges":[],"nodePorts":{"tester":"","wg":""},"port":51820,"testerPort":51821,"type":"ClusterIP"},"serviceAccount":{"annotations":{},"automountServiceAccountToken":false,"create":null,"name":""},"siteName":"","tolerations":[],"topologySpreadConstraints":[],"udpProxyIdleTimeout":"","updown":{"enabled":false,"fileName":"updown.sh","mountPath":"/opt/pangolin/updown","script":""},"useCommandArgs":false,"useNativeInterface":false,"useNativeMainInterface":false}]` | List of site tunnel instances (pangolin-cli up site) to deploy. Each instance can optionally override |
+| siteInstances[0].acceptClients | bool | `false` | Gate the client Service and the automatic client ingress NetworkPolicy rule. This is a chart-side switch only and sets no environment variable or flag. To refuse client connections set `disableClients: true`. |
+| siteInstances[0].affinity | object | `{"nodeAffinity":{},"podAffinity":{},"podAntiAffinity":{}}` | Pod affinity and anti-affinity |
+| siteInstances[0].affinity.nodeAffinity | object | `{}` | Node affinity rules |
+| siteInstances[0].affinity.podAffinity | object | `{}` | Pod affinity rules |
+| siteInstances[0].affinity.podAntiAffinity | object | `{}` | Pod anti-affinity rules |
+| siteInstances[0].allowGlobalOverride | bool | `false` | Allow this instance to override global settings (image, logLevel, etc). |
+| siteInstances[0].auth.createSecret | bool | `true` | Create a Secret from inline credentials (pangolinEndpoint/id/secret) when provided. Set false to disable secret creation from inline credentials. |
+| siteInstances[0].auth.envVarsDirect | bool | `false` | Inject inline credentials directly as env vars instead of Secret refs. Use only for local/dev testing because credentials are visible in rendered manifests. |
+| siteInstances[0].auth.existingSecretName | string | `""` | Name of an existing Secret containing endpoint/id/secret keys. The Secret must contain keys from auth.keys.endpointKey/auth.keys.idKey/auth.keys.secretKey. |
+| siteInstances[0].auth.keys | object | `{"endpointKey":"PANGOLIN_ENDPOINT","idKey":"SITE_ID","secretKey":"SITE_SECRET"}` | Key mappings used inside Secrets. IMPORTANT: auth.keys.* are key names, not credential values. |
+| siteInstances[0].auth.keys.endpointKey | string | `"PANGOLIN_ENDPOINT"` | Key name for the Pangolin endpoint (default: PANGOLIN_ENDPOINT) |
+| siteInstances[0].auth.keys.idKey | string | `"SITE_ID"` | Key name for the site ID (default: SITE_ID) |
+| siteInstances[0].auth.keys.secretKey | string | `"SITE_SECRET"` | Key name for the site secret (default: SITE_SECRET) |
+| siteInstances[0].authDaemon.caCertPath | string | `""` | Path to the SSH CA certificate (AD_CA_CERT_PATH). |
+| siteInstances[0].authDaemon.generateRandomPassword | bool | `false` | Generate a random password on start (AD_GENERATE_RANDOM_PASSWORD). |
+| siteInstances[0].authDaemon.keySecretKey | string | `""` | Key inside `authDaemon.keySecretName` holding the pre-shared key. |
+| siteInstances[0].authDaemon.keySecretName | string | `""` | Name of an existing Secret holding the auth daemon pre-shared key (AD_KEY). The key is only ever referenced, never rendered into the manifest. |
+| siteInstances[0].authDaemon.principalsFile | string | `""` | Path to the SSH principals file (AD_PRINCIPALS_FILE). |
+| siteInstances[0].blueprintData | string | `""` | Blueprint file content (inline). When provided, creates a ConfigMap with this content. Use this for simple inline blueprints, or leave empty to reference an existing ConfigMap. |
+| siteInstances[0].blueprintFile | string | `""` | Blueprint file path (BLUEPRINT_FILE env). Path to a site blueprint configuration file. |
+| siteInstances[0].configFile | string | `""` | Optional config file path for the site (CONFIG_FILE env) |
+| siteInstances[0].configPersistence | object | `{"enabled":false,"existingClaim":"","fileName":"config.json","mountPath":"/var/lib/pangolin","type":"emptyDir"}` | Writable config persistence (recommended for provisioning-based installs). When enabled, the chart mounts writable storage at mountPath and auto-sets CONFIG_FILE to mountPath/fileName. This does not remove support for the legacy `configFile` value. |
+| siteInstances[0].configPersistence.enabled | bool | `false` | Enable writable config persistence. |
+| siteInstances[0].configPersistence.existingClaim | string | `""` | Existing PVC name when type=persistentVolumeClaim. |
+| siteInstances[0].configPersistence.fileName | string | `"config.json"` | File name inside mountPath for the persisted config. |
+| siteInstances[0].configPersistence.mountPath | string | `"/var/lib/pangolin"` | Directory mount path for config persistence. |
+| siteInstances[0].configPersistence.type | string | `"emptyDir"` | Storage type. Use emptyDir for ephemeral persistence or persistentVolumeClaim for durable persistence. |
+| siteInstances[0].disableClients | bool | `false` | Disable client connections (DISABLE_CLIENTS env). When enabled, the site does not accept incoming client connections. |
+| siteInstances[0].disableSSH | bool | `false` | Disable the site's built-in SSH server (DISABLE_SSH). It is on by default. |
+| siteInstances[0].dns | string | `""` | Optional DNS server address pushed to the client (leave empty to omit) |
+| siteInstances[0].dockerSocket.enabled | bool | `false` | Mount the host's Docker socket into the pod |
+| siteInstances[0].dockerSocket.enforceNetworkValidation | bool | `false` | Enforce Docker network validation when enabled |
+| siteInstances[0].dockerSocket.path | string | `"/var/run/docker.sock"` | Docker socket mount path |
+| siteInstances[0].enforceHcCert | bool | `false` | Enforce health check certificate validation (ENFORCE_HC_CERT env). When enabled, health checks must verify TLS certificates. |
+| siteInstances[0].extraContainers | list | `[]` | Additional sidecar containers to add to the pod |
+| siteInstances[0].extraEnv | object | `{}` | Extra environment variables to inject into the container |
+| siteInstances[0].extraVolumeMounts | list | `[]` | Extra volume mounts to add (must be valid Kubernetes VolumeMount objects) |
+| siteInstances[0].extraVolumes | list | `[]` | Extra pod volumes to add (must be valid Kubernetes Volume objects) |
+| siteInstances[0].healthFile | string | `"/tmp/healthy"` | Health file path used by liveness/readiness probes |
+| siteInstances[0].hostNetwork | bool | `false` | Enable host networking (useful with native mode) |
+| siteInstances[0].hostPID | bool | `false` | Enable sharing host PID namespace (rarely needed) |
+| siteInstances[0].id | string | `""` | Site ID issued by Pangolin (must be set with pangolinEndpoint and secret) |
+| siteInstances[0].initContainers | list | `[]` | Additional init containers to add to the pod |
+| siteInstances[0].interface | string | `"pangolin"` | WireGuard interface name in the pod |
+| siteInstances[0].interfaceMain | string | `"pangolin"` | Name of the native main WireGuard interface (INTERFACE_MAIN). |
+| siteInstances[0].lifecycle | object | `{}` | Container lifecycle hooks (e.g., preStop for graceful WireGuard shutdown) |
+| siteInstances[0].localEndpointInterfaces | list | `[]` | Restrict the local endpoints the site reports to Pangolin to these network interface names, e.g. ["eth0"] (LOCAL_ENDPOINT_INTERFACES). Clients on the same network use those addresses to connect directly. Empty reports every interface. Mostly useful with hostNetwork: true, where the pod sees all node interfaces. |
+| siteInstances[0].logLevel | string | `"INFO"` | Per-instance log level (falls back to global.logLevel when empty) |
+| siteInstances[0].metrics.annotations | object | `{}` | Override or add custom metrics annotations |
+| siteInstances[0].metrics.enabled | bool | `false` | Enable Prometheus metrics |
+| siteInstances[0].metrics.path | string | `"/metrics"` | Metrics path |
+| siteInstances[0].metrics.podMonitor.annotations | object | `{}` | Extra annotations |
+| siteInstances[0].metrics.podMonitor.apiVersion | string | `"monitoring.coreos.com/v1"` | API version for PodMonitor |
+| siteInstances[0].metrics.podMonitor.enabled | bool | `false` | Create PodMonitor (Prometheus Operator) |
+| siteInstances[0].metrics.podMonitor.honorLabels | bool | `true` | Honor labels from target |
+| siteInstances[0].metrics.podMonitor.interval | string | `"30s"` | Scrape interval |
+| siteInstances[0].metrics.podMonitor.labels | object | `{}` | Extra labels |
+| siteInstances[0].metrics.podMonitor.metricRelabelings | list | `[]` | Metric relabelings |
+| siteInstances[0].metrics.podMonitor.namespace | string | `""` | Optional namespace override |
+| siteInstances[0].metrics.podMonitor.path | string | `"/metrics"` | HTTP path |
+| siteInstances[0].metrics.podMonitor.portName | string | `"metrics"` | PodMonitor scrape port name |
+| siteInstances[0].metrics.podMonitor.relabelings | list | `[]` | Relabelings |
+| siteInstances[0].metrics.podMonitor.scheme | string | `"http"` | HTTP scheme |
+| siteInstances[0].metrics.podMonitor.scrapeTimeout | string | `"10s"` | Scrape timeout |
+| siteInstances[0].metrics.port | int | `9090` | Metrics port |
+| siteInstances[0].metrics.portName | string | `"metrics"` | Optional Service port name |
+| siteInstances[0].metrics.prometheusRule.apiVersion | string | `"monitoring.coreos.com/v1"` | API version for PrometheusRule |
+| siteInstances[0].metrics.prometheusRule.enabled | bool | `false` | Create PrometheusRule (Prometheus Operator) |
+| siteInstances[0].metrics.prometheusRule.labels | object | `{}` | Extra labels on PrometheusRule |
+| siteInstances[0].metrics.prometheusRule.namespace | string | `""` | Optional namespace override |
+| siteInstances[0].metrics.prometheusRule.rules | list | `[]` | Array of rule groups/rules (processed as templates) |
+| siteInstances[0].metrics.service.annotations | object | `{}` | Service annotations |
+| siteInstances[0].metrics.service.enabled | bool | `false` | Create metrics Service for scraping |
+| siteInstances[0].metrics.service.port | int | `9090` | Service port |
+| siteInstances[0].metrics.service.portName | string | `"metrics"` | Service port name |
+| siteInstances[0].metrics.service.type | string | `"ClusterIP"` | Service type |
+| siteInstances[0].metrics.serviceMonitor.apiVersion | string | `"monitoring.coreos.com/v1"` | API version for ServiceMonitor |
+| siteInstances[0].metrics.serviceMonitor.enabled | bool | `false` | Create ServiceMonitor (Prometheus Operator) |
+| siteInstances[0].metrics.serviceMonitor.interval | string | `"30s"` | Scrape interval |
+| siteInstances[0].metrics.serviceMonitor.jobLabel | string | `""` | Job label override |
+| siteInstances[0].metrics.serviceMonitor.labels | object | `{}` | Extra labels on ServiceMonitor |
+| siteInstances[0].metrics.serviceMonitor.metricRelabelings | list | `[]` | Metric relabelings |
+| siteInstances[0].metrics.serviceMonitor.namespace | string | `""` | Optional namespace override |
+| siteInstances[0].metrics.serviceMonitor.relabelings | list | `[]` | Relabelings |
+| siteInstances[0].metrics.serviceMonitor.sampleLimit | int | `0` | Sample limit |
+| siteInstances[0].metrics.serviceMonitor.scheme | string | `"http"` | HTTP scheme |
+| siteInstances[0].metrics.serviceMonitor.scrapeTimeout | string | `"10s"` | Optional scrape timeout |
+| siteInstances[0].metrics.serviceMonitor.targetLabels | list | `[]` | Target labels |
+| siteInstances[0].metrics.targetPortName | string | `""` | Optional container port name to target instead of number |
+| siteInstances[0].mtls.certPath | string | `"/certs/client.p12"` | In-container path to mount the PKCS12 file |
+| siteInstances[0].mtls.enabled | bool | `false` | Enable mTLS client cert mounting |
+| siteInstances[0].mtls.mode | string | `"pkcs12"` | mTLS mode: "pkcs12" (legacy) or "pem" (split PEM certificates) |
+| siteInstances[0].mtls.p12Base64 | string | `""` | Inline base64 content for client.p12 (not recommended for production) |
+| siteInstances[0].mtls.pem | object | `{"caPath":"/certs/ca.crt","clientCertPath":"/certs/client.crt","clientKeyPath":"/certs/client.key","secretName":""}` | Split PEM certificate configuration (used when mode=pem) |
+| siteInstances[0].mtls.pem.caPath | string | `"/certs/ca.crt"` | In-container path to mount CA certificate(s) (ca.crt) - comma-separated list |
+| siteInstances[0].mtls.pem.clientCertPath | string | `"/certs/client.crt"` | In-container path to mount client certificate (client.crt) |
+| siteInstances[0].mtls.pem.clientKeyPath | string | `"/certs/client.key"` | In-container path to mount client key (client.key) |
+| siteInstances[0].mtls.pem.secretName | string | `""` | Secret name containing client.crt, client.key, and optionally ca.crt |
+| siteInstances[0].mtls.secretName | string | `""` | Secret name containing client.p12 (if empty and p12Base64 provided, a Secret is generated) |
+| siteInstances[0].mtu | int | `1280` | WireGuard interface MTU (typical cloud path MTU ~1380). Leave at 1280 unless tuning |
+| siteInstances[0].namespace | object | `{"create":null,"labels":{},"name":"","podSecurity":{"audit":"","enforce":"","warn":""}}` | Per-instance namespace override. Only effective when allowGlobalOverride=true. |
+| siteInstances[0].namespace.create | string | `nil` | Whether to create the namespace for this instance. null means inherit namespace.create. |
+| siteInstances[0].namespace.labels | object | `{}` | Additional labels for this instance namespace, merged on top of global namespace labels. |
+| siteInstances[0].namespace.name | string | `""` | Override target namespace for this instance. Empty means global namespace or release namespace. |
+| siteInstances[0].namespace.podSecurity | object | `{"audit":"","enforce":"","warn":""}` | Pod Security Admission labels override for this instance namespace. |
+| siteInstances[0].namespace.podSecurity.audit | string | `""` | Override audit level. |
+| siteInstances[0].namespace.podSecurity.enforce | string | `""` | Override enforce level. |
+| siteInstances[0].namespace.podSecurity.warn | string | `""` | Override warn level. |
+| siteInstances[0].networkPolicy | object | `{"components":{"custom":{"egress":[],"enabled":false,"ingress":[],"policyTypes":["Ingress","Egress"]},"defaultApp":{"egress":[],"enabled":false,"ingress":[],"policyTypes":[]},"dns":{"egress":[],"enabled":false},"kubeApi":{"egress":[],"enabled":false}},"enabled":null,"includeRuleSets":[],"mode":"merge","useGlobalComponents":{"custom":true,"defaultApp":true,"dns":false,"kubeApi":false}}` | NetworkPolicy behavior (inherit/merge/replace) and enable/disable components. |
+| siteInstances[0].networkPolicy.components | object | `{"custom":{"egress":[],"enabled":false,"ingress":[],"policyTypes":["Ingress","Egress"]},"defaultApp":{"egress":[],"enabled":false,"ingress":[],"policyTypes":[]},"dns":{"egress":[],"enabled":false},"kubeApi":{"egress":[],"enabled":false}}` | Instance-local components that can be merged in (mode=merge) or used exclusively (mode=replace). |
+| siteInstances[0].networkPolicy.enabled | string | `nil` | - true/false: explicitly enable/disable NetworkPolicies for this instance |
+| siteInstances[0].networkPolicy.includeRuleSets | list | `[]` | referencing ruleSets even in replace-mode. |
+| siteInstances[0].networkPolicy.mode | string | `"merge"` | - replace: use instance components/ruleSets only (global ignored)   Typical examples:  - "merge": global defaultApp + (instance enables dns) + (instance adds custom)  - "replace": instance defines a fully custom policy set, independent of global |
+| siteInstances[0].networkPolicy.useGlobalComponents | object | `{"custom":true,"defaultApp":true,"dns":false,"kubeApi":false}` | This allows per-instance toggling of global building blocks. |
+| siteInstances[0].networkPolicy.useGlobalComponents.custom | bool | `true` | Include global custom component (if enabled globally). |
+| siteInstances[0].networkPolicy.useGlobalComponents.defaultApp | bool | `true` | Include global defaultApp component (if enabled globally). |
+| siteInstances[0].networkPolicy.useGlobalComponents.dns | bool | `false` | Include global dns component (if enabled globally). |
+| siteInstances[0].networkPolicy.useGlobalComponents.kubeApi | bool | `false` | Include global kubeApi component (if enabled globally). |
+| siteInstances[0].noCloud | bool | `false` | Disable cloud connectivity (NO_CLOUD env). When enabled, the site operates without connecting to Pangolin cloud. |
+| siteInstances[0].nodeSelector | object | `{}` | Node selection constraints |
+| siteInstances[0].pangolinEndpoint | string | `""` | Pangolin control-plane endpoint URL (e.g., https://pangolin.example.com) |
+| siteInstances[0].pingInterval | string | `""` | Optional ping interval (e.g., "3s"). Leave empty to use default |
+| siteInstances[0].pingTimeout | string | `""` | Optional ping timeout (e.g., "5s"). Leave empty to use default |
+| siteInstances[0].podDisruptionBudget | object | `{}` | Pod Disruption Budget override for this instance |
+| siteInstances[0].podSecurityContext | object | `{}` | Pod-level securityContext override |
+| siteInstances[0].port | string | `""` | WireGuard UDP port (PORT env). Default is 51820. |
+| siteInstances[0].preferEndpoint | string | `""` | Prefer this endpoint when several are advertised (--prefer-endpoint). The site reads this only as a command-line flag, so it requires useCommandArgs: true on this instance; the chart rejects the combination rather than letting it no-op. |
+| siteInstances[0].provisioningBlueprintData | string | `""` | Provisioning blueprint file content (inline). Required when provisioningBlueprintFile is set. |
+| siteInstances[0].provisioningBlueprintFile | string | `""` | Provisioning blueprint file path (PROVISIONING_BLUEPRINT_FILE env). Applied once, right after provisioning exchanges the key for credentials. |
+| siteInstances[0].provisioningKey | string | `""` | Provisioning key (SITE_PROVISIONING_KEY env). When set, the site can bootstrap credentials and persist them to CONFIG_FILE. |
+| siteInstances[0].replicas | int | `1` | Number of replicas for this instance (default: 1) |
+| siteInstances[0].resources | object | `{}` | Per-instance resource requests/limits. Overrides `global.resources` whenever it is non-empty, independently of `allowGlobalOverride`. Empty by default so the chart imposes no sizing; see `global.resources` for an example. |
+| siteInstances[0].secret | string | `""` | Site secret issued by Pangolin (must be set with pangolinEndpoint and id) - WARNING: Use auth.existingSecretName for production. |
+| siteInstances[0].securityContext | object | `{}` | Container-level securityContext override SECURITY NOTE: By default the site runs as non-root. It runs as root with privileges only when global.nativeMode.enabled=true AND the instance sets useNativeInterface or useNativeMainInterface. IMPORTANT: Do NOT set capabilities.drop when running as root - this is invalid. |
+| siteInstances[0].service.annotations | object | `{}` | Service annotations |
+| siteInstances[0].service.enabled | bool | `true` | Create a Service for this instance |
+| siteInstances[0].service.enabledWhenAcceptClients | bool | `true` | Create Service when acceptClients is true (alternative to service.enabled) |
+| siteInstances[0].service.externalTrafficPolicy | string | `""` | External traffic policy (Cluster or Local). Empty = omit field |
+| siteInstances[0].service.labels | object | `{}` | Additional service labels |
+| siteInstances[0].service.loadBalancerClass | string | `""` | loadBalancerClass (when type=LoadBalancer). Empty = omit field |
+| siteInstances[0].service.loadBalancerIP | string | `""` | Static loadBalancerIP (when type=LoadBalancer). Empty = omit field |
+| siteInstances[0].service.loadBalancerSourceRanges | list | `[]` | Source ranges to allow (when type=LoadBalancer). Empty = omit field |
+| siteInstances[0].service.nodePorts | object | `{"tester":"","wg":""}` | NodePorts for NodePort type (optional, set only to fix ports) |
+| siteInstances[0].service.nodePorts.tester | string | `""` | NodePort to expose tester UDP (leave empty to let K8s assign one) |
+| siteInstances[0].service.nodePorts.wg | string | `""` | NodePort to expose WireGuard UDP (leave empty to let K8s assign one) |
+| siteInstances[0].service.port | int | `51820` | WireGuard UDP service port |
+| siteInstances[0].service.testerPort | int | `51821` | Tester/diagnostic UDP service port |
+| siteInstances[0].service.type | string | `"ClusterIP"` | Service type for this instance |
+| siteInstances[0].serviceAccount | object | `{"annotations":{},"automountServiceAccountToken":false,"create":null,"name":""}` | Per-instance ServiceAccount configuration. Only effective when allowGlobalOverride=true. |
+| siteInstances[0].serviceAccount.annotations | object | `{}` | Additional annotations applied to the instance ServiceAccount. |
+| siteInstances[0].serviceAccount.automountServiceAccountToken | bool | `false` | Control automounting of the ServiceAccount token for this instance. |
+| siteInstances[0].serviceAccount.create | string | `nil` | Create a dedicated ServiceAccount for this instance. null means inherit global serviceAccount behavior. |
+| siteInstances[0].serviceAccount.name | string | `""` | Custom ServiceAccount name. Empty means auto-generate when create=true. |
+| siteInstances[0].siteName | string | `""` | Provisioning site name (SITE_NAME env). Use siteName to avoid colliding with siteInstances[].name (instance identifier). |
+| siteInstances[0].tolerations | list | `[]` | Pod tolerations |
+| siteInstances[0].topologySpreadConstraints | list | `[]` | Pod topology spread constraints |
+| siteInstances[0].udpProxyIdleTimeout | string | `""` | Idle timeout for proxied UDP flows, e.g. "90s" (SITE_UDP_PROXY_IDLE_TIMEOUT). Empty uses the built-in default. |
+| siteInstances[0].updown.enabled | bool | `false` | Mount and execute a shared up/down script |
+| siteInstances[0].updown.fileName | string | `"updown.sh"` | filename for the single up/down script |
+| siteInstances[0].updown.mountPath | string | `"/opt/pangolin/updown"` | Container mount path for up/down script files |
+| siteInstances[0].updown.script | string | `""` | inline script content (prefer updownScripts map) |
+| siteInstances[0].useCommandArgs | bool | `false` | Use command/args instead of environment-variable configuration |
+| siteInstances[0].useNativeInterface | bool | `false` | Use the native WireGuard kernel interface (USE_NATIVE_INTERFACE). Requires global.nativeMode.enabled=true; the chart then runs this instance as root with NET_ADMIN and SYS_MODULE. |
+| siteInstances[0].useNativeMainInterface | bool | `false` | Create the main WireGuard interface natively on the host instead of in netstack (USE_NATIVE_MAIN_INTERFACE). Requires global.nativeMode.enabled=true; the chart then grants this instance the same privileges as useNativeInterface. |
+
+## Service exposure vs. acceptClients
+
+- Service resources are controlled by `siteInstances[x].service.enabled`.
+- `acceptClients` sets no environment variable or flag. With `service.enabledWhenAcceptClients: true` it also creates the Service, and with a NetworkPolicy it adds the client ingress rule.
+- To refuse client connections at runtime, set `disableClients: true`.
+
+## Maintainers
+
+| Name | Email | Url |
+| ---- | ------ | --- |
+| Fossorial Inc | <contact@pangolin.net> |  |

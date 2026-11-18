@@ -1,0 +1,16 @@
+siteInstances:
+  - name: main-tunnel
+    enabled: true
+    pangolinEndpoint: https://pangolin.example.com
+
+    provisioningKey: "YOUR_PROVISIONING_KEY"
+    siteName: "my-site"
+
+    configPersistence:
+      enabled: true
+      type: emptyDir
+
+    provisioningBlueprintFile: /etc/pangolin/provisioning-blueprint.yaml
+    provisioningBlueprintData: |
+      version: 1
+      routes: []

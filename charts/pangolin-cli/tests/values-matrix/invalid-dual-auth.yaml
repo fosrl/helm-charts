@@ -1,0 +1,9 @@
+# Negative test: both inline secret and external auth (should fail rendering)
+siteInstances:
+  - name: dual-auth
+    enabled: true
+    pangolinEndpoint: https://pangolin.example.com
+    id: my-id
+    secret: inline-secret
+    auth:
+      existingSecretName: external-secret

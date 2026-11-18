@@ -10,6 +10,7 @@ Welcome to the official repository for **Fossorial Kubernetes Helm Charts**, fea
 
 - [Pangolin](https://github.com/fosrl/helm-charts/tree/main/charts/pangolin)
 - [Newt](https://github.com/fosrl/helm-charts/tree/main/charts/newt)
+- [Pangolin CLI](https://github.com/fosrl/helm-charts/tree/main/charts/pangolin-cli) (site tunnel via `pangolin-cli up site`)
 
 ## Installation & Usage
 
@@ -36,7 +37,13 @@ Example to install the Pangolin chart:
 helm install my-pangolin fossorial/pangolin
 ```
 
-Example to install the Newt chart:
+Example to install the Pangolin CLI chart:
+
+```console
+helm install my-site fossorial/pangolin-cli
+```
+
+Example to install the older Newt chart:
 
 ```console
 helm install my-newt fossorial/newt

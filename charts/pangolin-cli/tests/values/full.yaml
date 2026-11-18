@@ -1,0 +1,52 @@
+# Full values for pangolin-cli chart rendering (differs from defaults)
+# - Exercises extraEnv, up/down scripts, inline secret, mTLS, metrics service, client Service, NetworkPolicies
+
+global:
+  additionalLabels:
+    test-scope: e2e
+  additionalAnnotations:
+    purpose: templating-validation
+  networkPolicy:
+    enabled: true
+  metrics:
+    enabled: true
+    service:
+      enabled: true
+      port: 9091
+      portName: metrics
+    podMonitor:
+      enabled: false
+    serviceMonitor:
+      enabled: false
+  tests:
+    enabled: false
+  updownScripts:
+    site-updown.sh: |
+      #!/usr/bin/env sh
+      set -e
+      echo "up/down hook ok"
+
+siteInstances:
+  - name: full-tunnel
+    enabled: true
+    # Inline credentials
+    pangolinEndpoint: "https://example.com"
+    id: "id-123"
+    secret: "s3cr3t"
+    acceptClients: true
+    service:
+      type: LoadBalancer
+      externalTrafficPolicy: Local
+      loadBalancerSourceRanges:
+        - "*******/32"
+    extraEnv:
+      FOO: "bar"
+    updown:
+      enabled: true
+      script: "site-updown.sh"
+      mountPath: "/opt/custom"
+    mtls:
+      enabled: true
+      p12Base64: "BASE64P12=="
+    useCommandArgs: false
+

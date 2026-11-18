@@ -1,0 +1,9 @@
+# NetworkPolicy disabled
+siteInstances:
+  - name: no-netpol
+    enabled: true
+    auth:
+      existingSecretName: site-auth
+global:
+  networkPolicy:
+    enabled: false

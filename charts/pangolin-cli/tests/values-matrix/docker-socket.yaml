@@ -1,0 +1,10 @@
+# Docker socket integration enabled
+siteInstances:
+  - name: docker
+    enabled: true
+    auth:
+      existingSecretName: site-auth
+    dockerSocket:
+      enabled: true
+      path: /var/run/docker.sock
+      enforceNetworkValidation: true

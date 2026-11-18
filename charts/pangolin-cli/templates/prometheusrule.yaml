@@ -1,0 +1,54 @@
+{{- $root := $ -}}
+{{- $vals := $root.Values | default dict -}}
+
+{{- /* Global + chart-level metrics (chart-level overrides global) */ -}}
+{{- $global := (get $vals "global") | default dict -}}
+{{- $gm := (get $global "metrics") | default dict -}}
+{{- $tm := (get $vals "metrics") | default dict -}}
+{{- $m := mergeOverwrite (deepCopy $gm) $tm -}}
+
+{{- $mPR := (get $m "prometheusRule") | default dict -}}
+
+{{- /* decide whether to render PrometheusRule */ -}}
+{{- $shouldPR := false -}}
+{{- if (get $m "enabled") -}}
+  {{- if (get $mPR "enabled") -}}
+    {{- $shouldPR = true -}}
+  {{- else -}}
+    {{- range $i, $inst := (get $vals "siteInstances" | default list) -}}
+      {{- if (get $inst "enabled") -}}
+        {{- $eff := (include "pangolin-cli.effectiveMetrics" (list $inst $gm)) | fromJson -}}
+        {{- $effPR := (get $eff "prometheusRule") | default dict -}}
+        {{- if (get $effPR "enabled") -}}
+          {{- $shouldPR = true -}}
+          {{- break -}}
+        {{- end -}}
+      {{- end -}}
+    {{- end -}}
+  {{- end -}}
+{{- end -}}
+
+{{- if $shouldPR -}}
+apiVersion: {{ (get $mPR "apiVersion") | default "monitoring.coreos.com/v1" }}
+kind: PrometheusRule
+metadata:
+  name: {{ include "pangolin-cli.fullname" . }}
+  {{- with (get $mPR "namespace") }}
+  {{- if . }}
+  namespace: {{ . }}
+  {{- end }}
+  {{- end }}
+  labels:
+    {{- include "pangolin-cli.labels" . | nindent 4 }}
+    {{- with (get $mPR "labels") }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    {{- $rules := (get $mPR "rules") -}}
+    {{- if $rules }}
+    {{- toYaml $rules | nindent 4 }}
+    {{- else }}
+    []
+    {{- end }}
+{{- end -}}

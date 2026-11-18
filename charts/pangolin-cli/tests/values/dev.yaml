@@ -1,0 +1,36 @@
+# Development / CI override values for the pangolin-cli chart.
+# Used by: make lint, make unittest
+# These values exercise the chart with a minimal but valid configuration.
+
+global:
+  image:
+    registry: "ghcr.io"
+    repository: "fosrl/cli"
+    digest: "sha256:b30c10882405eb39b4d3532302061d461228ad994034567b96d7668343bb2e5e"
+  logLevel: "DEBUG"
+  metrics:
+    enabled: false
+  tests:
+    enabled: false
+
+  # Minimal script map so `templates/configmap-updown.yaml` can render
+  updownScripts:
+    demo: |
+      #!/bin/sh
+      echo up
+
+siteInstances:
+  - name: main-tunnel
+    enabled: true
+    pangolinEndpoint: https://pangolin.example.com
+    id: test-id
+    secret: test-secret
+    # Minimal env map so `templates/configmap-env.yaml` can render
+    extraEnv:
+      HELLO: world
+    # Minimal updown config so `templates/configmap-updown.yaml` can render
+    updown:
+      enabled: true
+      script: demo
+    service:
+      enabled: false

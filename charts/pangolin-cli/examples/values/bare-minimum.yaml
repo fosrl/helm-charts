@@ -1,0 +1,6 @@
+# Minimal values: use an existing secret with credentials
+siteInstances:
+  - name: main-tunnel
+    auth:
+      existingSecretName: site-cred
+    enabled: true

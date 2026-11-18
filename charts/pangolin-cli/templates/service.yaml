@@ -1,0 +1,93 @@
+{{- $root := . -}}
+{{- range $i, $inst := .Values.siteInstances }}
+{{- $svc := (default (dict) $inst.service) -}}
+{{- $enabledByFlag := ternary $svc.enabled true (hasKey $svc "enabled") -}}
+{{- $enabledWhenAcceptClients := default false $svc.enabledWhenAcceptClients -}}
+{{- $svcEnabled := or $enabledByFlag (and $enabledWhenAcceptClients (default false $inst.acceptClients)) -}}
+{{- if and $inst.enabled $svcEnabled }}
+{{- $nsName := include "pangolin-cli.effectiveNamespace" (dict "root" $root "inst" $inst) }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "pangolin-cli.instance.fullname" (dict "root" $root "inst" $inst) }}
+  namespace: {{ $nsName }}
+  labels:
+    {{- include "pangolin-cli.labels" $root | nindent 4 }}
+    pangolin-cli.instance: {{ $inst.name }}
+    {{- /* Global extra labels for external Services */}}
+    {{- range $k,$v := $root.Values.global.additionalServiceLabels }}
+    {{ $k }}: {{ $v | quote }}
+    {{- end }}
+    {{- /* Per-instance service labels */}}
+    {{- with $svc.labels }}
+    {{- range $k,$v := . }}
+    {{ $k }}: {{ $v | quote }}
+    {{- end }}
+    {{- end }}
+  {{- /* Merge global + service annotations */}}
+  {{- $svcAnns := dict }}
+  {{- range $k,$v := $root.Values.global.additionalAnnotations }}
+  {{- $_ := set $svcAnns $k (printf "%v" $v) }}
+  {{- end }}
+  {{- range $k,$v := $root.Values.global.additionalServiceAnnotations }}
+  {{- $_ := set $svcAnns $k (printf "%v" $v) }}
+  {{- end }}
+  {{- with $svc.annotations }}
+  {{- range $k,$v := . }}
+  {{- $_ := set $svcAnns $k (printf "%v" $v) }}
+  {{- end }}
+  {{- end }}
+  {{- if gt (len $svcAnns) 0 }}
+  annotations:
+    {{- toYaml $svcAnns | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ default "ClusterIP" $svc.type }}
+  {{- with $svc.externalTrafficPolicy }}
+  externalTrafficPolicy: {{ . }}
+  {{- end }}
+  {{- if eq (default "ClusterIP" $svc.type) "LoadBalancer" }}
+  {{- with $svc.loadBalancerIP }}
+  loadBalancerIP: {{ . | quote }}
+  {{- end }}
+  {{- with $svc.loadBalancerClass }}
+  loadBalancerClass: {{ . | quote }}
+  {{- end }}
+  {{- with $svc.loadBalancerSourceRanges }}
+  loadBalancerSourceRanges:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- end }}
+  selector:
+    app.kubernetes.io/instance: {{ $root.Release.Name }}
+    pangolin-cli.instance: {{ $inst.name }}
+  {{- /* Determine tester port enabled */ -}}
+  {{- $testerEnabled := (include "pangolin-cli.effectiveTestsEnabled" (dict "root" $root "inst" $inst)) | eq "true" -}}
+  {{- /* Legacy: check testerPort for backward compatibility */ -}}
+  {{- $testerPortVal := int (default 0 $svc.testerPort) -}}
+  {{- if and (not $testerEnabled) (gt $testerPortVal 0) -}}
+  {{- $testerEnabled = true -}}
+  {{- end -}}
+  {{- $nodePorts := (default (dict) $svc.nodePorts) }}
+  {{- $wgNodePort := (get $nodePorts "wg") }}
+  {{- $testerNodePort := (get $nodePorts "tester") }}
+  ports:
+    - name: wg
+      port: {{ default 51820 $svc.port }}
+      targetPort: 51820
+      protocol: UDP
+      {{- if and (eq (default "ClusterIP" $svc.type) "NodePort") $wgNodePort }}
+      nodePort: {{ $wgNodePort | int }}
+      {{- end }}
+    {{- if $testerEnabled }}
+    - name: tester
+      port: {{ $svc.testerPort | default 51821 }}
+      targetPort: 51821
+      protocol: UDP
+      {{- if and (eq (default "ClusterIP" $svc.type) "NodePort") $testerNodePort }}
+      nodePort: {{ $testerNodePort | int }}
+      {{- end }}
+    {{- end }}
+{{- end }}
+{{- end }}

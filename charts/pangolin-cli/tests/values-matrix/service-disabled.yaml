@@ -1,0 +1,8 @@
+# Service disabled for instance
+siteInstances:
+  - name: no-service
+    enabled: true
+    service:
+      enabled: false
+    auth:
+      existingSecretName: site-auth

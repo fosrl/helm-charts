@@ -1,0 +1,13 @@
+siteInstances:
+  - name: main-tunnel
+    enabled: true
+    pangolinEndpoint: https://pangolin.example.com
+
+    provisioningKey: "YOUR_PROVISIONING_KEY"
+    siteName: "my-site"
+
+    configPersistence:
+      enabled: true
+      type: emptyDir
+      mountPath: /var/lib/pangolin
+      fileName: config.json

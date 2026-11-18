@@ -1,0 +1,6 @@
+# Test with no extra features
+siteInstances:
+  - name: basic
+    enabled: true
+    auth:
+      existingSecretName: site-auth

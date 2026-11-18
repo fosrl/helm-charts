@@ -1,0 +1,8 @@
+# Updown scripts disabled
+siteInstances:
+  - name: no-updown
+    enabled: true
+    updown:
+      enabled: false
+    auth:
+      existingSecretName: site-auth

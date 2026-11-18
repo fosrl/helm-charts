@@ -1,0 +1,22 @@
+{{- $root := . -}}
+{{- range $i, $inst := .Values.siteInstances }}
+{{- if and (kindIs "map" $inst.updown) $inst.updown.enabled $inst.updown.script (hasKey $root.Values.global.updownScripts $inst.updown.script) }}
+{{- $nsName := include "pangolin-cli.effectiveNamespace" (dict "root" $root "inst" $inst) }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "pangolin-cli.instance.fullname" (dict "root" $root "inst" $inst) }}-updown
+  namespace: {{ $nsName }}
+  labels:
+    {{- include "pangolin-cli.labels" $root | nindent 4 }}
+    pangolin-cli.instance: {{ $inst.name }}
+  {{- with $root.Values.global.additionalAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+data:
+  {{ $inst.updown.fileName | default "updown.sh" }}: |
+{{- printf "%s" (index $root.Values.global.updownScripts $inst.updown.script) | nindent 4 }}
+{{- end }}
+{{- end }}

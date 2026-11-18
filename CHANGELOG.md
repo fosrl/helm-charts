@@ -139,6 +139,26 @@ This changelog is chart-scoped to support multiple charts over time.
 
 ---
 
+## Pangolin CLI Chart (`charts/pangolin-cli`)
+
+### Unreleased
+
+#### Added
+
+- New chart that runs Pangolin sites with the Pangolin CLI (`pangolin-cli up site`,
+  image `docker.io/fosrl/pangolin-cli`, also `ghcr.io/fosrl/cli`). Each entry in
+  `siteInstances` becomes a Deployment.
+- The container command is always `pangolin-cli up site`. The image entrypoint is skipped
+  because it runs `update-ca-certificates` under `set -e`, which exits 1 as uid 65534 on a
+  read-only root filesystem, and it only reaches `up site` when both `SITE_ID` and
+  `SITE_SECRET` are set.
+- Site settings use `SITE_`-prefixed environment variables (`SITE_ID`, `SITE_SECRET`,
+  `SITE_PROVISIONING_KEY`, `SITE_NAME`, `SITE_UDP_PROXY_IDLE_TIMEOUT`, `SITE_METRICS_*`,
+  `SITE_ADMIN_ADDR`, `SITE_REGION`, `SITE_PPROF_ENABLED`), and the generated Secret uses
+  the keys `SITE_ID` / `SITE_SECRET`.
+
+---
+
 ## Newt Chart (`charts/newt`)
 
 ### 1.6.0 - 2026-11-18
