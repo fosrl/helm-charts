@@ -87,5 +87,16 @@ jobs:
             if [ -z "${pkg:-}" ]; then
               break
             fi
+            # chart-releaser packages every chart that changed since the previous tag,
+            # including ones whose version is already released (cr upload skips those).
+            # GHCR overwrites an existing tag, so pushing such a package would replace
+            # the published chart with unreleased content under the same version.
+            name="$(helm show chart "${pkg}" | awk '/^name:/ {print $2}')"
+            version="$(helm show chart "${pkg}" | awk '/^version:/ {print $2}')"
+            ref="oci://ghcr.io/${GITHUB_REPOSITORY_OWNER}/helm-charts/${name}"
+            if helm show chart "${ref}" --version "${version}" >/dev/null 2>&1; then
+              echo "Skipping ${name} ${version}: already published to ${ref}"
+              continue
+            fi
             helm push "${pkg}" "oci://ghcr.io/${GITHUB_REPOSITORY_OWNER}/helm-charts"
           done

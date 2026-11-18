@@ -1,5 +1,8 @@
 apiVersion: v2
-version: 0.1.0-alpha.2
+# Held at the published 0.1.0-alpha.1 so the newt-1.6.0 tag does not also release
+# Pangolin (chart-releaser skips versions that already have a release). Set back to
+# 0.1.0-alpha.2 once newt-1.6.0 is tagged.
+version: 0.1.0-alpha.1
 appVersion: "1.22.2"
 kubeVersion: ">=1.30.14-0"
 name: pangolin

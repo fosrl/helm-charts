@@ -119,31 +119,6 @@ This changelog is chart-scoped to support multiple charts over time.
   false` (an externally installed Traefik is a supported topology and two default
   IngressClasses are ambiguous), and the Badger plugin declaration. An externally installed
   Traefik remains fully supported and is unaffected while the switch stays `false`.
-- `newtInstances[].useNativeMainInterface` and `useNativeInterface` now both require
-  `global.nativeMode.enabled=true` and are rejected without it. `global.nativeMode.enabled`
-  on its own no longer makes a Pod root and privileged: it is a permission gate, and an
-  instance is only privileged when it also requests a native interface. If you relied on
-  the gate alone to obtain privilege, set `useNativeInterface: true` on the instances that
-  need it.
-- `--secret-env=NEWT_SECRET` is no longer passed in `useCommandArgs` mode. No Newt release
-  defines that flag, and Newt exits 2 on an unknown flag; it reads `NEWT_SECRET` from the
-  environment, which the chart still injects.
-- `newtInstances[].preferEndpoint` now requires `useCommandArgs: true` and is rejected
-  otherwise. Newt has no `PREFER_ENDPOINT` environment variable, so the default env path
-  silently did nothing.
-- `newtInstances[].updown.enabled=true` is rejected when `updown.script` does not name an
-  entry in `global.updownScripts`. The chart used to mount a ConfigMap it never rendered,
-  which left the Pod in `ContainerCreating` with no explanation.
-- Newt health probes now get a writable `emptyDir` at the health file's directory. The
-  default container runs with `readOnlyRootFilesystem: true`, so `global.health.enabled`
-  previously produced probes for a file Newt could never create.
-- `global.podDisruptionBudget.maxUnavailable` is now rendered, and `minAvailable: 0` is no
-  longer discarded. Both were documented; only a hardcoded `minAvailable` was emitted.
-- The Prometheus scrape annotation advertises the port Newt binds instead of the
-  deprecated `metrics.port`.
-- **BREAKING:** the per-instance `<release>-<instance>-env` ConfigMap is no longer created.
-  Nothing mounted it - `extraEnv` is and was rendered directly into the container - so it
-  was a dead object holding a second copy of every value. Remove any external reference to it.
 
 ---
 
@@ -166,7 +141,7 @@ This changelog is chart-scoped to support multiple charts over time.
 
 ## Newt Chart (`charts/newt`)
 
-### Unreleased
+### 1.6.0 - 2026-11-18
 
 #### Fixed
 
@@ -181,6 +156,20 @@ This changelog is chart-scoped to support multiple charts over time.
   ([#23](https://github.com/fosrl/helm-charts/issues/23)).
 - `newtInstances[].extraVolumes` / `extraVolumeMounts` no longer render stray bare list
   dashes ([#25](https://github.com/fosrl/helm-charts/issues/25)).
+- `--secret-env=NEWT_SECRET` is no longer passed in `useCommandArgs` mode. No Newt release
+  defines that flag, and Newt exits 2 on an unknown flag; it reads `NEWT_SECRET` from the
+  environment, which the chart still injects.
+- Newt health probes now get a writable `emptyDir` at the health file's directory. The
+  default container runs with `readOnlyRootFilesystem: true`, so `global.health.enabled`
+  previously produced probes for a file Newt could never create.
+- `global.podDisruptionBudget.maxUnavailable` is now rendered, and `minAvailable: 0` is no
+  longer discarded. Both were documented; only a hardcoded `minAvailable` was emitted.
+- The Prometheus scrape annotation advertises the port Newt binds instead of the
+  deprecated `metrics.port`.
+- `pangolinEndpoint` no longer counts towards the "inline credentials must be set
+  together" check. It is the server address and is needed in every auth mode, so
+  provisioning-key installs (endpoint, no id/secret) always failed that check and could not
+  render.
 
 #### Added
 
@@ -195,6 +184,18 @@ This changelog is chart-scoped to support multiple charts over time.
 
 #### Changed
 
+- `newtInstances[].useNativeMainInterface` and `useNativeInterface` now both require
+  `global.nativeMode.enabled=true` and are rejected without it. `global.nativeMode.enabled`
+  on its own no longer makes a Pod root and privileged: it is a permission gate, and an
+  instance is only privileged when it also requests a native interface. If you relied on
+  the gate alone to obtain privilege, set `useNativeInterface: true` on the instances that
+  need it.
+- `newtInstances[].preferEndpoint` now requires `useCommandArgs: true` and is rejected
+  otherwise. Newt has no `PREFER_ENDPOINT` environment variable, so the default env path
+  silently did nothing.
+- `newtInstances[].updown.enabled=true` is rejected when `updown.script` does not name an
+  entry in `global.updownScripts`. The chart used to mount a ConfigMap it never rendered,
+  which left the Pod in `ContainerCreating` with no explanation.
 - `global.resources` and `newtInstances[].resources` default to `{}`. The chart no longer
   imposes CPU or memory requests/limits, and the `resources` key is omitted entirely when
   both are empty so LimitRange and namespace defaults apply. Commented examples are
@@ -215,6 +216,12 @@ This changelog is chart-scoped to support multiple charts over time.
   removing them changes no behaviour. The values keys are kept: `acceptClients` still
   gates the client Service and NetworkPolicy rule, and the other two are documented as
   inert.
+
+#### Removed
+
+- **BREAKING:** the per-instance `<release>-<instance>-env` ConfigMap is no longer created.
+  Nothing mounted it - `extraEnv` is and was rendered directly into the container - so it
+  was a dead object holding a second copy of every value. Remove any external reference to it.
 
 ---
 
