@@ -188,6 +188,10 @@ This changelog is chart-scoped to support multiple charts over time.
   `udpProxyIdleTimeout` and `authDaemon.*`, covering the options Newt gained through
   1.16. `authDaemon.keySecretName`/`keySecretKey` reference the pre-shared key from a
   Secret; it is never inlined into the manifest.
+- Per-instance `localEndpointInterfaces` (Newt 1.17.0). It limits the local endpoints
+  Newt reports to Pangolin to the listed interfaces and renders as
+  `LOCAL_ENDPOINT_INTERFACES` or `--local-endpoint-interfaces`. Empty keeps Newt's default
+  of reporting every interface.
 
 #### Changed
 
@@ -201,7 +205,10 @@ This changelog is chart-scoped to support multiple charts over time.
 - `global.metrics.adminAddr` is authoritative for the metrics port; the container port,
   Service `targetPort` and scrape annotation all derive from it. `global.metrics.port` is
   deprecated but still honoured as the listen port so existing values files are unchanged.
-- Bumped Newt appVersion to `1.16.0` and the chart to `1.6.0`.
+- Bumped Newt appVersion to `1.20.0` and the chart to `1.6.0`. Of the Newt releases since
+  1.16.0, only 1.17.0 added a setting (`LOCAL_ENDPOINT_INTERFACES`). Newt 1.17.0 also
+  accepts `SITE_*` aliases for the `NEWT_*` variables; the chart keeps emitting the
+  `NEWT_*` names, which take precedence.
 - Stopped emitting `ACCEPT_CLIENTS`, `KEEP_INTERFACE` and `GENERATE_AND_SAVE_KEY_TO` and
   their CLI flags. None exist in any Newt release this chart can select - `ACCEPT_CLIENTS`
   was replaced by `DISABLE_CLIENTS` in Newt 1.7.0 - so the binary already ignored them and

@@ -1282,6 +1282,14 @@
                         "description": "Container lifecycle hooks (e.g., preStop for graceful WireGuard shutdown)",
                         "type": "object"
                     },
+                    "localEndpointInterfaces": {
+                        "description": "Restrict the local endpoints Newt reports to Pangolin to these network interface names, e.g. [\"eth0\"] (LOCAL_ENDPOINT_INTERFACES). Clients on the same network use those addresses to connect directly. Empty reports every interface. Mostly useful with hostNetwork: true, where the pod sees all node interfaces. Requires Newt \u003e= 1.17.0.",
+                        "default": [],
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
                     "logLevel": {
                         "description": "Per-instance log level (falls back to global.logLevel when empty)",
                         "type": "string"
