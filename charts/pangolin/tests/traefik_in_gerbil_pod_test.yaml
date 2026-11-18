@@ -1,0 +1,160 @@
+suite: standalone Traefik in the Gerbil Pod
+templates:
+  - templates/deployment-gerbil.yaml
+  - templates/deployment-traefik.yaml
+  - templates/service-traefik.yaml
+  - templates/rbac-traefik.yaml
+  - templates/networkpolicy.yaml
+  - templates/pdb.yaml
+  - templates/pvc-traefik.yaml
+  - templates/validate.yaml
+set:
+  deployment.type: standalone
+  deployment.mode: multi
+  traefik.enabled: true
+  traefik.config.letsencryptEmail: ops@example.com
+  traefik.config.dynamicRouters.host: pangolin.example.com
+tests:
+  # Tunnel backends are WireGuard peer addresses that only exist in Gerbil's network
+  # namespace (#20). Sharing the Pod is the only portable way for Traefik to reach them.
+  - it: runs Traefik as a container of the Gerbil Pod
+    template: templates/deployment-gerbil.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[1].name
+          value: traefik
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+      - contains:
+          path: spec.template.spec.containers[1].volumeMounts
+          content:
+            name: traefik-kube-api-access
+            mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+            readOnly: true
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: traefik-kube-api-access
+          any: true
+
+  - it: renders no separate Traefik Deployment
+    template: templates/deployment-traefik.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders no separate Traefik budget
+    template: templates/pdb.yaml
+    set:
+      highAvailability.podDisruptionBudget.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 2
+      - notMatchRegex:
+          path: metadata.name
+          pattern: traefik
+
+  - it: points the public Service at the Gerbil Pod
+    template: templates/service-traefik.yaml
+    asserts:
+      - equal:
+          path: spec.selector
+          value:
+            app.kubernetes.io/name: pangolin
+            app.kubernetes.io/instance: RELEASE-NAME
+            app.kubernetes.io/component: gerbil
+
+  - it: binds the Traefik RBAC to the Gerbil ServiceAccount
+    template: templates/rbac-traefik.yaml
+    documentSelector:
+      path: kind
+      value: ClusterRoleBinding
+    asserts:
+      - equal:
+          path: subjects[0].name
+          value: RELEASE-NAME-pangolin-gerbil-sa
+
+  - it: opens the Traefik ports and drops the Gerbil egress policy
+    template: templates/networkpolicy.yaml
+    set:
+      networkPolicy.enabled: true
+    asserts:
+      - contains:
+          path: spec.ingress
+          content:
+            ports:
+              - protocol: TCP
+                port: 8000
+              - protocol: TCP
+                port: 9443
+        documentSelector:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin-gerbil-ingress
+      - notMatchRegex:
+          path: metadata.name
+          pattern: gerbil-egress
+
+  - it: falls back to its own Deployment when Gerbil is held at zero replicas
+    template: templates/deployment-traefik.yaml
+    set:
+      gerbil.startupMode: delayed
+    asserts:
+      - hasDocuments:
+          count: 1
+
+  - it: falls back to its own Deployment on request
+    template: templates/deployment-traefik.yaml
+    set:
+      traefik.runInGerbilPod: false
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+
+  - it: keeps Gerbil alone when Traefik runs separately
+    template: templates/deployment-gerbil.yaml
+    set:
+      traefik.runInGerbilPod: false
+    asserts:
+      - lengthEqual:
+          path: spec.template.spec.containers
+          count: 1
+
+  - it: rejects a Traefik replica count it cannot honour
+    template: templates/validate.yaml
+    set:
+      traefik.replicaCount: 2
+    asserts:
+      - failedTemplate:
+          errorPattern: "PANGOLIN-076"
+
+  - it: switches Gerbil to Recreate when the ACME volume is ReadWriteOnce
+    template: templates/deployment-gerbil.yaml
+    set:
+      gerbil.persistence.enabled: false
+      traefik.persistence.enabled: true
+    asserts:
+      - equal:
+          path: spec.strategy.type
+          value: Recreate
+
+  - it: creates the ACME PVC it mounts
+    template: templates/pvc-traefik.yaml
+    set:
+      traefik.persistence.enabled: true
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pangolin-traefik-acme
+
+  - it: creates no ACME PVC for an existing claim
+    template: templates/pvc-traefik.yaml
+    set:
+      traefik.persistence.enabled: true
+      traefik.persistence.existingClaim: my-acme
+    asserts:
+      - hasDocuments:
+          count: 0

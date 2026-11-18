@@ -30,4 +30,6 @@ data:
   LOG_TRAEFIK_CONFIG: {{ ternary "true" "false" .Values.controller.config.logTraefikConfig | quote }}
   CONFIG_TLS_SKIP_VERIFY: {{ ternary "true" "false" .Values.controller.config.configTlsSkipVerify | quote }}
   CONFIG_ALLOW_INSECURE_HTTP: {{ ternary "true" "false" $allowInsecureHttp | quote }}
+  INGRESS_CLASS: {{ .Values.controller.config.ingressClass | default "traefik" | quote }}
+  RESYNC_INTERVAL: {{ .Values.controller.config.resyncInterval | default "10m" | quote }}
 {{- end }}

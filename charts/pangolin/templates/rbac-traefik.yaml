@@ -13,7 +13,7 @@ Kubernetes provider.
 {{- if and $root.Values.rbac.create $standalone }}
 {{- $fullname := printf "%s-traefik" (include "pangolin.fullname" $root) -}}
 {{- $namespace := include "pangolin.namespace" $root -}}
-{{- $saName := include "pangolin.serviceAccountName" $root -}}
+{{- $saName := include "pangolin.traefik.serviceAccountName" $root -}}
 {{- $rbacAnns := mergeOverwrite (dict) (include "pangolin.global.commonAnnotations" $root | fromYaml) (include "pangolin.component.commonAnnotations" (dict "root" $root "component" "traefik") | fromYaml) -}}
 ---
 apiVersion: rbac.authorization.k8s.io/v1

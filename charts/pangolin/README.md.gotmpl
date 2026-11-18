@@ -29,7 +29,7 @@ This chart can deploy a Pangolin control-plane plus optional components:
 - **pangolin-kube-controller** (controller mode): reconciles Traefik CRDs and reads Pangolin config from the Pangolin API endpoint.
 - **Traefik**:
 	- **Controller mode**: you run a Traefik Ingress Controller (optionally installed via the bundled dependency, aliased as `traefikController`).
-	- **Standalone mode**: the chart runs an in-cluster Traefik Deployment managed directly by this chart.
+	- **Standalone mode**: the chart runs Traefik itself. In `deployment.mode=multi` it is a container in the Gerbil Pod (see [Tunnel data path](#tunnel-data-path)); in `single` mode it is part of the shared Pod.
 - **Database**: one of `cloudnativepg`, `external`, `embedded`, or `sqlite` (see below).
 
 ## Deployment modes
@@ -43,7 +43,7 @@ This chart can deploy a Pangolin control-plane plus optional components:
 
 `deployment.mode` controls how workloads are split:
 
-- `multi`: separate workloads for Pangolin / Gerbil / Traefik.
+- `multi`: separate workloads for Pangolin / Gerbil (+ Traefik in the Gerbil Pod for `standalone`) / controller.
 - `single`: one shared Pod. In `deployment.type=controller`, it runs Pangolin + optional Gerbil + controller. In `deployment.type=standalone`, it runs Pangolin + optional Gerbil + optional standalone Traefik. `deployment.mode=multi` remains the recommended production topology.
 
 ## Example install profiles
@@ -358,9 +358,21 @@ tunnel-backed resource returns `502` while the tunnel itself is healthy, Newt is
 connected, and the dashboard reports the router as `Success`.
 
 Docker Compose deployments avoid this by giving Traefik Gerbil's network namespace
-outright (`network_mode: service:gerbil`). Separate Kubernetes Pods have no equivalent.
-This is tracked in [#20](https://github.com/fosrl/helm-charts/issues/20), which remains
-open.
+outright (`network_mode: service:gerbil`). The chart does the same for the Traefik it
+manages: with `deployment.type=standalone` and `deployment.mode=multi`, Traefik runs as a
+container in the Gerbil Pod (`traefik.runInGerbilPod`, default `true`) and reaches every
+tunnel backend without host networking. It falls back to a Deployment of its own when
+Gerbil does not run (`gerbil.enabled=false` or a `startupMode` other than `normal`).
+
+While Traefik shares the Pod, the chart renders no Gerbil egress NetworkPolicy: Traefik
+must reach backends the chart cannot enumerate (LAN and local-site targets, cluster
+Services, ACME and the Badger plugin download). The Gerbil ingress policy opens Traefik's
+ports 8000 and 9443 (HTTPS is not on 8443: Gerbil's SNI proxy binds that port in the
+shared network namespace).
+
+An **externally installed** Traefik (controller mode) is a separate Pod and still has no
+route. That case is tracked in [#20](https://github.com/fosrl/helm-charts/issues/20),
+which remains open; host gateway mode below is the workaround.
 
 ### If your targets run in this cluster
 
@@ -374,9 +386,9 @@ connected route are created in the **node** network namespace and any Pod schedu
 that node reaches the tunnel through the node routing table. Traefik must then run on the
 same node:
 
-- The **chart-managed** Traefik (`deployment.type=standalone` with `traefik.enabled=true`)
-  is pinned automatically by `traefik.colocateWithGerbil`, a required `podAffinity` on
-  `kubernetes.io/hostname`.
+- The **chart-managed** Traefik does not need it: it runs in the Gerbil Pod. Only with
+  `traefik.runInGerbilPod=false` is it pinned to the Gerbil node by
+  `traefik.colocateWithGerbil`, a required `podAffinity` on `kubernetes.io/hostname`.
 - For an **externally installed** Traefik, `helm get notes` prints the exact snippet to
   add to its values, with your release name and namespace filled in.
 
@@ -435,7 +447,11 @@ helm upgrade <release> <chart> -n <namespace> --reuse-values --set gerbil.startu
 
 - `pangolin.config.traefik` configures Pangolin's generated Traefik output only; Traefik installation is controlled separately by top-level `traefik.enabled`.
 - `traefik.enabled=true` requires `traefik.config.letsencryptEmail` to be set.
-- If you enable the Traefik dashboard (`traefik.config.dashboard=true`), enable `traefik.persistence.enabled` so ACME state survives restarts.
+- ACME uses the HTTP challenge on the HTTP entrypoint, so port 80 of the Traefik Service must be reachable from the internet. When Cloudflare credentials are configured (`traefik.cloudflare.existingSecretName` or `traefik.cloudflare.generatedSecret.create`) the Cloudflare DNS challenge is used instead.
+- Without `traefik.persistence.enabled`, ACME state lives in an `emptyDir` and certificates are re-issued after every restart; Let's Encrypt rate limits make that a problem quickly. With persistence enabled the chart creates the `<release>-pangolin-traefik-acme` PVC unless `traefik.persistence.existingClaim` is set.
+- Pangolin's generated routers use the `web` / `websecure` entrypoints and the `letsencrypt` resolver by default. If you rename them via `traefik.config.httpEntrypoint`, `httpsEntrypoint` or `certResolver`, set the same names in `pangolin.config.traefik`.
+- Raw TCP/UDP resources need an entrypoint per port (`tcp-<port>` / `udp-<port>`) and a matching Service port, which this chart does not create.
+- `traefik.replicaCount` must be `1` while Traefik runs in the Gerbil Pod (`PANGOLIN-076`).
 
 ## Storage
 

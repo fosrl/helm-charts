@@ -1,0 +1,34 @@
+{{- /* ACME state of the chart-managed Traefik. The Pods referenced
+       `<fullname>-traefik-acme` whenever traefik.persistence.enabled=true, but nothing
+       created it, so enabling persistence without existingClaim left Traefik Pending. */ -}}
+{{- if eq (include "pangolin.traefik.chartManagedAnyMode" .) "true" }}
+{{- $tf := .Values.traefik -}}
+{{- $persistence := $tf.persistence | default dict -}}
+{{- if and $persistence.enabled (not $persistence.existingClaim) }}
+{{- $root := . -}}
+{{- $storageClass := $persistence.storageClass | default $root.Values.global.storageClass -}}
+{{- $metaAnns := mergeOverwrite (dict) (include "pangolin.global.commonAnnotations" $root | fromYaml) (include "pangolin.component.commonAnnotations" (dict "root" $root "component" "traefik") | fromYaml) ($persistence.annotations | default dict) -}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "pangolin.traefik.acmeClaimName" $root }}
+  namespace: {{ include "pangolin.namespace" $root }}
+  labels:
+    {{- include "pangolin.labels" $root | nindent 4 }}
+    {{- include "pangolin.component.commonLabels" (dict "root" $root "component" "traefik") | nindent 4 }}
+    app.kubernetes.io/component: traefik-standalone
+  {{- if gt (len $metaAnns) 0 }}
+  annotations:
+    {{- toYaml $metaAnns | nindent 4 }}
+  {{- end }}
+spec:
+  accessModes:
+    {{- toYaml ($persistence.accessModes | default (list "ReadWriteOnce")) | nindent 4 }}
+  {{- if $storageClass }}
+  storageClassName: {{ $storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ $persistence.size | default "1Gi" }}
+{{- end }}
+{{- end }}

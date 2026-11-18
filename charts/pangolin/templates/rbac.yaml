@@ -11,9 +11,11 @@
 {{- if hasKey $leaderElectionConfig "enabled" -}}
 {{- $leaderElectionEnabled = get $leaderElectionConfig "enabled" -}}
 {{- end -}}
+{{- /* Secrets: controller >= 0.1.0 writes the client-CA Secrets that mTLS TLSOptions
+       reference, and reads the Secrets listed in CERTIFICATE_SECRETS. */ -}}
 {{- $rbacRules := list
   (dict "apiGroups" (list "") "resources" (list "events") "verbs" (list "create" "patch" "update"))
-  (dict "apiGroups" (list "") "resources" (list "services" "endpoints") "verbs" (list "get" "list" "watch" "create" "update" "patch" "delete"))
+  (dict "apiGroups" (list "") "resources" (list "services" "endpoints" "secrets") "verbs" (list "get" "list" "watch" "create" "update" "patch" "delete"))
   (dict "apiGroups" (list "discovery.k8s.io") "resources" (list "endpointslices") "verbs" (list "get" "list" "watch" "create" "update" "patch" "delete"))
   (dict "apiGroups" (list "traefik.io") "resources" (list "ingressroutes" "ingressroutetcps" "ingressrouteudps" "middlewares" "middlewaretcps" "traefikservices" "serverstransports" "serverstransporttcps" "tlsoptions" "tlsstores") "verbs" (list "get" "list" "watch" "create" "update" "patch" "delete"))
 -}}

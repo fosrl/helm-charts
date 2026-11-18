@@ -234,7 +234,11 @@ Tunnel data path: Gerbil is running in HOST GATEWAY MODE (hostNetwork=true).
 wg0 and its connected route are created in the node network namespace, so only Pods
 scheduled onto that node can reach tunnel backends. This is a transitional
 compatibility mode, not the final architecture - see fosrl/helm-charts#20.
-{{- if eq (include "pangolin.traefik.colocateWithGerbil" .) "true" }}
+{{- if eq (include "pangolin.traefik.inGerbilPod" .) "true" }}
+
+The chart-managed Traefik runs in the Gerbil Pod and reaches tunnel backends directly;
+it does not need host gateway mode.
+{{- else if eq (include "pangolin.traefik.colocateWithGerbil" .) "true" }}
 
 The chart-managed Traefik is pinned to the Gerbil node via a required podAffinity.
 {{- else if eq (include "pangolin.traefik.chartManaged" .) "true" }}

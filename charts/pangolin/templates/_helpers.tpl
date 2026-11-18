@@ -543,6 +543,7 @@ imagePullSecrets:
 {{- end -}}
 
 {{- define "pangolin.gerbilEnv" -}}
+{{- include "pangolin.gerbil.localProxyEnv" . }}
 {{- $gerbil := .Values.gerbil -}}
 {{- range $k, $v := ($gerbil.extraEnv | default dict) }}
 - name: {{ $k }}
@@ -711,10 +712,212 @@ true{{- else -}}false{{- end -}}
 {{- if and (.Values.traefik).enabled (eq .Values.deployment.type "standalone") (eq .Values.deployment.mode "multi") -}}true{{- else -}}false{{- end -}}
 {{- end -}}
 
+{{- /*
+Standalone + multi: the chart-managed Traefik runs as a container in the Gerbil Pod, so
+it shares Gerbil's network namespace. The WireGuard interface and the routes to every
+tunnel backend live there; a Traefik in any other Pod gets no route to the 100.89.x.x
+addresses Pangolin advertises and answers 502 (#20). This is the Docker Compose layout
+(`network_mode: service:gerbil`).
+
+It falls back to a Deployment of its own when Gerbil does not actually run (disabled,
+disabledUntilSetup, or delayed at zero replicas, where it would take Traefik down with
+it) or when traefik.runInGerbilPod=false.
+*/ -}}
+{{- define "pangolin.traefik.inGerbilPod" -}}
+{{- $run := true -}}
+{{- if kindIs "bool" (.Values.traefik).runInGerbilPod -}}{{- $run = .Values.traefik.runInGerbilPod -}}{{- end -}}
+{{- if and $run (eq (include "pangolin.traefik.chartManaged" .) "true") (eq (include "pangolin.gerbil.colocationSupported" .) "true") -}}true{{- else -}}false{{- end -}}
+{{- end -}}
+
+{{- /* Whether deployment-traefik.yaml renders a Traefik Deployment of its own. */ -}}
+{{- define "pangolin.traefik.separateDeployment" -}}
+{{- if and (eq (include "pangolin.traefik.chartManaged" .) "true") (ne (include "pangolin.traefik.inGerbilPod" .) "true") -}}true{{- else -}}false{{- end -}}
+{{- end -}}
+
+{{- /* The ServiceAccount of whichever Pod runs the chart-managed Traefik. */ -}}
+{{- define "pangolin.traefik.serviceAccountName" -}}
+{{- if eq (include "pangolin.traefik.inGerbilPod" .) "true" -}}
+{{- include "pangolin.serviceAccountName.gerbil" . -}}
+{{- else -}}
+{{- include "pangolin.serviceAccountName" . -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* Traefik's HTTPS listener. Not 8443: Gerbil's SNI proxy binds 8443 (--sni-port) in
+       the network namespace Traefik shares with it in single mode and in the Gerbil Pod,
+       and Traefik then fails with "bind: address already in use". */ -}}
+{{- define "pangolin.traefik.websecurePort" -}}9443{{- end -}}
+
+{{- /* Gerbil's SNI proxy hands local traffic to the Traefik in its network namespace on
+       LOCAL_PROXY_PORT (default 443). Point it at the port Traefik actually listens on
+       whenever the two share a Pod. */ -}}
+{{- define "pangolin.gerbil.localProxyEnv" -}}
+{{- $shared := or (eq (include "pangolin.traefik.inGerbilPod" .) "true") (and (eq .Values.deployment.mode "single") (eq (include "pangolin.traefik.chartManagedAnyMode" .) "true")) -}}
+{{- if and $shared (not (hasKey ((.Values.gerbil).extraEnv | default dict) "LOCAL_PROXY_PORT")) }}
+- name: LOCAL_PROXY_PORT
+  value: {{ include "pangolin.traefik.websecurePort" . | quote }}
+{{- end }}
+{{- end -}}
+
+{{- define "pangolin.traefik.acmeClaimName" -}}
+{{- (((.Values.traefik).persistence) | default dict).existingClaim | default (printf "%s-traefik-acme" (include "pangolin.fullname" .)) -}}
+{{- end -}}
+
+{{- /* Whether the ACME resolver uses the Cloudflare DNS challenge (Cloudflare
+       credentials are configured) instead of the HTTP challenge. */ -}}
+{{- define "pangolin.traefik.dnsChallenge" -}}
+{{- $cf := ((.Values.traefik).cloudflare) | default dict -}}
+{{- if or $cf.existingSecretName (($cf.generatedSecret | default dict).create) -}}true{{- else -}}false{{- end -}}
+{{- end -}}
+
+{{- /*
+The chart-managed Traefik container, shared by the standalone Deployment, the Gerbil Pod
+and the single-mode Pod so the three cannot drift.
+
+- The `traefik` entrypoint is bound to config.adminPort: --ping and --api serve on it,
+  and the probes target that port. Left unset it defaults to :8080 and every probe fails.
+- The ACME resolver gets a challenge. Without one every certificate request fails with
+  "ACME challenge not specified".
+- /data is always mounted (the ACME PVC, or an emptyDir). Traefik does not create the
+  directory acme.json lives in and drops the resolver when it is missing.
+- The API token is mounted into this container only. Its Pod's ServiceAccount does not
+  automount one (the Gerbil and Pangolin containers need none), and without it the
+  Kubernetes providers cannot read anything.
+
+Usage: include "pangolin.traefik.container" (dict "root" $root)
+*/ -}}
+{{- define "pangolin.traefik.container" -}}
+{{- $root := .root -}}
+{{- $tf := $root.Values.traefik -}}
+{{- $cfg := $tf.config | default dict -}}
+{{- $web := $cfg.httpEntrypoint | default "web" -}}
+{{- $websecure := $cfg.httpsEntrypoint | default "websecure" -}}
+{{- $resolver := $cfg.certResolver | default "letsencrypt" -}}
+- name: traefik
+  image: {{ include "pangolin.traefik.image" $root }}
+  imagePullPolicy: {{ $tf.pullPolicy | default (include "pangolin.imagePullPolicy" $root) }}
+  args:
+    - --api.insecure={{ if $cfg.dashboard }}true{{ else }}false{{ end }}
+    - --ping=true
+    - --entrypoints.traefik.address=:{{ $cfg.adminPort | default 8085 }}
+    - --log.level={{ $cfg.logLevel | default "INFO" }}
+    - --accesslog=true
+    - --entrypoints.{{ $web }}.address=:8000
+    - --entrypoints.{{ $websecure }}.address=:{{ include "pangolin.traefik.websecurePort" $root }}
+    - --providers.kubernetescrd
+    - --providers.kubernetesingress
+    {{- include "pangolin.traefik.staticArgs" $root | nindent 4 }}
+    {{- if $cfg.letsencryptEmail }}
+    - --certificatesresolvers.{{ $resolver }}.acme.email={{ $cfg.letsencryptEmail }}
+    - --certificatesresolvers.{{ $resolver }}.acme.storage=/data/acme.json
+    {{- with $cfg.acmeCaServer }}
+    - --certificatesresolvers.{{ $resolver }}.acme.caserver={{ . }}
+    {{- end }}
+    {{- if eq (include "pangolin.traefik.dnsChallenge" $root) "true" }}
+    - --certificatesresolvers.{{ $resolver }}.acme.dnschallenge.provider=cloudflare
+    {{- if $cfg.acmeDelayBeforeCheck }}
+    - --certificatesresolvers.{{ $resolver }}.acme.dnschallenge.propagation.delaybeforechecks={{ $cfg.acmeDelayBeforeCheck }}s
+    {{- end }}
+    {{- else }}
+    - --certificatesresolvers.{{ $resolver }}.acme.httpchallenge.entrypoint={{ $web }}
+    {{- end }}
+    {{- end }}
+    {{- if $cfg.insecureSkipVerify }}
+    - --serversTransport.insecureskipverify={{ $cfg.insecureSkipVerify }}
+    {{- end }}
+  ports:
+    - name: web
+      containerPort: 8000
+      protocol: TCP
+    - name: websecure
+      containerPort: {{ include "pangolin.traefik.websecurePort" $root }}
+      protocol: TCP
+    - name: admin
+      containerPort: {{ $cfg.adminPort | default 8085 }}
+      protocol: TCP
+  {{- $env := include "pangolin.traefikEnv" $root | trim }}
+  {{- if $env }}
+  env:
+    {{- $env | nindent 4 }}
+  {{- end }}
+  volumeMounts:
+    - name: traefik-data
+      mountPath: /data
+    - name: traefik-kube-api-access
+      mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      readOnly: true
+  {{- with $tf.probes }}
+  {{- if .startup }}
+  startupProbe:
+    httpGet:
+      path: {{ .startup.httpGet.path }}
+      port: {{ .startup.httpGet.port }}
+    initialDelaySeconds: {{ .startup.initialDelaySeconds }}
+    periodSeconds: {{ .startup.periodSeconds }}
+    timeoutSeconds: {{ .startup.timeoutSeconds }}
+    failureThreshold: {{ .startup.failureThreshold }}
+  {{- end }}
+  {{- if .liveness }}
+  livenessProbe:
+    httpGet:
+      path: {{ .liveness.httpGet.path }}
+      port: {{ .liveness.httpGet.port }}
+    initialDelaySeconds: {{ .liveness.initialDelaySeconds }}
+    periodSeconds: {{ .liveness.periodSeconds }}
+    timeoutSeconds: {{ .liveness.timeoutSeconds }}
+    failureThreshold: {{ .liveness.failureThreshold }}
+  {{- end }}
+  {{- if .readiness }}
+  readinessProbe:
+    httpGet:
+      path: {{ .readiness.httpGet.path }}
+      port: {{ .readiness.httpGet.port }}
+    initialDelaySeconds: {{ .readiness.initialDelaySeconds }}
+    periodSeconds: {{ .readiness.periodSeconds }}
+    timeoutSeconds: {{ .readiness.timeoutSeconds }}
+    failureThreshold: {{ .readiness.failureThreshold }}
+  {{- end }}
+  {{- end }}
+  resources:
+    {{- include "pangolin.renderResources" (dict "resources" $tf.resources "root" $root) | nindent 4 }}
+  securityContext:
+    {{- toYaml (mergeOverwrite (deepCopy $root.Values.global.containerSecurityContext) ($tf.securityContext | default dict)) | nindent 4 }}
+{{- end -}}
+
+{{- /* Volumes the Traefik container mounts. */ -}}
+{{- define "pangolin.traefik.volumes" -}}
+{{- $root := . -}}
+- name: traefik-data
+  {{- if (($root.Values.traefik).persistence | default dict).enabled }}
+  persistentVolumeClaim:
+    claimName: {{ include "pangolin.traefik.acmeClaimName" $root }}
+  {{- else }}
+  emptyDir: {}
+  {{- end }}
+- name: traefik-kube-api-access
+  projected:
+    sources:
+      - serviceAccountToken:
+          path: token
+          expirationSeconds: 3607
+      - configMap:
+          name: kube-root-ca.crt
+          items:
+            - key: ca.crt
+              path: ca.crt
+      - downwardAPI:
+          items:
+            - path: namespace
+              fieldRef:
+                fieldPath: metadata.namespace
+{{- end -}}
+
 {{- define "pangolin.traefik.colocateWithGerbil" -}}
 {{- $mode := (.Values.traefik).colocateWithGerbil | default "auto" -}}
 {{- $chartManagedTraefik := eq (include "pangolin.traefik.chartManaged" .) "true" -}}
 {{- if not $chartManagedTraefik -}}
+false
+{{- else if eq (include "pangolin.traefik.inGerbilPod" .) "true" -}}
 false
 {{- else if eq (include "pangolin.gerbil.colocationSupported" .) "false" -}}
 false
@@ -1242,5 +1445,10 @@ declared statically or Traefik fails the route with `unknown plugin type: badger
 {{- fail "PANGOLIN-075: gerbil.hostGateway.enabled=true with networkPolicy.enabled=true requires networkPolicy.gerbil.hostGateway.nodeCIDRs. Gerbil runs with hostNetwork, so its traffic sources from the node IP and no podSelector matches it; without node address blocks this chart's own policy blackholes Gerbil's --remoteConfig polling. Set your node addresses, e.g. kubectl get nodes -o jsonpath='{.items[*].status.addresses[?(@.type==\"InternalIP\")].address}'. Do not use the private ranges wholesale - they contain every mainstream Pod CIDR." -}}
 {{- end -}}
 {{- end -}}
+{{- end -}}
+{{- /* PANGOLIN-076: Traefik in the Gerbil Pod scales with Gerbil, so a Traefik replica
+       count of its own cannot be honoured; failing beats silently running one. */ -}}
+{{- if and (eq (include "pangolin.traefik.inGerbilPod" $root) "true") (gt (int (default 1 ($root.Values.traefik).replicaCount)) 1) -}}
+{{- fail "PANGOLIN-076: traefik.replicaCount > 1 cannot be honoured while the chart-managed Traefik runs in the Gerbil Pod (deployment.type=standalone, deployment.mode=multi). It shares Gerbil's network namespace to reach tunnel backends and scales with gerbil.replicaCount. Set traefik.replicaCount=1, or set traefik.runInGerbilPod=false to run Traefik in its own Deployment (it then needs gerbil.hostGateway to reach tunnel backends)." -}}
 {{- end -}}
 {{- end -}}
