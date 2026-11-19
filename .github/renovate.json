@@ -33,7 +33,7 @@
       "description": "Pangolin ArtifactHub annotations — standard docker.io image lines",
       "customType": "regex",
       "fileMatch": ["^charts/pangolin/Chart\\.yaml$"],
-      "matchStrings": ["image: docker\\.io/(?<depName>[^:\\s]+):(?!postgresql-)(?<currentValue>\\S+)"],
+      "matchStrings": ["image: docker\\.io/(?<depName>[^:\\s]+):(?<currentValue>v?\\d\\S*)"],
       "datasourceTemplate": "docker",
       "registryUrlTemplate": "https://registry.hub.docker.com",
       "versioningTemplate": "semver"
@@ -53,7 +53,7 @@
       "description": "Pangolin ArtifactHub annotations — standard ghcr.io image lines",
       "customType": "regex",
       "fileMatch": ["^charts/pangolin/Chart\\.yaml$"],
-      "matchStrings": ["image: ghcr\\.io/(?<depName>[^:\\s]+):(?!postgresql-)(?<currentValue>\\S+)"],
+      "matchStrings": ["image: ghcr\\.io/(?<depName>[^:\\s]+):(?<currentValue>v?\\d\\S*)"],
       "datasourceTemplate": "docker",
       "registryUrlTemplate": "https://ghcr.io",
       "versioningTemplate": "semver"
