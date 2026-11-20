@@ -194,6 +194,26 @@ This changelog is chart-scoped to support multiple charts over time.
 
 ---
 
+## Pangolin Node Chart (`charts/pangolin-node`)
+
+### 0.1.0
+
+#### Added
+
+- New chart for the Pangolin remote node: Pangolin Node `1.7.0`, Gerbil `1.6.0` and
+  Traefik `v3.7.19` with Badger `v1.8.0`, run in one Pod like the docker-compose install.
+  `/var/dynamic` and `/var/certificates` are emptyDirs shared by `pangolin-node` (writer)
+  and `traefik` (read-only).
+- `pangolin-node` runs as a native sidecar so Gerbil and Traefik start after its startup
+  probe passes.
+- Node credentials from values, from `config.managed.existingSecret` (merged into
+  `config.yml` by an init container), or a complete `config.yml` from
+  `config.existingSecret`.
+- LoadBalancer, NodePort or ClusterIP Service, optional `hostPorts`, and a PVC for the
+  Gerbil WireGuard key.
+
+---
+
 ## Pangolin CLI Chart (`charts/pangolin-cli`)
 
 ### Unreleased

@@ -1,0 +1,27 @@
+{{- $p := .Values.gerbil.persistence -}}
+{{- if and $p.enabled (not $p.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "pangolin-node.gerbilClaimName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pangolin-node.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+    {{- with (include "pangolin-node.annotations" .) }}
+    {{- . | nindent 4 }}
+    {{- end }}
+    {{- with $p.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  accessModes:
+    {{- toYaml $p.accessModes | nindent 4 }}
+  {{- if $p.storageClass }}
+  storageClassName: {{ if eq $p.storageClass "-" }}""{{ else }}{{ $p.storageClass | quote }}{{ end }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ $p.size }}
+{{- end }}

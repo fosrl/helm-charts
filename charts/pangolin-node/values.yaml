@@ -1,0 +1,367 @@
+# Default values for the pangolin-node chart.
+#
+# A remote node runs three containers in ONE Pod, the same layout as the
+# docker-compose install:
+#
+#   pangolin-node  talks to the managed Pangolin control plane, fetches the Traefik
+#                  router config and TLS certificates and writes them to the shared
+#                  /var/dynamic and /var/certificates volumes.
+#   gerbil         WireGuard + SNI proxy. Owns the Pod's network namespace in practice
+#                  (the compose file runs Traefik with network_mode: service:gerbil).
+#   traefik        Reads /var/dynamic and /var/certificates (read-only) and routes
+#                  traffic to sites over Gerbil's WireGuard interface.
+#
+# All three share the Pod's network namespace, so they reach each other on 127.0.0.1,
+# and the shared volumes are plain emptyDirs.
+
+# -- Override the chart name.
+nameOverride: ""
+# -- Override the full resource name.
+fullnameOverride: ""
+
+# -- Labels added to every resource.
+commonLabels: {}
+# -- Annotations added to every resource.
+commonAnnotations: {}
+
+# -- Image pull secrets for the Pod.
+imagePullSecrets: []
+
+# =============================================================================
+# Remote node configuration (rendered to /app/config/config.yml)
+# =============================================================================
+# Mirrors server/lib/readConfigFile.ts in pangolin-node. Only `managed.id`,
+# `managed.secret` and `gerbil.base_endpoint` are required.
+config:
+  # -- Use an existing Secret holding a complete config.yml instead of rendering one
+  # from the values below. The Secret must contain the key set in `existingSecretKey`.
+  # When set, everything under `config.app`, `config.managed`, `config.gerbil` and
+  # `config.extra` is ignored.
+  existingSecret: ""
+  # -- Key inside `existingSecret` holding config.yml.
+  existingSecretKey: config.yml
+
+  app:
+    # -- Log level: debug, info, warn or error.
+    log_level: info
+    # -- Log failed authentication attempts.
+    log_failed_attempts: false
+    # -- Send request audit logs to the control plane.
+    audit_logging_enabled: true
+
+  managed:
+    # -- Remote node ID from the Pangolin dashboard. Required unless
+    # `managed.existingSecret` or `config.existingSecret` is set.
+    id: ""
+    # -- Remote node secret from the Pangolin dashboard. Required unless
+    # `managed.existingSecret` or `config.existingSecret` is set.
+    secret: ""
+    # -- Read `id` and `secret` from an existing Secret instead. An init container
+    # merges them into config.yml at startup, so they never appear in Helm values.
+    existingSecret: ""
+    # -- Key in `managed.existingSecret` holding the node ID.
+    existingSecretIdKey: id
+    # -- Key in `managed.existingSecret` holding the node secret.
+    existingSecretSecretKey: secret
+    # -- Optional display name for the node.
+    name: ""
+    # -- Control plane URL.
+    endpoint: https://app.pangolin.net
+    # -- Optional redirect endpoint.
+    redirect_endpoint: ""
+
+  gerbil:
+    # -- Public hostname or IP that sites and clients use to reach this node's
+    # WireGuard listener (the address of the Service / node). Required.
+    base_endpoint: ""
+    # -- WireGuard listen port announced to the control plane. Keep it equal to
+    # `gerbil.ports.wg1` and the Service port.
+    start_port: 51820
+
+  # -- Extra keys deep-merged into the rendered config.yml, for settings this chart
+  # does not model. `server.internal_hostname`, `server.internal_port` and
+  # `gerbil.reachable_at` are set by the chart for the single-Pod layout.
+  extra: {}
+
+# =============================================================================
+# Images
+# =============================================================================
+images:
+  pangolinNode:
+    registry: docker.io
+    repository: fosrl/pangolin-node
+    # -- Defaults to `.Chart.AppVersion`.
+    tag: ""
+    # -- Overrides `tag` when set.
+    digest: ""
+    pullPolicy: IfNotPresent
+  gerbil:
+    registry: docker.io
+    repository: fosrl/gerbil
+    tag: "1.6.0"
+    digest: ""
+    pullPolicy: IfNotPresent
+  traefik:
+    registry: docker.io
+    repository: traefik
+    tag: v3.7.19
+    digest: ""
+    pullPolicy: IfNotPresent
+  # -- Image for the init container that merges `managed.existingSecret` into
+  # config.yml. Only used when `config.managed.existingSecret` is set.
+  configInit:
+    registry: docker.io
+    repository: mikefarah/yq
+    tag: "4.45.4"
+    digest: ""
+    pullPolicy: IfNotPresent
+
+# =============================================================================
+# Pod
+# =============================================================================
+pod:
+  # -- Extra Pod labels.
+  labels: {}
+  # -- Extra Pod annotations.
+  annotations: {}
+  # -- Pod security context.
+  securityContext:
+    seccompProfile:
+      type: RuntimeDefault
+  # -- Run the Pod in the host network namespace. Gerbil's SNI proxy then binds
+  # 8443 and Traefik binds 8000/9443/8080 directly on the node, so prefer
+  # `hostPorts` or a LoadBalancer Service unless you need the node's own IP stack.
+  hostNetwork: false
+  # -- DNS policy. Defaults to ClusterFirstWithHostNet when hostNetwork is true.
+  dnsPolicy: ""
+  terminationGracePeriodSeconds: 30
+  priorityClassName: ""
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+
+# -- Deployment revision history.
+revisionHistoryLimit: 10
+
+# -- Expose the public ports on the node with hostPort, the equivalent of the
+# compose `ports:` block (80, 443, 51820/udp, 21820/udp). Use this on bare-metal or
+# single-node clusters without a LoadBalancer.
+hostPorts:
+  enabled: false
+  http: 80
+  https: 443
+  wg1: 51820
+  wg2: 21820
+
+# =============================================================================
+# Service
+# =============================================================================
+service:
+  # -- Create the Service for the public ports.
+  enabled: true
+  # -- ClusterIP, NodePort or LoadBalancer. LoadBalancer needs a provider that
+  # supports mixed TCP/UDP ports on one Service; otherwise use `hostPorts`.
+  type: LoadBalancer
+  annotations: {}
+  labels: {}
+  # -- Use Local to keep client source IPs (Gerbil and Traefik log real IPs).
+  externalTrafficPolicy: Local
+  loadBalancerIP: ""
+  loadBalancerClass: ""
+  loadBalancerSourceRanges: []
+  ports:
+    http: 80
+    https: 443
+    wg1: 51820
+    wg2: 21820
+  # -- Fixed nodePorts when `type` is NodePort or LoadBalancer. Empty lets Kubernetes pick.
+  nodePorts:
+    http: ""
+    https: ""
+    wg1: ""
+    wg2: ""
+
+# =============================================================================
+# Shared volumes (written by pangolin-node, read by traefik)
+# =============================================================================
+sharedVolumes:
+  dynamic:
+    # -- Mount path. Must match `traefik.dynamic_*_config_path` in config.yml
+    # (defaults to /var/dynamic) and the Traefik file provider directory.
+    mountPath: /var/dynamic
+    # -- emptyDir size limit.
+    sizeLimit: 64Mi
+  certificates:
+    # -- Mount path. Must match `traefik.certificates_path` in config.yml.
+    mountPath: /var/certificates
+    # -- emptyDir size limit.
+    sizeLimit: 128Mi
+
+# =============================================================================
+# Pangolin Node container
+# =============================================================================
+pangolinNode:
+  # -- Internal API port (server.internal_port). Badger and Gerbil call it on 127.0.0.1.
+  internalPort: 3001
+  # -- Extra environment variables.
+  extraEnv: {}
+  # -- Timezone for log timestamps.
+  timezone: ""
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+  # -- Startup probe. Gerbil and Traefik start only after it passes (the compose
+  # `depends_on: condition: service_healthy`).
+  startupProbe:
+    httpGet:
+      path: /api/v1/
+      port: internal-api
+    periodSeconds: 5
+    timeoutSeconds: 5
+    failureThreshold: 60
+  livenessProbe:
+    httpGet:
+      path: /api/v1/
+      port: internal-api
+    periodSeconds: 10
+    timeoutSeconds: 10
+    failureThreshold: 6
+  readinessProbe:
+    httpGet:
+      path: /api/v1/
+      port: internal-api
+    periodSeconds: 10
+    timeoutSeconds: 10
+    failureThreshold: 3
+  extraVolumeMounts: []
+
+# =============================================================================
+# Gerbil container
+# =============================================================================
+gerbil:
+  ports:
+    # -- WireGuard port for sites.
+    wg1: 51820
+    # -- WireGuard port for clients.
+    wg2: 21820
+    # -- SNI proxy port. Public 443 lands here; Gerbil forwards local SNI matches to
+    # Traefik's websecure entrypoint with PROXY protocol.
+    sni: 8443
+    # -- Gerbil HTTP API (gerbil.reachable_at). Only reached from inside the Pod.
+    internalApi: 3003
+  # -- Gerbil log level.
+  logLevel: INFO
+  # -- Extra environment variables (see gerbil's main.go for the full list).
+  extraEnv: {}
+  # -- Replace the default args entirely.
+  args: []
+  persistence:
+    # -- Persist the WireGuard private key (/var/config/key). Without it Gerbil
+    # generates a new key on every restart and re-registers with the control plane.
+    enabled: true
+    existingClaim: ""
+    size: 64Mi
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+    annotations: {}
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 512Mi
+  # -- Gerbil needs NET_ADMIN for the WireGuard interface and iptables. Add
+  # SYS_MODULE if the node must load the wireguard kernel module itself.
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      add:
+        - NET_ADMIN
+      drop:
+        - ALL
+  extraVolumeMounts: []
+
+# =============================================================================
+# Traefik container
+# =============================================================================
+traefik:
+  ports:
+    # -- HTTP entrypoint (`web`). Public 80 lands here.
+    web: 8000
+    # -- HTTPS entrypoint (`websecure`). Fed by Gerbil's SNI proxy, not exposed
+    # directly. Not 8443, which Gerbil binds in the same network namespace.
+    websecure: 9443
+    # -- Ping/API entrypoint used by the probes.
+    admin: 8080
+  # -- Traefik log level.
+  logLevel: INFO
+  # -- Enable the access log on stdout.
+  accessLog: false
+  # -- Serve the Traefik dashboard on the admin port (not exposed by the Service).
+  dashboard: false
+  # -- Sources trusted to send PROXY protocol to `websecure`. Gerbil connects from
+  # inside the Pod; widen this only with hostNetwork.
+  proxyProtocolTrustedIPs:
+    - 127.0.0.1/32
+    - ::1/128
+  badger:
+    # -- Go module path of the Badger plugin.
+    moduleName: github.com/fosrl/badger
+    # -- Badger version. Traefik downloads it from GitHub at startup.
+    version: v1.8.0
+  # -- Extra static configuration deep-merged over the generated traefik_config.yml.
+  extraStaticConfig: {}
+  extraArgs: []
+  extraEnv: {}
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 512Mi
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+  startupProbe:
+    httpGet:
+      path: /ping
+      port: admin
+    periodSeconds: 5
+    timeoutSeconds: 5
+    failureThreshold: 60
+  livenessProbe:
+    httpGet:
+      path: /ping
+      port: admin
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readinessProbe:
+    httpGet:
+      path: /ping
+      port: admin
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  extraVolumeMounts: []
+
+# -- Extra Pod volumes, referenced from the `extraVolumeMounts` lists above.
+extraVolumes: []
+
+serviceAccount:
+  # -- Create a ServiceAccount. None of the containers call the Kubernetes API.
+  create: true
+  name: ""
+  annotations: {}
