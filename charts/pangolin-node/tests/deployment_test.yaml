@@ -1,0 +1,183 @@
+suite: deployment layout
+templates:
+  - templates/deployment.yaml
+values:
+  - values/minimal.yaml
+tests:
+  - it: runs pangolin-node as a native sidecar so it gates gerbil and traefik
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: pangolin-node
+      - equal:
+          path: spec.template.spec.initContainers[0].restartPolicy
+          value: Always
+      - isNotNull:
+          path: spec.template.spec.initContainers[0].startupProbe
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: gerbil
+      - equal:
+          path: spec.template.spec.containers[1].name
+          value: traefik
+
+  - it: uses Recreate with a single replica
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 1
+      - equal:
+          path: spec.strategy.type
+          value: Recreate
+
+  - it: shares the dynamic and certificates volumes, read-only for traefik
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          content:
+            name: dynamic
+            mountPath: /var/dynamic
+      - contains:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          content:
+            name: certificates
+            mountPath: /var/certificates
+      - contains:
+          path: spec.template.spec.containers[1].volumeMounts
+          content:
+            name: dynamic
+            mountPath: /var/dynamic
+            readOnly: true
+      - contains:
+          path: spec.template.spec.containers[1].volumeMounts
+          content:
+            name: certificates
+            mountPath: /var/certificates
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: dynamic
+            emptyDir:
+              sizeLimit: 64Mi
+
+  - it: points gerbil at pangolin-node and traefik over loopback
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --remoteConfig=http://127.0.0.1:3001/api/v1/
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --reachableAt=http://127.0.0.1:3003
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --local-proxy-port=9443
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --sni-port=8443
+
+  - it: gives gerbil NET_ADMIN
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].securityContext.capabilities.add
+          content: NET_ADMIN
+
+  - it: mounts config.yml from the chart Secret
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          content:
+            name: config
+            mountPath: /app/config/config.yml
+            subPath: config.yml
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: config
+            secret:
+              secretName: RELEASE-NAME-pangolin-node-config
+
+  - it: merges managed.existingSecret into config.yml with an init container
+    set:
+      config.managed.id: ""
+      config.managed.secret: ""
+      config.managed.existingSecret: node-creds
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: config-init
+      - equal:
+          path: spec.template.spec.initContainers[1].name
+          value: pangolin-node
+      - contains:
+          path: spec.template.spec.initContainers[0].env
+          content:
+            name: PANGOLIN_NODE_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: node-creds
+                key: secret
+      - contains:
+          path: spec.template.spec.initContainers[1].volumeMounts
+          content:
+            name: config
+            mountPath: /app/config
+            readOnly: true
+
+  - it: uses a user-supplied config.yml Secret
+    set:
+      config.existingSecret: my-config
+      config.existingSecretKey: node.yml
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          content:
+            name: config
+            mountPath: /app/config/config.yml
+            subPath: node.yml
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: config
+            secret:
+              secretName: my-config
+      - notExists:
+          path: spec.template.metadata.annotations["checksum/config"]
+
+  - it: binds hostPorts like the compose ports block
+    set:
+      hostPorts.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: sni
+            containerPort: 8443
+            protocol: TCP
+            hostPort: 443
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: wg1
+            containerPort: 51820
+            protocol: UDP
+            hostPort: 51820
+      - contains:
+          path: spec.template.spec.containers[1].ports
+          content:
+            name: http
+            containerPort: 8000
+            protocol: TCP
+            hostPort: 80
+
+  - it: uses an emptyDir for the gerbil key when persistence is off
+    set:
+      gerbil.persistence.enabled: false
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: gerbil-config
+            emptyDir: {}

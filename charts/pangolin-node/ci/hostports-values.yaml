@@ -1,0 +1,21 @@
+# Remote node on a single machine (k3s, bare metal) without a LoadBalancer.
+#
+# hostPorts bind 80/tcp, 443/tcp, 51820/udp and 21820/udp on the node that runs the
+# Pod, the same as the compose `ports:` block. Pin the Pod to the node whose public IP
+# base_endpoint resolves to.
+config:
+  managed:
+    id: "your-node-id"
+    secret: "your-node-secret"
+  gerbil:
+    base_endpoint: node.yourdomain.example
+
+hostPorts:
+  enabled: true
+
+service:
+  type: ClusterIP
+
+pod:
+  nodeSelector:
+    kubernetes.io/hostname: edge-1

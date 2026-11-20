@@ -1,0 +1,60 @@
+apiVersion: v2
+version: 0.1.0
+appVersion: "1.7.0"
+# Native sidecars (initContainers with restartPolicy: Always) order Pangolin Node
+# ahead of Gerbil and Traefik. They are on by default from Kubernetes 1.29.
+kubeVersion: ">=1.30.14-0"
+name: pangolin-node
+description: Pangolin remote node (Pangolin Node, Gerbil and Traefik) connected to a managed Pangolin control plane
+type: application
+keywords:
+  - pangolin
+  - remote-node
+  - exit-node
+  - wireguard
+  - networking
+home: https://pangolin.net/
+icon: https://raw.githubusercontent.com/fosrl/pangolin/refs/heads/main/public/logo/pangolin_orange.svg
+sources:
+  - https://github.com/fosrl/helm-charts
+  - https://github.com/fosrl/pangolin-node
+  - https://github.com/fosrl/gerbil
+maintainers:
+  - name: Fossorial Inc
+    email: contact@pangolin.net
+annotations:
+  artifacthub.io/category: networking
+  artifacthub.io/changes: |
+    - kind: added
+      description: "Initial chart: Pangolin Node v1.7.0, Gerbil v1.6.0, Traefik v3.7.19 and Badger v1.8.0 in one Pod."
+  artifacthub.io/images: |
+    - name: pangolin-node
+      image: docker.io/fosrl/pangolin-node:1.7.0
+      whitelisted: false
+      platforms:
+        - linux/amd64
+        - linux/arm64
+    - name: gerbil
+      image: docker.io/fosrl/gerbil:1.6.0
+      whitelisted: false
+      platforms:
+        - linux/amd64
+        - linux/arm64
+    - name: traefik
+      image: docker.io/traefik:v3.7.19
+      whitelisted: false
+      platforms:
+        - linux/amd64
+        - linux/arm64
+  artifacthub.io/license: MIT
+  artifacthub.io/links: |
+    - name: support
+      url: https://github.com/fosrl/helm-charts/issues
+    - name: documentation
+      url: https://docs.pangolin.net/
+  artifacthub.io/prerelease: "true"
+  artifacthub.io/recommendations: |
+    - url: https://artifacthub.io/packages/helm/fosrl/pangolin
+  artifacthub.io/signKey: |
+    fingerprint: 48E7F670FCC13645FC48B08D587294B228C2EC2C
+    url: https://charts.fossorial.io/pgp_keys.asc

@@ -1,0 +1,15 @@
+# Remote node behind a cloud LoadBalancer.
+#
+# The provider must support TCP and UDP ports on one LoadBalancer Service
+# (MixedProtocolLBService, GA in Kubernetes 1.26). Point base_endpoint and your
+# resource domains at the LoadBalancer address once it is assigned.
+config:
+  managed:
+    id: "your-node-id"
+    secret: "your-node-secret"
+  gerbil:
+    base_endpoint: node.yourdomain.example
+
+service:
+  type: LoadBalancer
+  externalTrafficPolicy: Local

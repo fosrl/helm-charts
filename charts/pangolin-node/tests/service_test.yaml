@@ -1,0 +1,46 @@
+suite: service
+templates:
+  - templates/service.yaml
+values:
+  - values/minimal.yaml
+tests:
+  - it: sends 443 to the gerbil SNI proxy and 80 to traefik
+    asserts:
+      - equal:
+          path: spec.type
+          value: LoadBalancer
+      - contains:
+          path: spec.ports
+          content:
+            name: https
+            port: 443
+            targetPort: sni
+            protocol: TCP
+      - contains:
+          path: spec.ports
+          content:
+            name: http
+            port: 80
+            targetPort: http
+            protocol: TCP
+      - contains:
+          path: spec.ports
+          content:
+            name: wg1
+            port: 51820
+            targetPort: wg1
+            protocol: UDP
+
+  - it: omits externalTrafficPolicy for ClusterIP
+    set:
+      service.type: ClusterIP
+    asserts:
+      - notExists:
+          path: spec.externalTrafficPolicy
+
+  - it: can be disabled
+    set:
+      service.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
