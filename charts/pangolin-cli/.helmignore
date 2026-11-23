@@ -22,7 +22,6 @@
 # Helm / Repo Meta
 .helmignore
 artifacthub-repo.yml
-renovate.json
 Taskfile.yaml
 
 # Env / Config

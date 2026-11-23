@@ -335,7 +335,7 @@ Use this checklist before tagging alpha/RC/stable releases. This runtime validat
 - [ ] Production guidance is still accurate:
   - [ ] `deployment.mode=multi` remains recommended for production.
   - [ ] Standalone Traefik remains less recommended than controller mode unless self-contained deployment is required.
-- [ ] Renovate dry-run confirms image/action/dependency update detection.
+- [ ] Dependabot configuration (`.github/dependabot.yml`) covers image, action, and dependency updates.
 - [ ] ArtifactHub metadata verified (links, maintainers, image annotations).
 - [ ] Blueprint + Newt workflow tested/documented:
   - [ ] Blueprint files are stored by this chart (ConfigMap/Secret).
