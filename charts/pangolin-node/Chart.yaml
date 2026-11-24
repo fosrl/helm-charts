@@ -56,5 +56,5 @@ annotations:
   artifacthub.io/recommendations: |
     - url: https://artifacthub.io/packages/helm/fosrl/pangolin
   artifacthub.io/signKey: |
-    fingerprint: 48E7F670FCC13645FC48B08D587294B228C2EC2C
+    fingerprint: 020FEFE9F1112F53EEEFF45949B94CAFF38EB86E
     url: https://charts.fossorial.io/pgp_keys.asc
