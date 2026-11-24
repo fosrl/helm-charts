@@ -4,7 +4,7 @@
 [![Pangolin Chart Version: 0.1.0](https://img.shields.io/badge/Pangolin%20Chart-0.1.0-informational?style=flat-square)](https://artifacthub.io/packages/helm/fosrl/pangolin)
 [![Newt Chart Version: 1.6.0](https://img.shields.io/badge/Newt%20Chart-1.6.0-informational?style=flat-square)](https://artifacthub.io/packages/helm/fosrl/newt)
 [![Pangolin CLI Chart Version: 0.1.0](https://img.shields.io/badge/Pangolin%20CLI%20Chart-0.1.0-informational?style=flat-square)](https://artifacthub.io/packages/helm/fosrl/pangolin-cli)
-[![Pangolin Node Chart Version: 0.1.0](https://img.shields.io/badge/Pangolin%20Node%20Chart-0.1.0-informational?style=flat-square)](https://artifacthub.io/packages/helm/fosrl/pangolin-node)
+[![Pangolin Node Chart Version: 0.1.1](https://img.shields.io/badge/Pangolin%20Node%20Chart-0.1.1-informational?style=flat-square)](https://artifacthub.io/packages/helm/fosrl/pangolin-node)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](https://opensource.org/license/mit)
 [![Releases downloads](https://img.shields.io/github/downloads/fosrl/helm-charts/total.svg?style=flat-square)](https://github.com/fosrl/helm-charts/releases)
 
