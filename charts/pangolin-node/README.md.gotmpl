@@ -88,6 +88,7 @@ Then point `base_endpoint` and your resource domains at the Service's external a
 | File | Use |
 | --- | --- |
 | [values-loadbalancer.yaml](examples/values-loadbalancer.yaml) | Cloud LoadBalancer with mixed TCP/UDP |
+| [values-aws-nlb.yaml](examples/values-aws-nlb.yaml) | EKS with the AWS Load Balancer Controller (NLB) |
 | [values-hostports.yaml](examples/values-hostports.yaml) | Single machine or bare metal, ports bound on the node |
 | [values-existing-secret.yaml](examples/values-existing-secret.yaml) | Node ID and secret from an existing Secret |
 | [values-full-config-secret.yaml](examples/values-full-config-secret.yaml) | Bring your own `config.yml` |
@@ -102,6 +103,10 @@ Then point `base_endpoint` and your resource domains at the Service's external a
   (`service.ports.wg1` or `hostPorts.wg1`) must match. The chart refuses to render otherwise.
 - Changing `config.managed.existingSecret` contents does not restart the Pod; run
   `kubectl rollout restart` afterwards.
+- Load balancers that health check UDP target groups over TCP on the traffic port (AWS
+  NLB does by default) mark the WireGuard targets unhealthy, since nothing listens on
+  TCP 51820 or 21820. Point the health check at a TCP port in the Pod, such as Gerbil's
+  API on 3003. See [values-aws-nlb.yaml](examples/values-aws-nlb.yaml).
 
 {{ template "chart.maintainersSection" . }}
 

@@ -196,7 +196,7 @@ This changelog is chart-scoped to support multiple charts over time.
 
 ## Pangolin Node Chart (`charts/pangolin-node`)
 
-### 0.1.0
+### 0.1.0 - 2026-11-24
 
 #### Added
 
@@ -211,6 +211,8 @@ This changelog is chart-scoped to support multiple charts over time.
   `config.existingSecret`.
 - LoadBalancer, NodePort or ClusterIP Service, optional `hostPorts`, and a PVC for the
   Gerbil WireGuard key.
+- Example values for EKS with an AWS NLB, including the health check override the
+  UDP target groups need.
 
 ---
 
