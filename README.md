@@ -4,6 +4,7 @@
 [![Pangolin Chart Version: 0.1.0](https://img.shields.io/badge/Pangolin%20Chart-0.1.0-informational?style=flat-square)](https://artifacthub.io/packages/helm/fosrl/pangolin)
 [![Newt Chart Version: 1.6.0](https://img.shields.io/badge/Newt%20Chart-1.6.0-informational?style=flat-square)](https://artifacthub.io/packages/helm/fosrl/newt)
 [![Pangolin CLI Chart Version: 0.1.0](https://img.shields.io/badge/Pangolin%20CLI%20Chart-0.1.0-informational?style=flat-square)](https://artifacthub.io/packages/helm/fosrl/pangolin-cli)
+[![Pangolin Node Chart Version: 0.1.0](https://img.shields.io/badge/Pangolin%20Node%20Chart-0.1.0-informational?style=flat-square)](https://artifacthub.io/packages/helm/fosrl/pangolin-node)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](https://opensource.org/license/mit)
 [![Releases downloads](https://img.shields.io/github/downloads/fosrl/helm-charts/total.svg?style=flat-square)](https://github.com/fosrl/helm-charts/releases)
 
@@ -12,6 +13,7 @@ Welcome to the official repository for **Fossorial Kubernetes Helm Charts**, fea
 - [Pangolin](https://github.com/fosrl/helm-charts/tree/main/charts/pangolin)
 - [Newt](https://github.com/fosrl/helm-charts/tree/main/charts/newt)
 - [Pangolin CLI](https://github.com/fosrl/helm-charts/tree/main/charts/pangolin-cli) (runs Pangolin sites with `pangolin-cli up site`)
+- [Pangolin Node](https://github.com/fosrl/helm-charts/tree/main/charts/pangolin-node) (self-hosted remote node for a managed Pangolin control plane)
 
 ## Installation & Usage
 
@@ -48,6 +50,15 @@ Example to install the Pangolin CLI chart:
 
 ```console
 helm install my-site fossorial/pangolin-cli
+```
+
+Example to install a Pangolin remote node:
+
+```console
+helm install my-node fossorial/pangolin-node \
+  --set config.managed.id=<node id> \
+  --set config.managed.secret=<node secret> \
+  --set config.gerbil.base_endpoint=node.example.com
 ```
 
 The charts are also published as OCI artifacts:
