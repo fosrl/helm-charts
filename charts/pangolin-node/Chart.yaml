@@ -52,7 +52,7 @@ annotations:
       url: https://github.com/fosrl/helm-charts/issues
     - name: documentation
       url: https://docs.pangolin.net/
-  artifacthub.io/prerelease: "true"
+  artifacthub.io/prerelease: "false"
   artifacthub.io/recommendations: |
     - url: https://artifacthub.io/packages/helm/fosrl/pangolin
   artifacthub.io/signKey: |
