@@ -58,7 +58,7 @@ Sources:
 
 | Item | Value |
 | --- | --- |
-| Chart version | `0.1.0` |
+| Chart version | `0.1.1` |
 | App version | `1.7.0` |
 | Kubernetes version | `>=1.30.14-0` |
 | Pangolin Node default image tag | `1.7.0` |

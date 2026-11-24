@@ -20,3 +20,6 @@ Thumbs.db
 # Chart dev/test artifacts
 tests/
 README.md.gotmpl
+
+# Schema generator config
+.schema.yaml

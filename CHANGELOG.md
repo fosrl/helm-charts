@@ -196,6 +196,20 @@ This changelog is chart-scoped to support multiple charts over time.
 
 ## Pangolin Node Chart (`charts/pangolin-node`)
 
+### 0.1.1 - 2026-11-24
+
+#### Added
+
+- `values.schema.json`. Helm now validates values on install, upgrade and template, and
+  rejects unknown keys, so a typo such as `confg.managed.id` fails instead of being
+  ignored. `service.nodePorts.*` accept a string or an integer.
+
+#### Fixed
+
+- `artifacthub.io/signKey` names the key that signs releases
+  (`020FEFE9F1112F53EEEFF45949B94CAFF38EB86E`). Its public key is in
+  `https://charts.fossorial.io/pgp_keys.asc`.
+
 ### 0.1.0 - 2026-11-24
 
 #### Added
