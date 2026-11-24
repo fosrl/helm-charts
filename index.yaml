@@ -840,6 +840,71 @@ entries:
       artifacthub.io/category: networking
       artifacthub.io/changes: |
         - kind: added
+          description: "values.schema.json: Helm validates values on install and upgrade and rejects unknown keys."
+        - kind: fixed
+          description: "artifacthub.io/signKey names the key that signs releases (020FEFE9F1112F53EEEFF45949B94CAFF38EB86E)."
+      artifacthub.io/images: |
+        - name: pangolin-node
+          image: docker.io/fosrl/pangolin-node:1.7.0
+          whitelisted: false
+          platforms:
+            - linux/amd64
+            - linux/arm64
+        - name: gerbil
+          image: docker.io/fosrl/gerbil:1.6.0
+          whitelisted: false
+          platforms:
+            - linux/amd64
+            - linux/arm64
+        - name: traefik
+          image: docker.io/traefik:v3.7.19
+          whitelisted: false
+          platforms:
+            - linux/amd64
+            - linux/arm64
+      artifacthub.io/license: MIT
+      artifacthub.io/links: |
+        - name: support
+          url: https://github.com/fosrl/helm-charts/issues
+        - name: documentation
+          url: https://docs.pangolin.net/
+      artifacthub.io/prerelease: "false"
+      artifacthub.io/recommendations: |
+        - url: https://artifacthub.io/packages/helm/fosrl/pangolin
+      artifacthub.io/signKey: |
+        fingerprint: 020FEFE9F1112F53EEEFF45949B94CAFF38EB86E
+        url: https://charts.fossorial.io/pgp_keys.asc
+    apiVersion: v2
+    appVersion: 1.7.0
+    created: "2026-11-24T16:41:39.545338419Z"
+    description: Pangolin remote node (Pangolin Node, Gerbil and Traefik) connected
+      to a managed Pangolin control plane
+    digest: d22c45949c77b15a683e52ee0a89886ae155f73e61935bf48526b425c67cc120
+    home: https://pangolin.net/
+    icon: https://raw.githubusercontent.com/fosrl/pangolin/refs/heads/main/public/logo/pangolin_orange.svg
+    keywords:
+    - pangolin
+    - remote-node
+    - exit-node
+    - wireguard
+    - networking
+    kubeVersion: '>=1.30.14-0'
+    maintainers:
+    - email: contact@pangolin.net
+      name: Fossorial Inc
+    name: pangolin-node
+    sources:
+    - https://github.com/fosrl/helm-charts
+    - https://github.com/fosrl/pangolin-node
+    - https://github.com/fosrl/gerbil
+    type: application
+    urls:
+    - https://github.com/fosrl/helm-charts/releases/download/pangolin-node-0.1.1/pangolin-node-0.1.1.tgz
+    version: 0.1.1
+  - annotations:
+      artifacthub.io/category: networking
+      artifacthub.io/changes: |
+        - kind: added
           description: "Initial chart: Pangolin Node v1.7.0, Gerbil v1.6.0, Traefik v3.7.19 and Badger v1.8.0 in one Pod."
       artifacthub.io/images: |
         - name: pangolin-node
@@ -899,4 +964,4 @@ entries:
     urls:
     - https://github.com/fosrl/helm-charts/releases/download/pangolin-node-0.1.0/pangolin-node-0.1.0.tgz
     version: 0.1.0
-generated: "2026-11-24T16:27:47.899700532Z"
+generated: "2026-11-24T16:41:39.545397378Z"
