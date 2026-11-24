@@ -1,0 +1,340 @@
+{{- include "pangolin-node.validate" . -}}
+{{- $root := . -}}
+{{- $node := .Values.pangolinNode -}}
+{{- $gerbil := .Values.gerbil -}}
+{{- $tf := .Values.traefik -}}
+{{- $merge := eq (include "pangolin-node.mergeManagedSecret" .) "true" -}}
+{{- $podAnns := mergeOverwrite (dict) (include "pangolin-node.annotations" . | fromYaml) (.Values.pod.annotations | default dict) -}}
+{{- if not .Values.config.existingSecret }}
+{{- $_ := set $podAnns "checksum/config" (include "pangolin-node.config" . | sha256sum) -}}
+{{- end }}
+{{- $_ := set $podAnns "checksum/traefik" (include "pangolin-node.traefikConfig" . | sha256sum) -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "pangolin-node.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pangolin-node.labels" . | nindent 4 }}
+  {{- with (include "pangolin-node.annotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
+spec:
+  # One node per release. WireGuard keys, hostPorts and the RWO key volume do not
+  # tolerate a second Pod, so the old Pod is stopped before the new one starts.
+  replicas: 1
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "pangolin-node.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "pangolin-node.labels" . | nindent 8 }}
+        {{- with .Values.pod.labels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        {{- toYaml $podAnns | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "pangolin-node.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ .Values.pod.terminationGracePeriodSeconds }}
+      {{- if .Values.pod.hostNetwork }}
+      hostNetwork: true
+      {{- end }}
+      {{- if or .Values.pod.dnsPolicy .Values.pod.hostNetwork }}
+      dnsPolicy: {{ .Values.pod.dnsPolicy | default "ClusterFirstWithHostNet" }}
+      {{- end }}
+      {{- with .Values.pod.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.pod.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.pod.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.pod.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.pod.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.pod.securityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        {{- if $merge }}
+        # Merge the node ID and secret from managed.existingSecret into config.yml so
+        # they stay out of Helm values and the rendered Secret.
+        - name: config-init
+          image: {{ include "pangolin-node.image" (dict "image" .Values.images.configInit "default" "") | quote }}
+          imagePullPolicy: {{ .Values.images.configInit.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - >-
+              yq '.managed.id = strenv(PANGOLIN_NODE_ID) | .managed.secret = strenv(PANGOLIN_NODE_SECRET)'
+              /config-template/config.yml > /app/config/config.yml
+          env:
+            - name: PANGOLIN_NODE_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.config.managed.existingSecret }}
+                  key: {{ .Values.config.managed.existingSecretIdKey }}
+            - name: PANGOLIN_NODE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.config.managed.existingSecret }}
+                  key: {{ .Values.config.managed.existingSecretSecretKey }}
+          volumeMounts:
+            - name: config-template
+              mountPath: /config-template
+              readOnly: true
+            - name: config
+              mountPath: /app/config
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+        {{- end }}
+        # pangolin-node runs as a native sidecar so that its startupProbe gates Gerbil
+        # and Traefik, the compose `depends_on: condition: service_healthy`. Gerbil
+        # pulls its WireGuard config from this container on startup.
+        - name: pangolin-node
+          image: {{ include "pangolin-node.image" (dict "image" .Values.images.pangolinNode "default" .Chart.AppVersion) | quote }}
+          imagePullPolicy: {{ .Values.images.pangolinNode.pullPolicy }}
+          restartPolicy: Always
+          ports:
+            - name: internal-api
+              containerPort: {{ $node.internalPort }}
+              protocol: TCP
+          {{- if or $node.timezone $node.extraEnv }}
+          env:
+            {{- with $node.timezone }}
+            - name: TZ
+              value: {{ . | quote }}
+            {{- end }}
+            {{- range $k, $v := $node.extraEnv }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+          {{- end }}
+          volumeMounts:
+            {{- if $merge }}
+            - name: config
+              mountPath: /app/config
+              readOnly: true
+            {{- else }}
+            - name: config
+              mountPath: /app/config/config.yml
+              subPath: {{ include "pangolin-node.configSecretKey" . }}
+              readOnly: true
+            {{- end }}
+            - name: dynamic
+              mountPath: {{ .Values.sharedVolumes.dynamic.mountPath }}
+            - name: certificates
+              mountPath: {{ .Values.sharedVolumes.certificates.mountPath }}
+            {{- with $node.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with $node.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $node.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $node.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $node.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $node.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      containers:
+        - name: gerbil
+          image: {{ include "pangolin-node.image" (dict "image" .Values.images.gerbil "default" "") | quote }}
+          imagePullPolicy: {{ .Values.images.gerbil.pullPolicy }}
+          args:
+            {{- if $gerbil.args }}
+            {{- toYaml $gerbil.args | nindent 12 }}
+            {{- else }}
+            - --reachableAt=http://127.0.0.1:{{ $gerbil.ports.internalApi }}
+            - --generateAndSaveKeyTo=/var/config/key
+            - --remoteConfig=http://127.0.0.1:{{ $node.internalPort }}/api/v1/
+            - --sni-port={{ $gerbil.ports.sni }}
+            - --local-proxy-port={{ $tf.ports.websecure }}
+            - --log-level={{ $gerbil.logLevel }}
+            {{- end }}
+          ports:
+            - name: wg1
+              containerPort: {{ $gerbil.ports.wg1 }}
+              protocol: UDP
+              {{- if .Values.hostPorts.enabled }}
+              hostPort: {{ .Values.hostPorts.wg1 }}
+              {{- end }}
+            - name: wg2
+              containerPort: {{ $gerbil.ports.wg2 }}
+              protocol: UDP
+              {{- if .Values.hostPorts.enabled }}
+              hostPort: {{ .Values.hostPorts.wg2 }}
+              {{- end }}
+            - name: sni
+              containerPort: {{ $gerbil.ports.sni }}
+              protocol: TCP
+              {{- if .Values.hostPorts.enabled }}
+              hostPort: {{ .Values.hostPorts.https }}
+              {{- end }}
+            - name: gerbil-api
+              containerPort: {{ $gerbil.ports.internalApi }}
+              protocol: TCP
+          {{- with $gerbil.extraEnv }}
+          env:
+            {{- range $k, $v := . }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+          {{- end }}
+          volumeMounts:
+            - name: gerbil-config
+              mountPath: /var/config
+            {{- with $gerbil.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with $gerbil.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $gerbil.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        - name: traefik
+          image: {{ include "pangolin-node.image" (dict "image" .Values.images.traefik "default" "") | quote }}
+          imagePullPolicy: {{ .Values.images.traefik.pullPolicy }}
+          args:
+            - --configFile=/etc/traefik/traefik_config.yml
+            {{- with $tf.extraArgs }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ $tf.ports.web }}
+              protocol: TCP
+              {{- if .Values.hostPorts.enabled }}
+              hostPort: {{ .Values.hostPorts.http }}
+              {{- end }}
+            - name: websecure
+              containerPort: {{ $tf.ports.websecure }}
+              protocol: TCP
+            - name: admin
+              containerPort: {{ $tf.ports.admin }}
+              protocol: TCP
+          {{- with $tf.extraEnv }}
+          env:
+            {{- range $k, $v := . }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+          {{- end }}
+          volumeMounts:
+            - name: traefik-config
+              mountPath: /etc/traefik
+              readOnly: true
+            - name: dynamic
+              mountPath: {{ .Values.sharedVolumes.dynamic.mountPath }}
+              readOnly: true
+            - name: certificates
+              mountPath: {{ .Values.sharedVolumes.certificates.mountPath }}
+              readOnly: true
+            # Traefik downloads the Badger plugin here on startup.
+            - name: traefik-plugins
+              mountPath: /plugins-storage
+            {{- with $tf.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with $tf.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $tf.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $tf.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $tf.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $tf.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        {{- if $merge }}
+        - name: config-template
+          secret:
+            secretName: {{ include "pangolin-node.configSecretName" . }}
+        - name: config
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
+        {{- else }}
+        - name: config
+          secret:
+            secretName: {{ include "pangolin-node.configSecretName" . }}
+        {{- end }}
+        # Shared between pangolin-node (writer) and traefik (read-only). Both live in
+        # this Pod, so an emptyDir is enough; pangolin-node refills them on startup.
+        - name: dynamic
+          emptyDir:
+            {{- with .Values.sharedVolumes.dynamic.sizeLimit }}
+            sizeLimit: {{ . }}
+            {{- end }}
+        - name: certificates
+          emptyDir:
+            {{- with .Values.sharedVolumes.certificates.sizeLimit }}
+            sizeLimit: {{ . }}
+            {{- end }}
+        - name: gerbil-config
+          {{- if $gerbil.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "pangolin-node.gerbilClaimName" . }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: traefik-config
+          configMap:
+            name: {{ include "pangolin-node.fullname" . }}-traefik
+        - name: traefik-plugins
+          emptyDir: {}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}

@@ -1,0 +1,28 @@
+# Remote node on EKS behind an AWS Network Load Balancer.
+#
+# Needs the AWS Load Balancer Controller; the in-tree cloud provider cannot put UDP
+# and TCP listeners on one load balancer.
+#
+# NLB health checks on the UDP target groups (51820, 21820) default to TCP on the
+# traffic port, where nothing listens, so those targets are always unhealthy. The
+# healthcheck-port annotation sends every target group's check to Gerbil's HTTP API
+# (gerbil.ports.internalApi, 3003) instead.
+#
+# The NLB hostname is only known after install. Point a DNS name you control at it
+# (CNAME) and use that name as base_endpoint, or install once, read the hostname from
+# `kubectl get svc` and `helm upgrade` with it.
+config:
+  managed:
+    existingSecret: pangolin-node-credentials
+  gerbil:
+    base_endpoint: node.yourdomain.example
+
+service:
+  type: LoadBalancer
+  loadBalancerClass: service.k8s.aws/nlb
+  externalTrafficPolicy: Local
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+    service.beta.kubernetes.io/aws-load-balancer-healthcheck-protocol: TCP
+    service.beta.kubernetes.io/aws-load-balancer-healthcheck-port: "3003"

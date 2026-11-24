@@ -1,0 +1,30 @@
+Pangolin remote node {{ .Chart.AppVersion }} deployed as {{ include "pangolin-node.fullname" . }} in {{ .Release.Namespace }}.
+
+The Pod runs pangolin-node, gerbil and traefik together. pangolin-node writes the
+Traefik router config to {{ .Values.sharedVolumes.dynamic.mountPath }} and certificates to {{ .Values.sharedVolumes.certificates.mountPath }};
+traefik reads both from the same Pod.
+
+Gerbil needs NET_ADMIN. If the Pod is rejected by Pod Security Admission, label the namespace:
+
+  kubectl label ns {{ .Release.Namespace }} pod-security.kubernetes.io/enforce=privileged --overwrite
+
+Check startup (gerbil and traefik wait for pangolin-node to pass its startup probe):
+
+  kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }}
+  kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "pangolin-node.fullname" . }} -c pangolin-node
+
+Public ports must reach this Pod:
+  TCP {{ .Values.service.ports.http }}   -> traefik web
+  TCP {{ .Values.service.ports.https }}  -> gerbil SNI proxy -> traefik websecure
+  UDP {{ .Values.service.ports.wg1 }} -> gerbil WireGuard (sites)
+  UDP {{ .Values.service.ports.wg2 }} -> gerbil WireGuard (clients)
+{{- if and .Values.service.enabled (eq .Values.service.type "LoadBalancer") }}
+
+Point {{ if .Values.config.existingSecret }}gerbil.base_endpoint{{ else }}{{ .Values.config.gerbil.base_endpoint | quote }}{{ end }} and your resource domains at the LoadBalancer address:
+
+  kubectl -n {{ .Release.Namespace }} get svc {{ include "pangolin-node.fullname" . }}
+{{- end }}
+{{- if .Values.hostPorts.enabled }}
+
+hostPorts are enabled: point {{ if .Values.config.existingSecret }}gerbil.base_endpoint{{ else }}{{ .Values.config.gerbil.base_endpoint | quote }}{{ end }} at the IP of the node running the Pod.
+{{- end }}

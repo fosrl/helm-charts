@@ -1,0 +1,95 @@
+suite: config.yml and traefik static config
+templates:
+  - templates/secret-config.yaml
+  - templates/configmap-traefik.yaml
+values:
+  - values/minimal.yaml
+tests:
+  - it: renders config.yml with loopback addresses for the single-Pod layout
+    template: templates/secret-config.yaml
+    asserts:
+      - matchRegex:
+          path: stringData["config.yml"]
+          pattern: "internal_hostname: 127.0.0.1"
+      - matchRegex:
+          path: stringData["config.yml"]
+          pattern: "reachable_at: http://127.0.0.1:3003"
+      - matchRegex:
+          path: stringData["config.yml"]
+          pattern: "base_endpoint: node.yourdomain.example"
+      - matchRegex:
+          path: stringData["config.yml"]
+          pattern: "dynamic_router_config_path: /var/dynamic/router_config.yml"
+      - matchRegex:
+          path: stringData["config.yml"]
+          pattern: "secret: your-node-secret"
+
+  - it: leaves credentials out of the Secret when managed.existingSecret is set
+    template: templates/secret-config.yaml
+    set:
+      config.managed.id: ""
+      config.managed.secret: ""
+      config.managed.existingSecret: node-creds
+    asserts:
+      - notMatchRegex:
+          path: stringData["config.yml"]
+          pattern: "secret:"
+
+  - it: deep-merges config.extra
+    template: templates/secret-config.yaml
+    set:
+      config.extra:
+        traefik:
+          monitor_interval: 10000
+    asserts:
+      - matchRegex:
+          path: stringData["config.yml"]
+          pattern: "monitor_interval: 10000"
+      - matchRegex:
+          path: stringData["config.yml"]
+          pattern: "certificates_path: /var/certificates"
+
+  - it: skips the Secret when config.existingSecret is set
+    template: templates/secret-config.yaml
+    set:
+      config.existingSecret: my-config
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: fails without base_endpoint
+    template: templates/secret-config.yaml
+    set:
+      config.gerbil.base_endpoint: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: "config.gerbil.base_endpoint is required"
+
+  - it: fails without credentials
+    template: templates/secret-config.yaml
+    set:
+      config.managed.secret: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: "set config.managed.id and config.managed.secret"
+
+  - it: fails when the public WireGuard port differs from start_port
+    template: templates/secret-config.yaml
+    set:
+      service.ports.wg1: 51821
+    asserts:
+      - failedTemplate:
+          errorPattern: "service.ports.wg1"
+
+  - it: points the traefik file provider at the shared dynamic volume
+    template: templates/configmap-traefik.yaml
+    asserts:
+      - matchRegex:
+          path: data["traefik_config.yml"]
+          pattern: "directory: /var/dynamic"
+      - matchRegex:
+          path: data["traefik_config.yml"]
+          pattern: "moduleName: github.com/fosrl/badger"
+      - matchRegex:
+          path: data["traefik_config.yml"]
+          pattern: "address: :9443"
