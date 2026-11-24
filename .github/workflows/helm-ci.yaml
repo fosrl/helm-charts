@@ -717,6 +717,14 @@ jobs:
             exit 1
           fi
 
+      - name: Verify generated values.schema.json is current
+        run: |
+          set -euo pipefail
+          helm plugin install https://github.com/losisin/helm-values-schema-json.git --version v2.3.1 || true
+          cp charts/pangolin-node/values.schema.json /tmp/pangolin-node.schema.before
+          helm schema -f charts/pangolin-node/values.yaml -o charts/pangolin-node/values.schema.json --config charts/pangolin-node/.schema.yaml
+          diff -u /tmp/pangolin-node.schema.before charts/pangolin-node/values.schema.json
+
       - name: Run helm-unittest
         run: helm unittest --strict charts/pangolin-node
 

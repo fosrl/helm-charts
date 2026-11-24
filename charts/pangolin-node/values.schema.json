@@ -1,0 +1,859 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://github.com/fosrl/helm-charts/charts/pangolin-node/values.schema.json",
+    "title": "Pangolin Node values schema",
+    "description": "Values schema for the Pangolin Node Helm chart",
+    "type": "object",
+    "properties": {
+        "commonAnnotations": {
+            "description": "Annotations added to every resource.",
+            "type": "object"
+        },
+        "commonLabels": {
+            "description": "Labels added to every resource.",
+            "type": "object"
+        },
+        "config": {
+            "type": "object",
+            "properties": {
+                "app": {
+                    "type": "object",
+                    "properties": {
+                        "audit_logging_enabled": {
+                            "description": "Send request audit logs to the control plane.",
+                            "type": "boolean"
+                        },
+                        "log_failed_attempts": {
+                            "description": "Log failed authentication attempts.",
+                            "type": "boolean"
+                        },
+                        "log_level": {
+                            "description": "Log level: debug, info, warn or error.",
+                            "type": "string"
+                        }
+                    }
+                },
+                "existingSecret": {
+                    "description": "Use an existing Secret holding a complete config.yml instead of rendering one from the values below. The Secret must contain the key set in `existingSecretKey`. When set, everything under `config.app`, `config.managed`, `config.gerbil` and `config.extra` is ignored.",
+                    "type": "string"
+                },
+                "existingSecretKey": {
+                    "description": "Key inside `existingSecret` holding config.yml.",
+                    "type": "string"
+                },
+                "extra": {
+                    "description": "Extra keys deep-merged into the rendered config.yml, for settings this chart does not model. `server.internal_hostname`, `server.internal_port` and `gerbil.reachable_at` are set by the chart for the single-Pod layout.",
+                    "type": "object"
+                },
+                "gerbil": {
+                    "type": "object",
+                    "properties": {
+                        "base_endpoint": {
+                            "description": "Public hostname or IP that sites and clients use to reach this node's WireGuard listener (the address of the Service / node). Required.",
+                            "type": "string"
+                        },
+                        "start_port": {
+                            "description": "WireGuard listen port announced to the control plane. Keep it equal to `gerbil.ports.wg1` and the Service port.",
+                            "type": "integer"
+                        }
+                    }
+                },
+                "managed": {
+                    "type": "object",
+                    "properties": {
+                        "endpoint": {
+                            "description": "Control plane URL.",
+                            "type": "string"
+                        },
+                        "existingSecret": {
+                            "description": "Read `id` and `secret` from an existing Secret instead. An init container merges them into config.yml at startup, so they never appear in Helm values.",
+                            "type": "string"
+                        },
+                        "existingSecretIdKey": {
+                            "description": "Key in `managed.existingSecret` holding the node ID.",
+                            "type": "string"
+                        },
+                        "existingSecretSecretKey": {
+                            "description": "Key in `managed.existingSecret` holding the node secret.",
+                            "type": "string"
+                        },
+                        "id": {
+                            "description": "Remote node ID from the Pangolin dashboard. Required unless `managed.existingSecret` or `config.existingSecret` is set.",
+                            "type": "string"
+                        },
+                        "name": {
+                            "description": "Optional display name for the node.",
+                            "type": "string"
+                        },
+                        "redirect_endpoint": {
+                            "description": "Optional redirect endpoint.",
+                            "type": "string"
+                        },
+                        "secret": {
+                            "description": "Remote node secret from the Pangolin dashboard. Required unless `managed.existingSecret` or `config.existingSecret` is set.",
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "extraVolumes": {
+            "description": "Extra Pod volumes, referenced from the `extraVolumeMounts` lists above.",
+            "type": "array"
+        },
+        "fullnameOverride": {
+            "description": "Override the full resource name.",
+            "type": "string"
+        },
+        "gerbil": {
+            "type": "object",
+            "properties": {
+                "args": {
+                    "description": "Replace the default args entirely.",
+                    "type": "array"
+                },
+                "extraEnv": {
+                    "description": "Extra environment variables (see gerbil's main.go for the full list).",
+                    "type": "object"
+                },
+                "extraVolumeMounts": {
+                    "type": "array"
+                },
+                "logLevel": {
+                    "description": "Gerbil log level.",
+                    "type": "string"
+                },
+                "persistence": {
+                    "type": "object",
+                    "properties": {
+                        "accessModes": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "annotations": {
+                            "type": "object"
+                        },
+                        "enabled": {
+                            "description": "Persist the WireGuard private key (/var/config/key). Without it Gerbil generates a new key on every restart and re-registers with the control plane.",
+                            "type": "boolean"
+                        },
+                        "existingClaim": {
+                            "type": "string"
+                        },
+                        "size": {
+                            "type": "string"
+                        },
+                        "storageClass": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "ports": {
+                    "type": "object",
+                    "properties": {
+                        "internalApi": {
+                            "description": "Gerbil HTTP API (gerbil.reachable_at). Only reached from inside the Pod.",
+                            "type": "integer"
+                        },
+                        "sni": {
+                            "description": "SNI proxy port. Public 443 lands here; Gerbil forwards local SNI matches to Traefik's websecure entrypoint with PROXY protocol.",
+                            "type": "integer"
+                        },
+                        "wg1": {
+                            "description": "WireGuard port for sites.",
+                            "type": "integer"
+                        },
+                        "wg2": {
+                            "description": "WireGuard port for clients.",
+                            "type": "integer"
+                        }
+                    }
+                },
+                "resources": {
+                    "type": "object",
+                    "properties": {
+                        "limits": {
+                            "type": "object",
+                            "properties": {
+                                "memory": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "requests": {
+                            "type": "object",
+                            "properties": {
+                                "cpu": {
+                                    "type": "string"
+                                },
+                                "memory": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                },
+                "securityContext": {
+                    "description": "Gerbil needs NET_ADMIN for the WireGuard interface and iptables. Add SYS_MODULE if the node must load the wireguard kernel module itself.",
+                    "type": "object",
+                    "properties": {
+                        "allowPrivilegeEscalation": {
+                            "type": "boolean"
+                        },
+                        "capabilities": {
+                            "type": "object",
+                            "properties": {
+                                "add": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                },
+                                "drop": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "global": {
+            "description": "Global values shared between all subcharts",
+            "$comment": "Added automatically by 'helm schema' to allow this chart to be used as a Helm dependency, as the `additionalProperties` setting would otherwise collide with Helm's special 'global' values key.",
+            "type": [
+                "object",
+                "null"
+            ]
+        },
+        "hostPorts": {
+            "description": "Expose the public ports on the node with hostPort, the equivalent of the compose `ports:` block (80, 443, 51820/udp, 21820/udp). Use this on bare-metal or single-node clusters without a LoadBalancer.",
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "http": {
+                    "type": "integer"
+                },
+                "https": {
+                    "type": "integer"
+                },
+                "wg1": {
+                    "type": "integer"
+                },
+                "wg2": {
+                    "type": "integer"
+                }
+            }
+        },
+        "imagePullSecrets": {
+            "description": "Image pull secrets for the Pod.",
+            "type": "array"
+        },
+        "images": {
+            "type": "object",
+            "properties": {
+                "configInit": {
+                    "description": "Image for the init container that merges `managed.existingSecret` into config.yml. Only used when `config.managed.existingSecret` is set.",
+                    "type": "object",
+                    "properties": {
+                        "digest": {
+                            "type": "string"
+                        },
+                        "pullPolicy": {
+                            "type": "string"
+                        },
+                        "registry": {
+                            "type": "string"
+                        },
+                        "repository": {
+                            "type": "string"
+                        },
+                        "tag": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "gerbil": {
+                    "type": "object",
+                    "properties": {
+                        "digest": {
+                            "type": "string"
+                        },
+                        "pullPolicy": {
+                            "type": "string"
+                        },
+                        "registry": {
+                            "type": "string"
+                        },
+                        "repository": {
+                            "type": "string"
+                        },
+                        "tag": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "pangolinNode": {
+                    "type": "object",
+                    "properties": {
+                        "digest": {
+                            "description": "Overrides `tag` when set.",
+                            "type": "string"
+                        },
+                        "pullPolicy": {
+                            "type": "string"
+                        },
+                        "registry": {
+                            "type": "string"
+                        },
+                        "repository": {
+                            "type": "string"
+                        },
+                        "tag": {
+                            "description": "Defaults to `.Chart.AppVersion`.",
+                            "type": "string"
+                        }
+                    }
+                },
+                "traefik": {
+                    "type": "object",
+                    "properties": {
+                        "digest": {
+                            "type": "string"
+                        },
+                        "pullPolicy": {
+                            "type": "string"
+                        },
+                        "registry": {
+                            "type": "string"
+                        },
+                        "repository": {
+                            "type": "string"
+                        },
+                        "tag": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "nameOverride": {
+            "description": "Override the chart name.",
+            "type": "string"
+        },
+        "pangolinNode": {
+            "type": "object",
+            "properties": {
+                "extraEnv": {
+                    "description": "Extra environment variables.",
+                    "type": "object"
+                },
+                "extraVolumeMounts": {
+                    "type": "array"
+                },
+                "internalPort": {
+                    "description": "Internal API port (server.internal_port). Badger and Gerbil call it on 127.0.0.1.",
+                    "type": "integer"
+                },
+                "livenessProbe": {
+                    "type": "object",
+                    "properties": {
+                        "failureThreshold": {
+                            "type": "integer"
+                        },
+                        "httpGet": {
+                            "type": "object",
+                            "properties": {
+                                "path": {
+                                    "type": "string"
+                                },
+                                "port": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "periodSeconds": {
+                            "type": "integer"
+                        },
+                        "timeoutSeconds": {
+                            "type": "integer"
+                        }
+                    }
+                },
+                "readinessProbe": {
+                    "type": "object",
+                    "properties": {
+                        "failureThreshold": {
+                            "type": "integer"
+                        },
+                        "httpGet": {
+                            "type": "object",
+                            "properties": {
+                                "path": {
+                                    "type": "string"
+                                },
+                                "port": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "periodSeconds": {
+                            "type": "integer"
+                        },
+                        "timeoutSeconds": {
+                            "type": "integer"
+                        }
+                    }
+                },
+                "resources": {
+                    "type": "object",
+                    "properties": {
+                        "limits": {
+                            "type": "object",
+                            "properties": {
+                                "memory": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "requests": {
+                            "type": "object",
+                            "properties": {
+                                "cpu": {
+                                    "type": "string"
+                                },
+                                "memory": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                },
+                "securityContext": {
+                    "type": "object",
+                    "properties": {
+                        "allowPrivilegeEscalation": {
+                            "type": "boolean"
+                        },
+                        "capabilities": {
+                            "type": "object",
+                            "properties": {
+                                "drop": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "startupProbe": {
+                    "description": "Startup probe. Gerbil and Traefik start only after it passes (the compose `depends_on: condition: service_healthy`).",
+                    "type": "object",
+                    "properties": {
+                        "failureThreshold": {
+                            "type": "integer"
+                        },
+                        "httpGet": {
+                            "type": "object",
+                            "properties": {
+                                "path": {
+                                    "type": "string"
+                                },
+                                "port": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "periodSeconds": {
+                            "type": "integer"
+                        },
+                        "timeoutSeconds": {
+                            "type": "integer"
+                        }
+                    }
+                },
+                "timezone": {
+                    "description": "Timezone for log timestamps.",
+                    "type": "string"
+                }
+            }
+        },
+        "pod": {
+            "type": "object",
+            "properties": {
+                "affinity": {
+                    "type": "object"
+                },
+                "annotations": {
+                    "description": "Extra Pod annotations.",
+                    "type": "object"
+                },
+                "dnsPolicy": {
+                    "description": "DNS policy. Defaults to ClusterFirstWithHostNet when hostNetwork is true.",
+                    "type": "string"
+                },
+                "hostNetwork": {
+                    "description": "Run the Pod in the host network namespace. Gerbil's SNI proxy then binds 8443 and Traefik binds 8000/9443/8080 directly on the node, so prefer `hostPorts` or a LoadBalancer Service unless you need the node's own IP stack.",
+                    "type": "boolean"
+                },
+                "labels": {
+                    "description": "Extra Pod labels.",
+                    "type": "object"
+                },
+                "nodeSelector": {
+                    "type": "object"
+                },
+                "priorityClassName": {
+                    "type": "string"
+                },
+                "securityContext": {
+                    "description": "Pod security context.",
+                    "type": "object",
+                    "properties": {
+                        "seccompProfile": {
+                            "type": "object",
+                            "properties": {
+                                "type": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                },
+                "terminationGracePeriodSeconds": {
+                    "type": "integer"
+                },
+                "tolerations": {
+                    "type": "array"
+                },
+                "topologySpreadConstraints": {
+                    "type": "array"
+                }
+            }
+        },
+        "revisionHistoryLimit": {
+            "description": "Deployment revision history.",
+            "type": "integer"
+        },
+        "service": {
+            "type": "object",
+            "properties": {
+                "annotations": {
+                    "type": "object"
+                },
+                "enabled": {
+                    "description": "Create the Service for the public ports.",
+                    "type": "boolean"
+                },
+                "externalTrafficPolicy": {
+                    "description": "Use Local to keep client source IPs (Gerbil and Traefik log real IPs).",
+                    "type": "string"
+                },
+                "labels": {
+                    "type": "object"
+                },
+                "loadBalancerClass": {
+                    "type": "string"
+                },
+                "loadBalancerIP": {
+                    "type": "string"
+                },
+                "loadBalancerSourceRanges": {
+                    "type": "array"
+                },
+                "nodePorts": {
+                    "description": "Fixed nodePorts when `type` is NodePort or LoadBalancer. Empty lets Kubernetes pick.",
+                    "type": "object",
+                    "properties": {
+                        "http": {
+                            "type": [
+                                "string",
+                                "integer"
+                            ]
+                        },
+                        "https": {
+                            "type": [
+                                "string",
+                                "integer"
+                            ]
+                        },
+                        "wg1": {
+                            "type": [
+                                "string",
+                                "integer"
+                            ]
+                        },
+                        "wg2": {
+                            "type": [
+                                "string",
+                                "integer"
+                            ]
+                        }
+                    }
+                },
+                "ports": {
+                    "type": "object",
+                    "properties": {
+                        "http": {
+                            "type": "integer"
+                        },
+                        "https": {
+                            "type": "integer"
+                        },
+                        "wg1": {
+                            "type": "integer"
+                        },
+                        "wg2": {
+                            "type": "integer"
+                        }
+                    }
+                },
+                "type": {
+                    "description": "ClusterIP, NodePort or LoadBalancer. LoadBalancer needs a provider that supports mixed TCP/UDP ports on one Service; otherwise use `hostPorts`.",
+                    "type": "string"
+                }
+            }
+        },
+        "serviceAccount": {
+            "type": "object",
+            "properties": {
+                "annotations": {
+                    "type": "object"
+                },
+                "create": {
+                    "description": "Create a ServiceAccount. None of the containers call the Kubernetes API.",
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "sharedVolumes": {
+            "type": "object",
+            "properties": {
+                "certificates": {
+                    "type": "object",
+                    "properties": {
+                        "mountPath": {
+                            "description": "Mount path. Must match `traefik.certificates_path` in config.yml.",
+                            "type": "string"
+                        },
+                        "sizeLimit": {
+                            "description": "emptyDir size limit.",
+                            "type": "string"
+                        }
+                    }
+                },
+                "dynamic": {
+                    "type": "object",
+                    "properties": {
+                        "mountPath": {
+                            "description": "Mount path. Must match `traefik.dynamic_*_config_path` in config.yml (defaults to /var/dynamic) and the Traefik file provider directory.",
+                            "type": "string"
+                        },
+                        "sizeLimit": {
+                            "description": "emptyDir size limit.",
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "traefik": {
+            "type": "object",
+            "properties": {
+                "accessLog": {
+                    "description": "Enable the access log on stdout.",
+                    "type": "boolean"
+                },
+                "badger": {
+                    "type": "object",
+                    "properties": {
+                        "moduleName": {
+                            "description": "Go module path of the Badger plugin.",
+                            "type": "string"
+                        },
+                        "version": {
+                            "description": "Badger version. Traefik downloads it from GitHub at startup.",
+                            "type": "string"
+                        }
+                    }
+                },
+                "dashboard": {
+                    "description": "Serve the Traefik dashboard on the admin port (not exposed by the Service).",
+                    "type": "boolean"
+                },
+                "extraArgs": {
+                    "type": "array"
+                },
+                "extraEnv": {
+                    "type": "object"
+                },
+                "extraStaticConfig": {
+                    "description": "Extra static configuration deep-merged over the generated traefik_config.yml.",
+                    "type": "object"
+                },
+                "extraVolumeMounts": {
+                    "type": "array"
+                },
+                "livenessProbe": {
+                    "type": "object",
+                    "properties": {
+                        "failureThreshold": {
+                            "type": "integer"
+                        },
+                        "httpGet": {
+                            "type": "object",
+                            "properties": {
+                                "path": {
+                                    "type": "string"
+                                },
+                                "port": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "periodSeconds": {
+                            "type": "integer"
+                        },
+                        "timeoutSeconds": {
+                            "type": "integer"
+                        }
+                    }
+                },
+                "logLevel": {
+                    "description": "Traefik log level.",
+                    "type": "string"
+                },
+                "ports": {
+                    "type": "object",
+                    "properties": {
+                        "admin": {
+                            "description": "Ping/API entrypoint used by the probes.",
+                            "type": "integer"
+                        },
+                        "web": {
+                            "description": "HTTP entrypoint (`web`). Public 80 lands here.",
+                            "type": "integer"
+                        },
+                        "websecure": {
+                            "description": "HTTPS entrypoint (`websecure`). Fed by Gerbil's SNI proxy, not exposed directly. Not 8443, which Gerbil binds in the same network namespace.",
+                            "type": "integer"
+                        }
+                    }
+                },
+                "proxyProtocolTrustedIPs": {
+                    "description": "Sources trusted to send PROXY protocol to `websecure`. Gerbil connects from inside the Pod; widen this only with hostNetwork.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "readinessProbe": {
+                    "type": "object",
+                    "properties": {
+                        "failureThreshold": {
+                            "type": "integer"
+                        },
+                        "httpGet": {
+                            "type": "object",
+                            "properties": {
+                                "path": {
+                                    "type": "string"
+                                },
+                                "port": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "periodSeconds": {
+                            "type": "integer"
+                        },
+                        "timeoutSeconds": {
+                            "type": "integer"
+                        }
+                    }
+                },
+                "resources": {
+                    "type": "object",
+                    "properties": {
+                        "limits": {
+                            "type": "object",
+                            "properties": {
+                                "memory": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "requests": {
+                            "type": "object",
+                            "properties": {
+                                "cpu": {
+                                    "type": "string"
+                                },
+                                "memory": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                },
+                "securityContext": {
+                    "type": "object",
+                    "properties": {
+                        "allowPrivilegeEscalation": {
+                            "type": "boolean"
+                        },
+                        "capabilities": {
+                            "type": "object",
+                            "properties": {
+                                "drop": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "startupProbe": {
+                    "type": "object",
+                    "properties": {
+                        "failureThreshold": {
+                            "type": "integer"
+                        },
+                        "httpGet": {
+                            "type": "object",
+                            "properties": {
+                                "path": {
+                                    "type": "string"
+                                },
+                                "port": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "periodSeconds": {
+                            "type": "integer"
+                        },
+                        "timeoutSeconds": {
+                            "type": "integer"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "additionalProperties": false
+}

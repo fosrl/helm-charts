@@ -177,10 +177,10 @@ service:
     wg2: 21820
   # -- Fixed nodePorts when `type` is NodePort or LoadBalancer. Empty lets Kubernetes pick.
   nodePorts:
-    http: ""
-    https: ""
-    wg1: ""
-    wg2: ""
+    http: "" # @schema type: [string, integer]
+    https: "" # @schema type: [string, integer]
+    wg1: "" # @schema type: [string, integer]
+    wg2: "" # @schema type: [string, integer]
 
 # =============================================================================
 # Shared volumes (written by pangolin-node, read by traefik)

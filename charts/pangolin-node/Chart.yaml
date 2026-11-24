@@ -1,5 +1,5 @@
 apiVersion: v2
-version: 0.1.0
+version: 0.1.1
 appVersion: "1.7.0"
 # Native sidecars (initContainers with restartPolicy: Always) order Pangolin Node
 # ahead of Gerbil and Traefik. They are on by default from Kubernetes 1.29.
@@ -26,7 +26,9 @@ annotations:
   artifacthub.io/category: networking
   artifacthub.io/changes: |
     - kind: added
-      description: "Initial chart: Pangolin Node v1.7.0, Gerbil v1.6.0, Traefik v3.7.19 and Badger v1.8.0 in one Pod."
+      description: "values.schema.json: Helm validates values on install and upgrade and rejects unknown keys."
+    - kind: fixed
+      description: "artifacthub.io/signKey names the key that signs releases (020FEFE9F1112F53EEEFF45949B94CAFF38EB86E)."
   artifacthub.io/images: |
     - name: pangolin-node
       image: docker.io/fosrl/pangolin-node:1.7.0
@@ -56,5 +58,5 @@ annotations:
   artifacthub.io/recommendations: |
     - url: https://artifacthub.io/packages/helm/fosrl/pangolin
   artifacthub.io/signKey: |
-    fingerprint: 48E7F670FCC13645FC48B08D587294B228C2EC2C
+    fingerprint: 020FEFE9F1112F53EEEFF45949B94CAFF38EB86E
     url: https://charts.fossorial.io/pgp_keys.asc
