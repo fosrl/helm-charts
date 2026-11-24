@@ -54,6 +54,23 @@ Sources:
 - [Pangolin chart source](https://github.com/fosrl/helm-charts/tree/main/charts/pangolin)
 - [Pangolin on Artifact Hub](https://artifacthub.io/packages/helm/fosrl/pangolin)
 
+## Pangolin Node (remote node)
+
+| Item | Value |
+| --- | --- |
+| Chart version | `0.1.0` |
+| App version | `1.7.0` |
+| Kubernetes version | `>=1.30.14-0` |
+| Pangolin Node default image tag | `1.7.0` |
+| Gerbil tag | `1.6.0` |
+| Traefik tag | `v3.7.19` |
+| Badger plugin | `v1.8.0` |
+
+Sources:
+
+- [Pangolin Node chart source](https://github.com/fosrl/helm-charts/tree/main/charts/pangolin-node)
+- [Pangolin Node on GitHub](https://github.com/fosrl/pangolin-node)
+
 ## Component compatibility
 
 Pangolin's components are released independently and carry hard minimum versions.

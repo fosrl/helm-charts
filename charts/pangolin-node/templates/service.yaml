@@ -1,0 +1,67 @@
+{{- if .Values.service.enabled }}
+{{- $svc := .Values.service -}}
+{{- $withNodePorts := or (eq $svc.type "NodePort") (eq $svc.type "LoadBalancer") -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "pangolin-node.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pangolin-node.labels" . | nindent 4 }}
+    {{- with $svc.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- $anns := mergeOverwrite (dict) (include "pangolin-node.annotations" . | fromYaml) ($svc.annotations | default dict) }}
+  {{- if $anns }}
+  annotations:
+    {{- toYaml $anns | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ $svc.type }}
+  {{- if and $withNodePorts $svc.externalTrafficPolicy }}
+  externalTrafficPolicy: {{ $svc.externalTrafficPolicy }}
+  {{- end }}
+  {{- if eq $svc.type "LoadBalancer" }}
+  {{- with $svc.loadBalancerIP }}
+  loadBalancerIP: {{ . }}
+  {{- end }}
+  {{- with $svc.loadBalancerClass }}
+  loadBalancerClass: {{ . }}
+  {{- end }}
+  {{- with $svc.loadBalancerSourceRanges }}
+  loadBalancerSourceRanges:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- end }}
+  selector:
+    {{- include "pangolin-node.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ $svc.ports.http }}
+      targetPort: http
+      protocol: TCP
+      {{- if and $withNodePorts $svc.nodePorts.http }}
+      nodePort: {{ $svc.nodePorts.http }}
+      {{- end }}
+    - name: https
+      port: {{ $svc.ports.https }}
+      targetPort: sni
+      protocol: TCP
+      {{- if and $withNodePorts $svc.nodePorts.https }}
+      nodePort: {{ $svc.nodePorts.https }}
+      {{- end }}
+    - name: wg1
+      port: {{ $svc.ports.wg1 }}
+      targetPort: wg1
+      protocol: UDP
+      {{- if and $withNodePorts $svc.nodePorts.wg1 }}
+      nodePort: {{ $svc.nodePorts.wg1 }}
+      {{- end }}
+    - name: wg2
+      port: {{ $svc.ports.wg2 }}
+      targetPort: wg2
+      protocol: UDP
+      {{- if and $withNodePorts $svc.nodePorts.wg2 }}
+      nodePort: {{ $svc.nodePorts.wg2 }}
+      {{- end }}
+{{- end }}

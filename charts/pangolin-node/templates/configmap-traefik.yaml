@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "pangolin-node.fullname" . }}-traefik
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pangolin-node.labels" . | nindent 4 }}
+  {{- with (include "pangolin-node.annotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
+data:
+  traefik_config.yml: |
+    {{- include "pangolin-node.traefikConfig" . | nindent 4 }}

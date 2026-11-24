@@ -11,6 +11,7 @@ Welcome to the official repository for **Fossorial Kubernetes Helm Charts**, fea
 - [Pangolin](https://github.com/fosrl/helm-charts/tree/main/charts/pangolin)
 - [Newt](https://github.com/fosrl/helm-charts/tree/main/charts/newt)
 - [Pangolin CLI](https://github.com/fosrl/helm-charts/tree/main/charts/pangolin-cli) (site tunnel via `pangolin-cli up site`)
+- [Pangolin Node](https://github.com/fosrl/helm-charts/tree/main/charts/pangolin-node) (self-hosted remote node for a managed Pangolin control plane)
 
 ## Installation & Usage
 
@@ -41,6 +42,15 @@ Example to install the Pangolin CLI chart:
 
 ```console
 helm install my-site fossorial/pangolin-cli
+```
+
+Example to install a Pangolin remote node:
+
+```console
+helm install my-node fossorial/pangolin-node \
+  --set config.managed.id=<node id> \
+  --set config.managed.secret=<node secret> \
+  --set config.gerbil.base_endpoint=node.example.com
 ```
 
 Example to install the older Newt chart:
