@@ -328,7 +328,7 @@ global:
     image: # @schema type: object ; additionalProperties: false
       # -- Container image repository for Helm test jobs.
       repository: registry.k8s.io/kubectl # @schema type: string ; minLength: 1
-      tag: "1.30.14" # @schema type: string ; minLength: 1
+      tag: "v1.37.2" # @schema type: string ; minLength: 1
       pullPolicy: IfNotPresent # @schema type: string ; enum: [Always, IfNotPresent, Never]
     resources: # @schema type: object
       requests:
